@@ -31,9 +31,8 @@ cli = "cli:app"
 wildintel-publisher = "wildintel_publisher.main:app"
 
 [tool.uv.sources]
-# trapper-client aún no está publicado en PyPI — vive como repo hermano en el
-# mismo directorio de proyectos (wildintel-project/trapper-client).
-trapper-client = { path = "../trapper-client", editable = true }
+# trapper-client aún no está publicado en PyPI.
+trapper-client = { git = "https://github.com/ijfvianauhu/trapper-client", rev = "refactor" }
 
 [dependency-groups]
 dev = [
