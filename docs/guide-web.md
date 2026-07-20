@@ -11,19 +11,42 @@ For the same walkthrough using the command line instead, see the
 
 ---
 
+## Getting the web app
+
+Prebuilt binaries — no Python or Node installation required.
+
+1. Go to the [Releases page](https://github.com/wildintelproject/wildintel-publisher/releases)
+   and pick the latest stable release (or the `web-dev` pre-release for the latest
+   development build).
+2. Download the asset for your OS:
+   - **Linux**: `wildintel-publisher-web-X.Y.Z-linux-x86_64`
+   - **macOS** (Apple Silicon): `wildintel-publisher-web-X.Y.Z-macos-arm64`
+   - **Windows**: `wildintel-publisher-web-X.Y.Z-windows-x64.exe`
+3. Run it.
+
+   Linux/macOS — make it executable first:
+   ```bash
+   chmod +x wildintel-publisher-web-X.Y.Z-linux-x86_64
+   ./wildintel-publisher-web-X.Y.Z-linux-x86_64
+   ```
+
+   Windows — run it from a terminal (or double-click):
+   ```powershell
+   .\wildintel-publisher-web-X.Y.Z-windows-x64.exe
+   ```
+
+It starts a local server and opens your default browser automatically (falling back to
+the next free port if its default one is busy) — no separate step needed.
+
+---
+
 ## Before you start
 
-Start the web app from `wildintel_publisher_web/` (see the project's own `README.md`):
-
-```bash
-uv run wildintel-publisher-web dev
-```
-
-then open it in your browser. Have your Hugging Face Hub / Zenodo / B2SHARE access
-tokens ready — the wizard's own configuration forms are where you enter them, there's
-no separate account or config-file setup step. If you've already saved any of them via
-the CLI's `config set` commands, the wizard pre-fills its forms with those same saved
-values (both share the same `settings.toml`).
+Have your Hugging Face Hub / Zenodo / B2SHARE access tokens ready — the wizard's own
+configuration forms are where you enter them, there's no separate account or config-file
+setup step. If you've already saved any of them via the CLI's `config set` commands, the
+wizard pre-fills its forms with those same saved values (both share the same
+`settings.toml`).
 
 ---
 

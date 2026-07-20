@@ -11,14 +11,37 @@ For the same walkthrough without the command line, see the
 
 ---
 
+## Getting the CLI
+
+Prebuilt binaries — no Python installation required.
+
+1. Go to the [Releases page](https://github.com/wildintelproject/wildintel-publisher/releases)
+   and pick the latest stable release (or the `cli-dev` pre-release for the latest
+   development build).
+2. Download the asset for your OS:
+   - **Linux**: `wildintel-publisher-X.Y.Z-linux-x86_64`
+   - **macOS** (Apple Silicon): `wildintel-publisher-X.Y.Z-macos-arm64`
+   - **Windows**: `wildintel-publisher-X.Y.Z-windows-x64.exe`
+3. Run it.
+
+   Linux/macOS — make it executable first:
+   ```bash
+   chmod +x wildintel-publisher-X.Y.Z-linux-x86_64
+   ./wildintel-publisher-X.Y.Z-linux-x86_64 --help
+   ```
+
+   Windows — run it from a terminal (or double-click):
+   ```powershell
+   .\wildintel-publisher-X.Y.Z-windows-x64.exe --help
+   ```
+
+Rename the binary to `wildintel-publisher` (`wildintel-publisher.exe` on Windows) and
+move it to a directory on your `PATH` so you can invoke it as plain `wildintel-publisher`,
+matching every command in the rest of this guide.
+
+---
+
 ## Before you start
-
-### Installing
-
-```bash
-./setup.sh
-source .venv/bin/activate
-```
 
 ### Repository credentials
 
