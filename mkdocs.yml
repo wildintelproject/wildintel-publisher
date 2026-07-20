@@ -129,6 +129,7 @@ nav:
           - Overview: publishing-b2share.md
           - Camtrap DP: publishing-b2share-camtrapdp.md
           - YOLO Dataset: publishing-b2share-yolo.md
+      - GBIF: publishing-gbif.md
   - Features: features.md
   - Developer Guide: developer-guide.md
   - CLI User Guide: guide-cli.md

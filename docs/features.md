@@ -42,7 +42,11 @@
 - **`sync-doi`/`sync-pid`** — reflect an already-obtained Zenodo DOI or B2SHARE PID back
   into an existing Hugging Face Hub export's `CITATION.cff`, so a dataset that lives on
   Hugging Face Hub can still carry a citation pointing at its permanent DOI elsewhere.
-- **[GBIF](https://www.gbif.org/)** — planned as a future repository integration.
+- **[GBIF](publishing-gbif.md)** — registers a Camtrap DP already hosted anywhere public
+  (Hugging Face Hub, Zenodo, B2SHARE, your own server...) in the GBIF Registry, so its
+  crawler indexes it as biodiversity occurrence data. No file is uploaded — only a
+  `CAMTRAP_DP` endpoint pointing at that URL — and, like Zenodo/B2SHARE, both a
+  production and sandbox (`gbif-test.org`) environment are supported.
 
 ## The CLI
 

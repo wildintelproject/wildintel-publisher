@@ -20,7 +20,9 @@ flowchart LR
     Local --> HF["🤗 Hugging Face Hub"]
     Local --> ZN["📚 Zenodo"]
     Local --> B2["🗄️ B2SHARE 🇪🇺"]
-    Local -.-> GB["🌐 GBIF 🔜"]
+    HF -.->|already-hosted URL| GB["🌐 GBIF<br/>(Camtrap DP only)"]
+    ZN -.-> GB
+    B2 -.-> GB
 ```
 
 - **[Hugging Face Hub](publishing-hfh.md)** — the platform the AI/ML community actually
@@ -34,8 +36,11 @@ flowchart LR
 - **[B2SHARE (EUDAT)](publishing-b2share.md)** 🇪🇺 — the European counterpart to Zenodo,
   for the EU scientific community. Same linked/self-contained choice as Zenodo, with
   community submission and moderator review built in.
-- **[GBIF](https://www.gbif.org/)** 🔜 — the global biodiversity data network; planned as
-  a future repository, for Camtrap DP only (see [Products](products.md#where-products-can-be-published)).
+- **[GBIF](publishing-gbif.md)** — the global biodiversity data network, for Camtrap DP
+  only (see [Products](products.md#where-products-can-be-published)). Unlike the other
+  three, it doesn't host anything itself: it only registers a URL where the Camtrap DP
+  is already hosted (typically one of the repositories above), so its own crawler can
+  index it.
 
 ---
 
@@ -69,6 +74,13 @@ Every product/repository combination goes through the same shape:
     obtain it the same way: some generate it automatically as part of the publishing
     process itself, while others need it requested manually ahead of time, before
     publishing can happen at all.
+
+!!! note "GBIF doesn't follow this same shape"
+    Steps 3–4 above (build an export, push it) assume the repository hosts a copy of the
+    product — GBIF never does. `gbif register` skips straight from a `metadata.json`
+    description to registering a dataset in the GBIF Registry that points at a URL you
+    already host elsewhere (see [Publishing to GBIF](publishing-gbif.md)); there is no
+    `prepare`/`upload` pair for it, and no publishing mode to choose.
 
 ## Publishing modes
 
@@ -130,7 +142,10 @@ relying on it being (or not being) reversible:
   actually becomes public (and gets its PID/DOI, if one wasn't already reserved ahead
   of time) once a moderator approves it, which can take a while and isn't guaranteed to
   happen at all.
-- **[GBIF](https://www.gbif.org/)** 🔜 — coming soon.
+- **[GBIF](publishing-gbif.md)** — has no separate locking step: every `gbif register`
+  run (create or update) is immediately live, and — unlike Zenodo's irreversible
+  `release` — re-running it later to point at a new URL is always safe; it replaces the
+  dataset's `CAMTRAP_DP` endpoint in place rather than creating a new version.
 
 ## Two ways to publish
 
@@ -138,7 +153,7 @@ relying on it being (or not being) reversible:
   (plus `sync-doi`/`sync-pid`) are run one at a time, by hand, in the order you choose.
   Only Hugging Face Hub has a combined `pipeline` command (`prepare → upload → release`
   in one call); Zenodo and B2SHARE have no such shortcut — run their three commands in
-  sequence yourself.
+  sequence yourself. GBIF's single `register` command is currently CLI-only.
 - **[Web App User Guide](guide-web.md)** — a wizard-driven UI covering the same product
   types and repositories. Selecting more than one repository publishes them
   automatically, one after another, and — uniquely to the web app — cross-references

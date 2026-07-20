@@ -13,10 +13,10 @@
 camera-trap packages, fetched from a [Trapper](https://gitlab.com/trapper-project/trapper)
 classification project, and [YOLO](https://docs.ultralytics.com/datasets/) training datasets,
 already prepared locally, with more product types planned — to a range of open-data
-repositories: [HuggingFace Hub](https://huggingface.co/), [Zenodo](https://zenodo.org/), and
-[B2SHARE (EUDAT)](https://b2share.eudat.eu/) 🇪🇺, with [GBIF](https://www.gbif.org/) planned as
-well, rewriting the media references inside the package to point wherever it actually ends up
-hosted.
+repositories: [HuggingFace Hub](https://huggingface.co/), [Zenodo](https://zenodo.org/),
+[B2SHARE (EUDAT)](https://b2share.eudat.eu/) 🇪🇺, and — for Camtrap DP —
+[GBIF](https://www.gbif.org/), rewriting the media references inside the package to point
+wherever it actually ends up hosted.
 
 ## 🚀 Setup
 

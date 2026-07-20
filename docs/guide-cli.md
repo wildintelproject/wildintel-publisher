@@ -40,6 +40,7 @@ Prebuilt binaries — no Python installation required.
    │ hfh        Prepare, upload, and release to Hugging Face Hub.           │
    │ zenodo     Prepare, upload, and release to Zenodo.                     │
    │ b2share    Prepare, upload, and release to B2SHARE.                    │
+   │ gbif       Register a Camtrap DP already hosted elsewhere on GBIF.     │
    ╰──────────────────────────────────────────────────────────────────────╯
    ```
 
@@ -140,6 +141,40 @@ Set these up for whichever repositories you actually plan to use — each is ind
    ```console
    $ wildintel-publisher b2share config set community_id=e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
    ✔  b2share.community_id = e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
+   ```
+
+   </div>
+
+**GBIF** (Camtrap DP only — registration only, no upload)
+
+1. Sign up at [gbif.org](https://www.gbif.org) (use [gbif-test.org](https://www.gbif-test.org)
+   first to test without touching a real dataset), and export your credentials — the
+   Registry API uses Basic Auth, not a token:
+
+   <div class="termy">
+
+   ```console
+   $ export GBIF_USERNAME='your-gbif-username'
+   $ export GBIF_PASSWORD='your-gbif-password'
+   ```
+
+   </div>
+
+2. Request organization endorsement at
+   [gbif.org/become-a-publisher](https://www.gbif.org/become-a-publisher) — a manual
+   review by a GBIF Participant Node (days, not instant), so do this well ahead of time
+   (see [endorsement guidelines](https://www.gbif.org/endorsement-guidelines) for what
+   the node looks at). Once endorsed, set its UUID (from its `gbif.org/publisher/<uuid>`
+   page) and add an installation under it (any technical type, e.g. a plain IPT),
+   setting its UUID the same way:
+
+   <div class="termy">
+
+   ```console
+   $ wildintel-publisher gbif config set publishing_organization_key=<organization-uuid>
+   ✔  gbif.publishing_organization_key = <organization-uuid>
+   $ wildintel-publisher gbif config set installation_key=<installation-uuid>
+   ✔  gbif.installation_key = <installation-uuid>
    ```
 
    </div>
@@ -303,6 +338,28 @@ Uploading <hfh-export-dir> to <your-user>/<dataset-slug> ...
 
 If `sync-pid` reports nothing to sync yet, the B2SHARE moderator hasn't approved the
 submission yet — check back later and re-run it.
+
+### 7. Register it on GBIF
+
+`gbif register` doesn't upload anything — it points GBIF's Registry at a URL where the
+Camtrap DP is already hosted (here, the Hugging Face Hub export from step 3):
+
+<div class="termy">
+
+```console
+$ wildintel-publisher gbif register --input-dir <trapper-output-dir> --archive-url https://huggingface.co/datasets/<your-user>/<dataset-slug>/resolve/main/datapackage.json
+Registering new GBIF dataset (sandbox)...
+Created GBIF dataset: 3a2f9c1e-...
+Adding CAMTRAP_DP endpoint: https://huggingface.co/datasets/<your-user>/<dataset-slug>/resolve/main/datapackage.json
+✔  GBIF dataset registered: https://registry.gbif-test.org/dataset/3a2f9c1e-...
+   GBIF crawls new/updated endpoints within a few hours — check back at the link above.
+```
+
+</div>
+
+Re-running `gbif register` (e.g. after publishing a new version) updates the same
+dataset and replaces its `CAMTRAP_DP` endpoint, rather than creating a duplicate. See
+[Publishing to GBIF](publishing-gbif.md) for what `environment=production` involves.
 
 ---
 

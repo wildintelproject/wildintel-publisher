@@ -92,9 +92,11 @@ independent of the repository it ends up in.
 | [Hugging Face Hub](publishing-hfh.md) | ✅ Available |
 | [Zenodo](publishing-zenodo.md) | ✅ Available |
 | [B2SHARE (EUDAT)](publishing-b2share.md) 🇪🇺 | ✅ Available |
-| [GBIF](https://www.gbif.org/) | 🔜 Planned |
+| [GBIF](publishing-gbif.md) | ✅ Available (registration only, no upload) |
 
-Camtrap DP, being a biodiversity data standard, is the one product type expected to
-reach every repository this tool supports, including GBIF once that integration is
-built. See [Products](products.md#where-products-can-be-published) for how this compares
+Camtrap DP, being a biodiversity data standard, is the one product type that reaches
+every repository this tool supports, including GBIF — which doesn't host the package
+itself, just registers wherever you've already published it (see
+[Publishing to GBIF](publishing-gbif.md)). See
+[Products](products.md#where-products-can-be-published) for how this compares
 to the other product types.

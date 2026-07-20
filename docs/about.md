@@ -10,9 +10,9 @@ publishes products generated within WildINTEL — currently
 [Trapper](https://gitlab.com/trapper-project/trapper) classification project, and
 [YOLO](https://docs.ultralytics.com/datasets/) training datasets, already prepared
 locally, with more product types planned — to a range of open-data repositories:
-[Hugging Face Hub](https://huggingface.co/), [Zenodo](https://zenodo.org/), and
-[B2SHARE (EUDAT)](https://b2share.eudat.eu/) 🇪🇺, with [GBIF](https://www.gbif.org/) planned as
-well, giving WildINTEL's own data and models
+[Hugging Face Hub](https://huggingface.co/), [Zenodo](https://zenodo.org/),
+[B2SHARE (EUDAT)](https://b2share.eudat.eu/) 🇪🇺, and — for Camtrap DP —
+[GBIF](https://www.gbif.org/), giving WildINTEL's own data and models
 a consistent, repeatable path from Trapper (or a local export) to citable, publicly
 hosted repositories.
 

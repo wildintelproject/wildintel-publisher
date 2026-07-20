@@ -56,6 +56,11 @@ def get_b2share_output_dir() -> Path:
     return get_app_documents_dir() / "b2share"
 
 
+def get_gbif_output_dir() -> Path:
+    """Directorio por defecto donde 'gbif register' lee/escribe gbif_linked_dataset_record.json."""
+    return get_app_documents_dir() / "gbif"
+
+
 def _slug_to_dataset_name(slug: str) -> str:
     """Deriva un nombre legible ('wildintel-camtrapdp' -> 'Wildintel Camtrapdp')
     a partir de un slug, igual que donadataset.config._slug_to_dataset_name."""
@@ -254,11 +259,75 @@ class B2ShareSettings(BaseModel):
     )
 
 
+class GBIFSettings(BaseModel):
+    """Valores por defecto reutilizados entre ejecuciones de 'gbif register'.
+    A diferencia de HFH/Zenodo/B2SHARE, GBIF no aloja ningún fichero: solo
+    registra en su Registry un dataset que apunta a una URL donde el
+    camtrapdp YA está publicado (HuggingFace Hub, Zenodo, B2SHARE, o
+    cualquier otro sitio público) — por eso no hay aquí ni token de subida
+    ni modo self-contained/hfh-repo-id. Título/descripción/licencia salen,
+    igual que en los demás, de metadata.json (ver services.product) — solo
+    lo que la Registry API de GBIF exige y no existe en el estándar Camtrap
+    DP vive aquí. publishing_organization_key/installation_key no se pueden
+    adivinar: hacen falta una organización e instalación ya registradas y
+    endosadas a mano en gbif.org (o su sandbox, gbif-test.org) — ver el
+    mensaje que imprime 'gbif register' si faltan. La Registry API usa
+    Basic Auth (username/password de tu cuenta gbif.org), no un token único
+    como Zenodo/B2SHARE."""
+    environment: Optional[Literal["sandbox", "production"]] = Field(
+        default="sandbox",
+        description=(
+            "GBIF Registry API environment: 'sandbox' (gbif-test.org, testing, requires "
+            "its own separate account/organization) or 'production' (gbif.org, real "
+            "public dataset). (GBIF.environment)"
+        ),
+    )
+    publishing_organization_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "UUID of your organization already registered and endorsed on gbif.org (or "
+            "gbif-test.org for sandbox). Cannot be guessed. (GBIF.publishing_organization_key)"
+        ),
+    )
+    installation_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "UUID of your installation already registered under that organization on "
+            "gbif.org (or gbif-test.org). Cannot be guessed. (GBIF.installation_key)"
+        ),
+    )
+    registry_language: Optional[str] = Field(
+        default="eng",
+        description=(
+            "Language code (ISO 639-2/T, e.g. eng/spa) required by the Registry API's "
+            "'language' field when registering the dataset. (GBIF.registry_language)"
+        ),
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description=(
+            "Username of your gbif.org account (or gbif-test.org's, if environment="
+            "sandbox) — the Registry API uses Basic Auth. The GBIF_USERNAME environment "
+            "variable, if set, takes priority over this value. (GBIF.username)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description=(
+            "Password of that same account. The GBIF_PASSWORD environment variable, if "
+            "set, takes priority over this value. (GBIF.password)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+
+
 class Settings(BaseModel):
     TRAPPER: TrapperSettings = Field(default_factory=TrapperSettings)
     HFH: HFHSettings = Field(default_factory=HFHSettings)
     ZENODO: ZenodoSettings = Field(default_factory=ZenodoSettings)
     B2SHARE: B2ShareSettings = Field(default_factory=B2ShareSettings)
+    GBIF: GBIFSettings = Field(default_factory=GBIFSettings)
 
 
 def _ensure_config_file(config_file: Path) -> None:

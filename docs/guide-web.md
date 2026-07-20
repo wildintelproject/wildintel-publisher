@@ -70,8 +70,9 @@ summary card shows the title, version, license, authors, and homepage.
 
 ### 4. Choose repositories and publish order
 
-Select one or more of **Hugging Face Hub**, **Zenodo**, and **B2SHARE** (GBIF is coming
-soon). If you select more than one, a **publish order** list lets you reorder them: the
+Select one or more of **Hugging Face Hub**, **Zenodo**, and **B2SHARE** (GBIF is
+available from the [CLI](guide-cli.md#7-register-it-on-gbif) but not yet from this
+wizard). If you select more than one, a **publish order** list lets you reorder them: the
 first repository publishes the fetched package itself, and each next one publishes
 whatever the previous one wrote to its own output — so, for example, publishing to
 Hugging Face Hub before Zenodo lets Zenodo's record link back to it.

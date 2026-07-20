@@ -39,15 +39,18 @@ support for a new one to this tool.
 
 Not every repository accepts every product type. Camtrap DP, being a biodiversity data
 standard, can be published to all of them — including GBIF, the global biodiversity data
-network. YOLO training datasets and models are machine-learning artifacts rather than
-biodiversity occurrence records, so they aren't a fit for GBIF.
+network. Unlike the other three, GBIF doesn't host the package itself: `gbif register`
+only points GBIF's Registry at a URL where the Camtrap DP is already hosted (e.g. one of
+the other three repositories above). YOLO training datasets and models are
+machine-learning artifacts rather than biodiversity occurrence records, so they aren't a
+fit for GBIF.
 
 | Repository | Camtrap DP | YOLO Dataset | YOLO-based AI models |
 |---|:---:|:---:|:---:|
 | [Hugging Face Hub](publishing-hfh.md) | ✅ | ✅ | 🔜 |
 | [Zenodo](publishing-zenodo.md) | ✅ | ✅ | 🔜 |
 | [B2SHARE (EUDAT)](publishing-b2share.md) 🇪🇺 | ✅ | ✅ | 🔜 |
-| [GBIF](https://www.gbif.org/) | 🔜 | ❌ | ❌ |
+| [GBIF](publishing-gbif.md) | ✅ | ❌ | ❌ |
 
 ✅ available today · 🔜 planned · ❌ not applicable
 
