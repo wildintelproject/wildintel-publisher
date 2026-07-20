@@ -56,9 +56,12 @@ extra:
 
 extra_css:
   - stylesheets/extras.css
+  - stylesheets/termynal.css
 
 extra_javascript:
   - javascripts/mermaid-zoom.js
+  - javascripts/termynal.js
+  - javascripts/termynal-init.js
 
 markdown_extensions:
   - toc:
