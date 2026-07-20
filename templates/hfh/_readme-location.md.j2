@@ -1,0 +1,12 @@
+## Hugging Face repository
+
+```text
+{{ repo_id }}
+```
+{# NOTE: this file must keep a trailing blank line (below) — Jinja's
+   default keep_trailing_newline=False strips exactly one trailing
+   newline from every template it loads via {% include %} (this fragment
+   included), so without an extra one here, the ``` above would end up
+   glued directly to whatever comes right after this include in
+   templates/common/README-camtrapdp-body.md.j2/README-yolo-body.md.j2,
+   with no blank line separating them. #}

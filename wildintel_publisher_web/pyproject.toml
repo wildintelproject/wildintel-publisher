@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["webcli"]
+
+[project]
+name = "wildintel-publisher-web"
+version = "0.1.0"
+description = "WildINTEL Publisher — FastAPI backend for the web version of the CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.138.0",
+    "httpx>=0.28.1",
+    "huggingface-hub>=0.23.0",
+    "platformdirs>=4.10.0",
+    "pydantic-settings>=2.0",
+    "trapper-client",
+    "uvicorn[standard]>=0.49.0",
+    "wildintel-publisher",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.21.0",
+    "pytest>=8.0",
+    "rich>=13.0",
+    "typer>=0.15",
+]
+
+[project.scripts]
+# Módulo llamado webcli (no cli) a propósito: trapper-client (dependencia de
+# este proyecto) también instala su propio módulo de nivel superior "cli" en
+# el mismo venv — con el mismo nombre, "import cli" resolvería a uno u otro
+# según el orden de sys.path (nos ha pasado; renombrar solo el script de
+# consola, sin renombrar el módulo, no basta). El mismo problema existe, sin
+# corregir, en el 'cli' raíz de wildintel-publisher.
+wildintel-publisher-web = "webcli:app"
+
+[tool.uv.sources]
+# trapper-client aún no está publicado en PyPI — vive como repo hermano en el
+# mismo directorio de proyectos (wildintel-project/trapper-client).
+trapper-client = { path = "../../trapper-client", editable = true }
+# El paquete de la CLI (repo padre de este mismo directorio) — para reutilizar
+# wildintel_publisher.config (mismo settings.toml que la CLI) y, más
+# adelante, sus services/ (hfh/zenodo/b2share) en vez de duplicar lógica.
+wildintel-publisher = { path = "../", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests/unit"]

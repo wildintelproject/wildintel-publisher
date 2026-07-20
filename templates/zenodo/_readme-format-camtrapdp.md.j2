@@ -1,0 +1,43 @@
+## About this record
+{% if self_contained %}
+
+This is a **self-contained** Zenodo record for a [Camtrap DP](https://camtrap-dp.tdwg.org/)
+camera-trap dataset: `{{ zip_filename }}` bundles `datapackage.json`, `deployments.csv`,
+`media.csv` (with `filePath` relative to `images/`), `observations.csv`, and the `images/`
+folder itself — everything needed to use the dataset offline, in a single archive. The loose
+CSVs and images are not published separately; only `{{ zip_filename }}` (plus this README,
+license and citation) makes up the record.
+
+```text
+.
+├── {{ zip_filename }}          ← self-contained package: datapackage.json + CSVs + images/, filePath relative
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+{% else %}
+
+This is a **metadata-only** Zenodo record for a [Camtrap DP](https://camtrap-dp.tdwg.org/) camera-trap
+dataset — it does not host the images. The full dataset (including public images) is
+published on HuggingFace Hub; this record exists to give the dataset a permanent,
+citable DOI.
+
+```text
+.
+├── datapackage.json      ← Camtrap DP metadata descriptor
+├── deployments.csv       ← camera deployment records
+├── media.csv             ← media (image) records — public media only, filePath points to HuggingFace Hub
+├── observations.csv      ← classification/observation records
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+
+## HuggingFace Hub dataset
+
+The images referenced in `media.csv` are hosted at:
+
+```text
+{{ hfh_repo_id }}
+```
+{% endif %}

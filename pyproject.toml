@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["cli"]
+packages = ["wildintel_publisher", "wildintel_publisher.commands", "wildintel_publisher.services"]
+
+[project]
+name = "wildintel-publisher"
+version = "0.1.0"
+description = "Fetches Camtrap DP/YOLO products and publishes them to HuggingFace Hub, Zenodo, and B2SHARE"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "dynaconf>=3.2.12",
+  "frictionless>=5.17",
+  "httpx>=0.27",
+  "huggingface-hub>=0.23.0",
+  "jinja2>=3.1",
+  "platformdirs>=4.0",
+  "pydantic>=2.9",
+  "pyyaml>=6.0",
+  "rich>=13.0",
+  "trapper-client",
+  "typer>=0.15",
+]
+
+[project.scripts]
+cli = "cli:app"
+wildintel-publisher = "wildintel_publisher.main:app"
+
+[tool.uv.sources]
+# trapper-client aún no está publicado en PyPI — vive como repo hermano en el
+# mismo directorio de proyectos (wildintel-project/trapper-client).
+trapper-client = { path = "../trapper-client", editable = true }
+
+[dependency-groups]
+dev = [
+  "mkdocs>=1.6.1",
+  "mkdocs-material>=9.7.6",
+  "mkdocs-with-pdf>=0.9.3",
+  "mike>=2.1.0",
+  "pytest>=8.0",
+  "mkdocs-static-i18n>=1.3.1",
+  "pyinstaller>=6.21.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]

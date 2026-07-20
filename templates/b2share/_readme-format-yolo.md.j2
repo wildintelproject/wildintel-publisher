@@ -1,0 +1,56 @@
+{% if self_contained %}
+## Dataset format
+
+This dataset is distributed in [YOLO](https://docs.ultralytics.com/datasets/) training format:
+image files split into `train`/`val`/`test` sets, described by a `data.yaml` config.
+{% if class_names %}
+It has {{ num_classes }} class{{ "es" if num_classes != 1 else "" }}: {{ class_names | join(", ") }}.
+{% endif %}
+
+This is a **self-contained** B2SHARE record: `{{ zip_filename }}` bundles `data.yaml` and the
+whole `images/` tree (train/val/test) — everything needed to use the dataset offline, in a
+single archive. The loose files are not published separately; only `{{ zip_filename }}`
+(plus this README, license and citation) makes up the record.
+
+```text
+.
+├── {{ zip_filename }}          ← self-contained package: data.yaml + images/
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+
+## B2SHARE (EUDAT) record
+
+This record, including `{{ zip_filename }}`, is hosted on [B2SHARE](https://b2share.eudat.eu/),
+EUDAT's European research-data repository.
+{% else %}
+## About this record
+
+This dataset is distributed in [YOLO](https://docs.ultralytics.com/datasets/) training format:
+image files split into `train`/`val`/`test` sets, described by a `data.yaml` config.
+{% if class_names %}
+It has {{ num_classes }} class{{ "es" if num_classes != 1 else "" }}: {{ class_names | join(", ") }}.
+{% endif %}
+
+This is a **metadata-only** B2SHARE record — it does not host the images, only the
+`data.yaml` configuration. The full dataset (including the images) is published on
+HuggingFace Hub; this record exists to give the dataset a European-hosted (EUDAT),
+permanent, citable PID/DOI.
+
+```text
+.
+├── data.yaml             ← YOLO dataset config (splits, classes)
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+
+## Hugging Face Hub dataset
+
+The images are hosted at:
+
+```text
+{{ hfh_repo_id }}
+```
+{% endif %}

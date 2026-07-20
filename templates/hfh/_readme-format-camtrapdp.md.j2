@@ -1,0 +1,38 @@
+## Dataset format
+
+This dataset is distributed as a [Camtrap DP](https://camtrap-dp.tdwg.org/) data package —
+the community standard for structuring and sharing camera-trap data.
+
+{% if mirror_images %}
+```text
+.
+├── datapackage.json      ← Camtrap DP metadata descriptor
+├── deployments.csv       ← camera deployment records
+├── media.csv             ← media (image) records — public media only, filePath is remote
+├── observations.csv      ← classification/observation records
+├── images/               ← the public image files referenced in media.csv
+├── camtrapdp-local.zip   ← same package, but media.csv's filePath is relative to images/
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+
+`camtrapdp-local.zip` is meant for local use: extract it next to the `images/` folder and
+`media.csv`'s `filePath` will already point to `images/<file>` instead of a remote URL — no
+network access needed to resolve media files.
+{% else %}
+```text
+.
+├── datapackage.json      ← Camtrap DP metadata descriptor
+├── deployments.csv       ← camera deployment records
+├── media.csv             ← media (image) records — public media only, filePath is remote
+├── observations.csv      ← classification/observation records
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+
+This is a **link-only** export: no image files are hosted here. `media.csv`'s `filePath`
+points to the original source location of each image, which must remain reachable to
+resolve the media files.
+{% endif %}

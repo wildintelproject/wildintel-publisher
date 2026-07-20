@@ -1,0 +1,295 @@
+name: 📦 Release — Web App
+
+on:
+  push:
+    tags:
+      - 'web-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.2.0)'
+        required: false
+        default: '0.0.0.dev0'
+
+jobs:
+  build-linux:
+    name: Linux binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#web-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wildintel_publisher_web/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: wildintel_publisher_web/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set package versions
+        run: |
+          uv version ${{ steps.ver.outputs.version }}
+          (cd wildintel_publisher_web && uv version ${{ steps.ver.outputs.version }})
+
+      - name: Install dependencies
+        working-directory: wildintel_publisher_web
+        run: uv sync --group dev
+
+      - name: Build executable
+        working-directory: wildintel_publisher_web/backend
+        run: |
+          uv run pyinstaller src/app_entry.py \
+            --onefile \
+            --name wildintel-publisher-web \
+            --paths ../.. \
+            --add-data "../frontend/dist:static" \
+            --add-data "../../templates:templates" \
+            --copy-metadata wildintel-publisher \
+            --copy-metadata wildintel-publisher-web \
+            --collect-all frictionless \
+            --collect-all huggingface_hub \
+            --collect-all dynaconf \
+            --collect-submodules trapper_client \
+            --collect-submodules wildintel_publisher \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import anyio._backends._asyncio \
+            --hidden-import typer \
+            --hidden-import jinja2 \
+            --hidden-import yaml \
+            --collect-submodules fastapi \
+            --collect-submodules starlette
+
+      - name: Stage artifact
+        run: |
+          mkdir -p release-assets
+          cp wildintel_publisher_web/backend/dist/wildintel-publisher-web \
+             release-assets/wildintel-publisher-web-${{ steps.ver.outputs.version }}-linux-x86_64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: release-assets/*
+
+  build-windows:
+    name: Windows binary
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#web-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wildintel_publisher_web/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: wildintel_publisher_web/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set package versions
+        shell: bash
+        run: |
+          uv version ${{ steps.ver.outputs.version }}
+          (cd wildintel_publisher_web && uv version ${{ steps.ver.outputs.version }})
+
+      - name: Install dependencies
+        working-directory: wildintel_publisher_web
+        run: uv sync --group dev
+
+      - name: Build executable
+        working-directory: wildintel_publisher_web/backend
+        shell: bash
+        run: |
+          uv run pyinstaller src/app_entry.py \
+            --onefile \
+            --name wildintel-publisher-web \
+            --paths ../.. \
+            --add-data "../frontend/dist;static" \
+            --add-data "../../templates;templates" \
+            --copy-metadata wildintel-publisher \
+            --copy-metadata wildintel-publisher-web \
+            --collect-all frictionless \
+            --collect-all huggingface_hub \
+            --collect-all dynaconf \
+            --collect-submodules trapper_client \
+            --collect-submodules wildintel_publisher \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import anyio._backends._asyncio \
+            --hidden-import typer \
+            --hidden-import jinja2 \
+            --hidden-import yaml \
+            --collect-submodules fastapi \
+            --collect-submodules starlette
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          cp wildintel_publisher_web/backend/dist/wildintel-publisher-web.exe \
+             release-assets/wildintel-publisher-web-${{ steps.ver.outputs.version }}-windows-x64.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: release-assets/*
+
+  build-macos:
+    name: macOS binary
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#web-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wildintel_publisher_web/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: wildintel_publisher_web/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set package versions
+        run: |
+          uv version ${{ steps.ver.outputs.version }}
+          (cd wildintel_publisher_web && uv version ${{ steps.ver.outputs.version }})
+
+      - name: Install dependencies
+        working-directory: wildintel_publisher_web
+        run: uv sync --group dev
+
+      - name: Build executable
+        working-directory: wildintel_publisher_web/backend
+        run: |
+          uv run pyinstaller src/app_entry.py \
+            --onefile \
+            --name wildintel-publisher-web \
+            --paths ../.. \
+            --add-data "../frontend/dist:static" \
+            --add-data "../../templates:templates" \
+            --copy-metadata wildintel-publisher \
+            --copy-metadata wildintel-publisher-web \
+            --collect-all frictionless \
+            --collect-all huggingface_hub \
+            --collect-all dynaconf \
+            --collect-submodules trapper_client \
+            --collect-submodules wildintel_publisher \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import anyio._backends._asyncio \
+            --hidden-import typer \
+            --hidden-import jinja2 \
+            --hidden-import yaml \
+            --collect-submodules fastapi \
+            --collect-submodules starlette
+
+      - name: Stage artifact
+        run: |
+          mkdir -p release-assets
+          cp wildintel_publisher_web/backend/dist/wildintel-publisher-web \
+             release-assets/wildintel-publisher-web-${{ steps.ver.outputs.version }}-macos-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-binary
+          path: release-assets/*
+
+  release:
+    name: Create GitHub Release
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create stable release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+
+      - name: Force-move dev tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag -f web-dev
+          git push origin web-dev --force
+
+      - name: Create dev pre-release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: web-dev
+          name: Web app dev build (${{ inputs.version || github.sha }})
+          prerelease: true
+          make_latest: false
+          files: release-assets/*
+          body: |
+            Development build of the `wildintel-publisher-web` app — not for production use.
+            Built from commit `${{ github.sha }}`.

@@ -1,0 +1,26 @@
+# Downloaded/generated Camtrap DP packages (not stored in git)
+data/
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+
+# MkDocs build output
+site/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+/.claude/

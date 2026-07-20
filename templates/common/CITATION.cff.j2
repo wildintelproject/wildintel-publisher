@@ -1,0 +1,58 @@
+{# Renderizada por write_citation() en services/common.py. Los fallbacks
+   (cff_version, message, citation_type, date_released) se resuelven en
+   Python antes de llegar aquí, así que siempre llegan ya definidos.
+   Cada author es "person" (given_names/family_names/affiliation, desde
+   HFHSettings) o "entity" (solo name/affiliation, desde los contributors
+   de datapackage.json — Trapper solo da el nombre completo, sin separar
+   en nombre/apellidos).
+
+   url/doi/identifiers/notes: write_citation() solo se llama una vez, al
+   preparar el export — antes de que se conozca el repo/DOI/PID de
+   destino —, así que aquí siempre llegan a None/[] y estos bloques no se
+   disparan nunca en ese primer render. Se documentan igualmente para que
+   quede claro qué puede acabar apareciendo: una vez el destino se conoce
+   de verdad, hfh.py's _patch_citation_with_repo_id / zenodo.py's
+   _patch_citation_with_doi / b2share.py's _patch_citation_with_pid
+   añaden esas claves directamente al YAML ya escrito (yaml.safe_load +
+   safe_dump), sin volver a pasar por esta plantilla. Nunca se usa
+   "repository-artifact". #}
+cff-version: {{ cff_version | tojson }}
+title: {{ title | tojson }}
+message: {{ message | tojson }}
+type: {{ citation_type | tojson }}
+authors:
+{% for author in authors %}
+{% if author.given_names is defined %}
+  - given-names: {{ author.given_names | tojson }}
+    family-names: {{ author.family_names | tojson }}
+    affiliation: {{ author.affiliation | tojson }}
+{% else %}
+  - name: {{ author.name | tojson }}
+{% if author.affiliation %}
+    affiliation: {{ author.affiliation | tojson }}
+{% endif %}
+{% endif %}
+{% endfor %}
+version: {{ version | tojson }}
+date-released: {{ date_released | tojson }}
+license: {{ license_id | tojson }}
+{% if repository_code %}
+repository-code: {{ repository_code | tojson }}
+{% endif %}
+{% if url %}
+url: {{ url | tojson }}
+{% endif %}
+{% if doi %}
+doi: {{ doi | tojson }}
+{% endif %}
+{% if identifiers %}
+identifiers:
+{% for identifier in identifiers %}
+  - type: {{ identifier.type | tojson }}
+    value: {{ identifier.value | tojson }}
+    description: {{ identifier.description | tojson }}
+{% endfor %}
+{% endif %}
+{% if notes %}
+notes: {{ notes | tojson }}
+{% endif %}

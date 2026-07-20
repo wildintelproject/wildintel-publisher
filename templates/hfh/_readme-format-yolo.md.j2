@@ -1,0 +1,33 @@
+## Dataset format
+
+This dataset is distributed in [YOLO](https://docs.ultralytics.com/datasets/) training format:
+image files split into `train`/`val`/`test` sets, described by a `data.yaml` config.
+
+{% if class_names %}
+It has {{ num_classes }} class{{ "es" if num_classes != 1 else "" }}: {{ class_names | join(", ") }}.
+{% endif %}
+
+{% if mirror_images %}
+```text
+.
+├── data.yaml             ← YOLO dataset config (splits, classes)
+├── images/
+│   ├── train/            ← training images
+│   ├── val/               ← validation images
+│   └── test/              ← test images (if present)
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+{% else %}
+```text
+.
+├── data.yaml             ← YOLO dataset config (splits, classes)
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+
+This is a **metadata-only** export: no image files are hosted here, only the `data.yaml`
+configuration itself.
+{% endif %}

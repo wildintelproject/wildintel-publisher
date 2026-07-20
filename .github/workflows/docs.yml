@@ -1,0 +1,107 @@
+name: 📚 Documentation
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.2.0). If empty, uses the tag or 'dev'."
+        required: false
+        default: ""
+      alias:
+        description: "Alias for this version (e.g. latest, stable)"
+        required: false
+        default: ""
+      set_default:
+        description: "Set as the default version?"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs:
+    name: Build & Deploy Docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install doc dependencies
+        run: uv sync
+
+      - name: Configure git
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve version and alias
+        id: version
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="dev"
+          fi
+
+          if [[ -n "${{ github.event.inputs.alias }}" ]]; then
+            ALIAS="${{ github.event.inputs.alias }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            ALIAS="latest"
+          else
+            ALIAS=""
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "alias=$ALIAS"     >> "$GITHUB_OUTPUT"
+          echo "📦 Version: $VERSION  |  Alias: ${ALIAS:-<none>}"
+
+      - name: Deploy docs (versioned)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ALIAS="${{ steps.version.outputs.alias }}"
+          SET_DEFAULT="${{ github.event.inputs.set_default }}"
+          MIKE_ARGS="--push --update-aliases"
+
+          if [[ -n "$ALIAS" ]]; then
+            uv run mike deploy $MIKE_ARGS "$VERSION" "$ALIAS"
+          else
+            uv run mike deploy $MIKE_ARGS "$VERSION"
+          fi
+
+          if [[ "$SET_DEFAULT" == "true" ]] || \
+             ([[ "${{ github.ref }}" == refs/tags/* ]] && [[ -n "$ALIAS" ]]); then
+            uv run mike set-default --push "$ALIAS"
+            echo "✅ Default version set → $ALIAS ($VERSION)"
+          fi
+
+      - name: List published versions
+        run: uv run mike list

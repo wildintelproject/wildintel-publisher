@@ -1,0 +1,133 @@
+site_name: wildintel-publisher
+site_description: Fetches Camtrap DP/YOLO products and publishes them to HuggingFace Hub, Zenodo, and B2SHARE
+site_url: https://wildintelproject.github.io/wildintel-publisher/
+copyright: Copyright &copy; 2026 <a href="https://wildintel.eu/">WildINTEL</a>
+
+repo_url: https://github.com/wildintelproject/wildintel-publisher
+repo_name: wildintelproject/wildintel-publisher
+
+theme:
+  name: material
+  language: en
+  logo: img/WildINTEL_onlyCircle_25.png
+  favicon: img/WildINTEL_onlyCircle_25.png
+
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  features:
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+extra:
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/wildintelproject
+      name: WildINTEL on GitHub
+    - icon: simple/huggingface
+      link: https://huggingface.co/wildintelproject
+      name: WildINTEL on HuggingFace Hub
+    - icon: fontawesome/brands/facebook
+      link: https://www.facebook.com/people/WildIntel/61556603674655/
+      name: WildINTEL on Facebook
+    - icon: simple/bluesky
+      link: https://bsky.app/profile/wildintel.bsky.social
+      name: WildINTEL on Bluesky
+    - icon: fontawesome/solid/globe
+      link: https://wildintel.eu/
+      name: WildINTEL website
+
+extra_css:
+  - stylesheets/extras.css
+
+extra_javascript:
+  - javascripts/mermaid-zoom.js
+
+markdown_extensions:
+  - toc:
+      title: On this page
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - def_list
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: es
+          name: Español
+          build: true
+  # Solo se activa con la variable de entorno ENABLE_PDF_EXPORT=1 (la pone
+  # 'uv run cli docs pdf') — generar el PDF añade tiempo de build (WeasyPrint
+  # renderiza cada página), así que 'docs serve'/'docs build' normales no
+  # pagan ese coste.
+  - with-pdf:
+      enabled_if_env: ENABLE_PDF_EXPORT
+      output_path: pdf/wildintel-publisher.pdf
+      cover_title: wildintel-publisher
+      cover_subtitle: Fetches Camtrap DP/YOLO products and publishes them to HuggingFace Hub, Zenodo, and B2SHARE
+      author: WildINTEL
+      copyright: Copyright © 2026 WildINTEL
+      toc_title: Table of contents
+      toc_level: 2
+
+nav:
+  - Home: index.md
+  - Products:
+      - Overview: products.md
+      - Camtrap DP: product-camtrapdp.md
+      - YOLO Dataset: product-yolo.md
+  - Publishing:
+      - Overview: publishing-guide.md
+      - Hugging Face Hub:
+          - Overview: publishing-hfh.md
+          - Camtrap DP: publishing-hfh-camtrapdp.md
+          - YOLO Dataset: publishing-hfh-yolo.md
+      - Zenodo:
+          - Overview: publishing-zenodo.md
+          - Camtrap DP: publishing-zenodo-camtrapdp.md
+          - YOLO Dataset: publishing-zenodo-yolo.md
+      - B2SHARE:
+          - Overview: publishing-b2share.md
+          - Camtrap DP: publishing-b2share-camtrapdp.md
+          - YOLO Dataset: publishing-b2share-yolo.md
+  - Features: features.md
+  - Developer Guide: developer-guide.md
+  - CLI User Guide: guide-cli.md
+  - Web App User Guide: guide-web.md
+  - About: about.md
