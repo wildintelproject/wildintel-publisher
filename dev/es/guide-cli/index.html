@@ -59,6 +59,8 @@
     
       <link rel="stylesheet" href="../../stylesheets/extras.css">
     
+      <link rel="stylesheet" href="../../stylesheets/termynal.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -1592,10 +1594,25 @@ stored — this guide is about the commands themselves.</p>
 <li><strong>Windows</strong>: <code>wildintel-publisher-X.Y.Z-windows-x64.exe</code></li>
 <li>Run it.</li>
 </ol>
-<p>Linux/macOS — make it executable first:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>chmod<span class="w"> </span>+x<span class="w"> </span>wildintel-publisher-X.Y.Z-linux-x86_64
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>./wildintel-publisher-X.Y.Z-linux-x86_64<span class="w"> </span>--help
-</code></pre></div></p>
+<p>Linux/macOS — make it executable first:</p>
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">$ </span>chmod<span class="w"> </span>+x<span class="w"> </span>wildintel-publisher-X.Y.Z-linux-x86_64
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">$ </span>./wildintel-publisher-X.Y.Z-linux-x86_64<span class="w"> </span>--help
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="go"> Usage: wildintel-publisher [OPTIONS] COMMAND [ARGS]...</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="go">╭─ Commands ─────────────────────────────────────────────────────────────╮</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="go">│ trapper    Fetch Camtrap DP packages from a Trapper project.           │</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="go">│ product    Generate/inspect a product&#39;s metadata.json.                 │</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="go">│ hfh        Prepare, upload, and release to Hugging Face Hub.           │</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="go">│ zenodo     Prepare, upload, and release to Zenodo.                     │</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="go">│ b2share    Prepare, upload, and release to B2SHARE.                    │</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="go">╰──────────────────────────────────────────────────────────────────────╯</span>
+</code></pre></div>
+
+   </div>
+
 <p>Windows — run it from a terminal (or double-click):
    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">.\</span><span class="n">wildintel-publisher-X</span><span class="p">.</span><span class="n">Y</span><span class="p">.</span><span class="n">Z-windows-x64</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-help</span>
 </code></pre></div></p>
@@ -1610,99 +1627,216 @@ matching every command in the rest of this guide.</p>
 <ol>
 <li>Create an account at <a href="https://huggingface.co">huggingface.co</a>.</li>
 <li>Get an access token with <strong>write</strong> permission at
-   <a href="https://huggingface.co/settings/tokens">huggingface.co/settings/tokens</a>:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>token
-</code></pre></div></li>
-<li>Optionally remember your username, or the full <code>repo_id</code> you tend to publish to:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">repo_id</span><span class="o">=</span>your-user/your-dataset
-</code></pre></div></li>
+   <a href="https://huggingface.co/settings/tokens">huggingface.co/settings/tokens</a>:</li>
 </ol>
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>token
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">Value of token:</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="go">✔  hfh.token = ••••••••</span>
+</code></pre></div>
+
+   </div>
+
+<ol>
+<li>Optionally remember your username, or the full <code>repo_id</code> you tend to publish to:</li>
+</ol>
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">repo_id</span><span class="o">=</span>your-user/your-dataset
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="go">✔  hfh.repo_id = your-user/your-dataset</span>
+</code></pre></div>
+
+   </div>
+
 <p><strong>Zenodo</strong></p>
 <ol>
 <li>Create an account at <a href="https://zenodo.org">zenodo.org</a> (use <code>sandbox.zenodo.org</code>
    first to test the whole flow without minting a real DOI).</li>
-<li>Create a personal access token (<strong>Applications → Personal access tokens</strong>):
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>token
-</code></pre></div></li>
-<li>Optionally, set which communities every deposition gets submitted to:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">communities</span><span class="o">=</span>camera-traps,biodiversity
-</code></pre></div></li>
+<li>Create a personal access token (<strong>Applications → Personal access tokens</strong>):</li>
 </ol>
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>token
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="go">Value of token:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="go">✔  zenodo.token = ••••••••</span>
+</code></pre></div>
+
+   </div>
+
+<ol>
+<li>Optionally, set which communities every deposition gets submitted to:</li>
+</ol>
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">communities</span><span class="o">=</span>camera-traps,biodiversity
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="go">✔  zenodo.communities = camera-traps,biodiversity</span>
+</code></pre></div>
+
+   </div>
+
 <p><strong>B2SHARE (EUDAT)</strong></p>
 <ol>
 <li>Create an account at <a href="https://b2share.eudat.eu">b2share.eudat.eu</a> (use
    <code>trng-b2share.eudat.eu</code> first to test without touching a real community/DOI).</li>
-<li>Get a personal access token (<strong>Account → Applications → Personal access tokens</strong>):
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>token
-</code></pre></div></li>
-<li>Set which community every draft requests to join — the generic EUDAT community
-   works if you don't have a more specific one:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">community_id</span><span class="o">=</span>e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
-</code></pre></div></li>
+<li>Get a personal access token (<strong>Account → Applications → Personal access tokens</strong>):</li>
 </ol>
-<p><strong>Trapper</strong> (Camtrap DP only)</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">base_url</span><span class="o">=</span>https://trapper.example.org
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>user_name
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">project_id</span><span class="o">=</span>&lt;classification-project-id&gt;
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>token
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="go">Value of token:</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="go">✔  b2share.token = ••••••••</span>
 </code></pre></div>
+
+   </div>
+
+<ol>
+<li>Set which community every draft requests to join — the generic EUDAT community
+   works if you don't have a more specific one:</li>
+</ol>
+<div class="termy">
+
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">community_id</span><span class="o">=</span>e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="go">✔  b2share.community_id = e9b9792e-79fb-4b07-b6b4-b9c2bd06d095</span>
+</code></pre></div>
+
+   </div>
+
+<p><strong>Trapper</strong> (Camtrap DP only)</p>
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">base_url</span><span class="o">=</span>https://trapper.example.org
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="go">✔  trapper.base_url = https://trapper.example.org</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>user_name
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="go">Value of user_name:</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="go">✔  trapper.user_name = ••••••••</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">project_id</span><span class="o">=</span>&lt;classification-project-id&gt;
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="go">✔  trapper.project_id = &lt;classification-project-id&gt;</span>
+</code></pre></div>
+
+</div>
+
 <hr />
 <h2 id="camtrap-dp">Camtrap DP</h2>
 <h3 id="1-fetch-the-package-from-trapper">1. Fetch the package from Trapper</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>download<span class="w"> </span>--deployment-id<span class="w"> </span>&lt;deployment-id&gt;
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>download<span class="w"> </span>--deployment-id<span class="w"> </span>&lt;deployment-id&gt;
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="go">Generating (or reusing) the Camtrap DP package for project &lt;project-id&gt;...</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="go">Downloading from https://trapper.example.org/media/packages/camtrapdp_&lt;project-id&gt;.zip ...</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="go">Extracting to &lt;trapper-output-dir&gt; ...</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="go">✔  Camtrap DP for project &lt;project-id&gt; ready in &lt;trapper-output-dir&gt;</span>
 </code></pre></div>
+
+</div>
+
 <h3 id="2-generate-its-common-description">2. Generate its common description</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>wildintel-publisher<span class="w"> </span>product<span class="w"> </span>generate-metadata<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--product-type<span class="w"> </span>camtrapdp
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>product<span class="w"> </span>generate-metadata<span class="w"> </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--product-type<span class="w"> </span>camtrapdp
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="go">✔  metadata.json written to &lt;trapper-output-dir&gt; (camtrapdp):</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="go">   title: &lt;package title&gt;</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="go">   license: CC-BY-4.0</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="go">   authors: &lt;author 1&gt;, &lt;author 2&gt;</span>
 </code></pre></div>
+
+</div>
+
 <p>Fill in any required field it reports as missing (edit <code>metadata.json</code> directly) before
 moving on.</p>
 <h3 id="3-publish-to-hugging-face-hub">3. Publish to Hugging Face Hub</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span><span class="s1">&#39;hf_xxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>prepare<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span><span class="s1">&#39;hf_xxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>prepare<span class="w"> </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="go">Copying the product from &lt;trapper-output-dir&gt; to &lt;hfh-export-dir&gt; ...</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="go">✔  HuggingFace Hub export prepared in &lt;hfh-export-dir&gt;</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="go">Repository &lt;your-user&gt;/&lt;dataset-slug&gt; does not exist — creating it (private)...</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="go">Uploading &lt;hfh-export-dir&gt; to &lt;your-user&gt;/&lt;dataset-slug&gt; ...</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="go">✔  Uploaded to https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt; (not tagged yet — see &#39;hfh release&#39;).</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="go">  Tagged &lt;your-user&gt;/&lt;dataset-slug&gt; as &#39;v1.0.0&#39;.</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="go">✔  Published at https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt;</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="go">Making repository &lt;your-user&gt;/&lt;dataset-slug&gt; public ...</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="go">✔  &lt;your-user&gt;/&lt;dataset-slug&gt; is publicly accessible without a token: https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt;</span>
 </code></pre></div>
+
+</div>
+
 <p>Or, in one call (<code>prepare</code> → <code>upload</code> → <code>release</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>pipeline<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>pipeline<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="go">── Step 1/3: prepare ──</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="go">✔  HuggingFace Hub export prepared in &lt;hfh-export-dir&gt;</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="go">── Step 2/3: upload ──</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="go">✔  Uploaded to https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt; (not tagged yet — see &#39;hfh release&#39;).</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="go">── Step 3/3: release ──</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="go">✔  Published at https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt;</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="go">✔  Pipeline completed.</span>
 </code></pre></div>
+
+</div>
+
 <h3 id="4-publish-to-zenodo-linked-to-hugging-face-hub">4. Publish to Zenodo, linked to Hugging Face Hub</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ZENODO_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>prepare<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span>--hfh-repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
-<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;
-<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w">   </span><span class="c1"># irreversible</span>
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">ZENODO_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>prepare<span class="w"> </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--hfh-repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="go">Copying the product from &lt;trapper-output-dir&gt; to &lt;zenodo-export-dir&gt; ...</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="go">✔  Zenodo export prepared in &lt;zenodo-export-dir&gt;</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="go">Creating a new deposition on Zenodo...</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="go">✔  DOI reserved ahead of upload: 10.5281/zenodo.1234567</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="go">Uploading 6 file(s) to deposition 1234567 ...</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="go">✔  Deposition 1234567 prepared (reserved DOI: 10.5281/zenodo.1234567).</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w">   </span><span class="c1"># irreversible</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="go">Publishing deposition 1234567 ...</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="go">✔  Published — DOI: 10.5281/zenodo.1234567 (https://zenodo.org/records/1234567)</span>
 </code></pre></div>
+
+</div>
+
 <p>Prefer a fully self-contained record instead (no link to Hugging Face Hub)? Use
 <code>--self-contained</code> instead of <code>--hfh-repo-id</code> at the <code>prepare</code> step.</p>
 <h3 id="5-publish-to-b2share-linked-to-hugging-face-hub">5. Publish to B2SHARE, linked to Hugging Face Hub</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">B2SHARE_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>prepare<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span>--hfh-repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
-<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
-<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>upload<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">  </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--community-id<span class="w"> </span>&lt;community-uuid&gt;
-<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w">   </span><span class="c1"># submits for review, not immediate</span>
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">B2SHARE_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>prepare<span class="w"> </span>--input-dir<span class="w"> </span>&lt;trapper-output-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--hfh-repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="go">Copying the product from &lt;trapper-output-dir&gt; to &lt;b2share-export-dir&gt; ...</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="go">✔  B2SHARE record prepared in &lt;b2share-export-dir&gt; (linked).</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--community-id<span class="w"> </span>&lt;community-uuid&gt;
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="go">Creating a new draft on B2SHARE...</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="go">Requesting inclusion in community &lt;community-uuid&gt; ...</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="go">✔  Draft 9f8e7d6c prepared (DOI not reserved yet — &#39;b2share release&#39; will assign one, possibly pending approval by a moderator of the EUDAT community).</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w">   </span><span class="c1"># submits for review, not immediate</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="go">Submitting B2SHARE record 9f8e7d6c for community review (may require approval by a moderator of the EUDAT community)...</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="go">⚠  Record submitted for publication, but B2SHARE has not returned any PID/DOI yet. Check https://b2share.eudat.eu/records/9f8e7d6c later and run &#39;b2share sync-pid&#39;.</span>
 </code></pre></div>
+
+</div>
+
 <p>Same <code>--self-contained</code> alternative as Zenodo is available here too.</p>
 <h3 id="6-cross-reference-the-dois-back-into-hugging-face-hub">6. Cross-reference the DOIs back into Hugging Face Hub</h3>
 <p>Once Zenodo/B2SHARE have a DOI/PID (B2SHARE's may take a while — a moderator has to
 approve it first), reflect it into the Hugging Face Hub export's <code>CITATION.cff</code> and
 re-upload:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>sync-doi<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span>--zenodo-output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>sync-pid<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span>--b2share-output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>sync-doi<span class="w"> </span>--zenodo-output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="go">✔  DOI 10.5281/zenodo.1234567 reflected in &lt;hfh-export-dir&gt;/CITATION.cff.</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="go">   Re-upload with hfh upload to publish the change.</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>sync-pid<span class="w"> </span>--b2share-output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="go">✔  Nothing to sync yet — B2SHARE has not returned a PID/DOI (still pending moderator approval).</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="go">Uploading &lt;hfh-export-dir&gt; to &lt;your-user&gt;/&lt;dataset-slug&gt; ...</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="go">✔  Uploaded to https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt; (not tagged yet — see &#39;hfh release&#39;).</span>
 </code></pre></div>
+
+</div>
+
 <p>If <code>sync-pid</code> reports nothing to sync yet, the B2SHARE moderator hasn't approved the
 submission yet — check back later and re-run it.</p>
 <hr />
@@ -1710,47 +1844,88 @@ submission yet — check back later and re-run it.</p>
 <p>Identical shape to Camtrap DP — just a different <code>--product-type</code>, and no Trapper step
 (a YOLO dataset is already a local directory).</p>
 <h3 id="1-generate-its-common-description">1. Generate its common description</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>wildintel-publisher<span class="w"> </span>product<span class="w"> </span>generate-metadata<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--product-type<span class="w"> </span>yolo
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>product<span class="w"> </span>generate-metadata<span class="w"> </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--product-type<span class="w"> </span>yolo
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="go">✔  metadata.json written to &lt;yolo-dataset-dir&gt; (yolo):</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="go">   title: &lt;dataset title&gt;</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="go">   license: CC-BY-4.0</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="go">   authors: &lt;author 1&gt;, &lt;author 2&gt;</span>
 </code></pre></div>
+
+</div>
+
 <h3 id="2-publish-to-hugging-face-hub">2. Publish to Hugging Face Hub</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span><span class="s1">&#39;hf_xxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>prepare<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
-<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span><span class="s1">&#39;hf_xxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>prepare<span class="w"> </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="go">Copying the product from &lt;yolo-dataset-dir&gt; to &lt;hfh-export-dir&gt; ...</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="go">✔  HuggingFace Hub export prepared in &lt;hfh-export-dir&gt;</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="go">Repository &lt;your-user&gt;/&lt;dataset-slug&gt; does not exist — creating it (private)...</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="go">Uploading &lt;hfh-export-dir&gt; to &lt;your-user&gt;/&lt;dataset-slug&gt; ...</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="go">✔  Uploaded to https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt; (not tagged yet — see &#39;hfh release&#39;).</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="go">  Tagged &lt;your-user&gt;/&lt;dataset-slug&gt; as &#39;v1.0.0&#39;.</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="go">✔  Published at https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt;</span>
 </code></pre></div>
+
+</div>
+
 <h3 id="3-publish-to-zenodo">3. Publish to Zenodo</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ZENODO_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>prepare<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--self-contained
-<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>
-<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;
-<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w">   </span><span class="c1"># irreversible</span>
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">ZENODO_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>prepare<span class="w"> </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--self-contained
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="go">Copying the product from &lt;yolo-dataset-dir&gt; to &lt;zenodo-export-dir&gt; ...</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="go">✔  Zenodo export prepared in &lt;zenodo-export-dir&gt;</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="go">Creating a new deposition on Zenodo...</span>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="go">✔  DOI reserved ahead of upload: 10.5281/zenodo.7654321</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="go">Uploading 4 file(s) to deposition 7654321 ...</span>
+<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="go">✔  Deposition 7654321 prepared (reserved DOI: 10.5281/zenodo.7654321).</span>
+<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w">   </span><span class="c1"># irreversible</span>
+<a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a><span class="go">Publishing deposition 7654321 ...</span>
+<a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a><span class="go">✔  Published — DOI: 10.5281/zenodo.7654321 (https://zenodo.org/records/7654321)</span>
 </code></pre></div>
+
+</div>
+
 <p>YOLO images have nowhere else to link to, so a linked Zenodo record for YOLO would carry
 no images at all — <code>--self-contained</code> is the meaningful choice here.</p>
 <h3 id="4-publish-to-b2share">4. Publish to B2SHARE</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">B2SHARE_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
-<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>prepare<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--self-contained
-<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>
-<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>upload<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">  </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--community-id<span class="w"> </span>&lt;community-uuid&gt;
-<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w">   </span><span class="c1"># submits for review, not immediate</span>
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">B2SHARE_TOKEN</span><span class="o">=</span><span class="s1">&#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&#39;</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>prepare<span class="w"> </span>--input-dir<span class="w"> </span>&lt;yolo-dataset-dir&gt;<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--self-contained
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="go">Copying the product from &lt;yolo-dataset-dir&gt; to &lt;b2share-export-dir&gt; ...</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="go">✔  B2SHARE record prepared in &lt;b2share-export-dir&gt; (self-contained).</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--community-id<span class="w"> </span>&lt;community-uuid&gt;
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="go">Creating a new draft on B2SHARE...</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="go">Requesting inclusion in community &lt;community-uuid&gt; ...</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="go">✔  Draft 3c2b1a0f prepared (DOI not reserved yet — &#39;b2share release&#39; will assign one, possibly pending approval by a moderator of the EUDAT community).</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>release<span class="w"> </span>--output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w">   </span><span class="c1"># submits for review, not immediate</span>
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="go">Submitting B2SHARE record 3c2b1a0f for community review (may require approval by a moderator of the EUDAT community)...</span>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="go">⚠  Record submitted for publication, but B2SHARE has not returned any PID/DOI yet. Check https://b2share.eudat.eu/records/3c2b1a0f later and run &#39;b2share sync-pid&#39;.</span>
 </code></pre></div>
+
+</div>
+
 <h3 id="5-cross-reference-the-dois-back-into-hugging-face-hub">5. Cross-reference the DOIs back into Hugging Face Hub</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>sync-doi<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>--zenodo-output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
-<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>sync-pid<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span>--b2share-output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
-<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>
-<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<div class="termy">
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>zenodo<span class="w"> </span>sync-doi<span class="w"> </span>--zenodo-output-dir<span class="w"> </span>&lt;zenodo-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="go">✔  DOI 10.5281/zenodo.7654321 reflected in &lt;hfh-export-dir&gt;/CITATION.cff.</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="go">   Re-upload with hfh upload to publish the change.</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>b2share<span class="w"> </span>sync-pid<span class="w"> </span>--b2share-output-dir<span class="w"> </span>&lt;b2share-export-dir&gt;<span class="w"> </span>--hfh-output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="go">✔  Nothing to sync yet — B2SHARE has not returned a PID/DOI (still pending moderator approval).</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>hfh<span class="w"> </span>upload<span class="w"> </span>--output-dir<span class="w"> </span>&lt;hfh-export-dir&gt;<span class="w"> </span>--repo-id<span class="w"> </span>&lt;your-user&gt;/&lt;dataset-slug&gt;
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="go">Uploading &lt;hfh-export-dir&gt; to &lt;your-user&gt;/&lt;dataset-slug&gt; ...</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="go">✔  Uploaded to https://huggingface.co/datasets/&lt;your-user&gt;/&lt;dataset-slug&gt; (not tagged yet — see &#39;hfh release&#39;).</span>
 </code></pre></div>
+
+</div>
 
 
 
@@ -1901,6 +2076,10 @@ no images at all — <code>--self-contained</code> is the meaningful choice here
       <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../javascripts/mermaid-zoom.js"></script>
+      
+        <script src="../../javascripts/termynal.js"></script>
+      
+        <script src="../../javascripts/termynal-init.js"></script>
       
     
   </body>
