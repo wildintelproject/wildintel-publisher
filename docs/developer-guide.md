@@ -83,6 +83,39 @@ duplicate on the web side beyond a router/schema/UI form for it.
 
 ---
 
+## Running the web app locally
+
+From `wildintel_publisher_web/` (requires Node.js v18+ for the frontend):
+
+```bash
+uv sync
+uv run wildintel-publisher-web dev
+```
+
+This starts the FastAPI backend (`--reload`, default port `8767` or
+`WILDINTEL_PUBLISHER_WEB_PORT`) and the Vite frontend dev server (port `5174`) together,
+streaming both logs interleaved — Ctrl+C stops both. Override ports with
+`--backend-port`/`--frontend-port`.
+
+`wildintel_publisher_web/webcli.py` (installed as the `wildintel-publisher-web` entry
+point) also exposes each piece individually, useful when you only need one side running:
+
+| Command | Does |
+|---|---|
+| `uv run wildintel-publisher-web backend serve [dev\|prod]` | Backend only — `dev` reloads on change, `prod` runs multi-worker without reload. |
+| `uv run wildintel-publisher-web backend test` | Backend pytest suite (`-v`/`-k` passthrough). |
+| `uv run wildintel-publisher-web frontend dev` | Frontend dev server only (hot-reload). |
+| `uv run wildintel-publisher-web frontend build` | Production build → `frontend/dist/`. |
+| `uv run wildintel-publisher-web frontend preview` | Serves the production build locally. |
+| `uv run wildintel-publisher-web frontend lint` | oxlint over the frontend source. |
+| `uv run wildintel-publisher-web frontend test` | Frontend Vitest suite. |
+
+This `dev` command is for local development only — end users run the app from the
+prebuilt release binary instead (see the
+[Web App User Guide's "Getting the web app"](guide-web.md#getting-the-web-app)).
+
+---
+
 ## Adding a new product type
 
 A **product type** (`camtrapdp`, `yolo`, ...) is anything `wildintel-publisher` can turn
