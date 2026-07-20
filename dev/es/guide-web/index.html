@@ -1101,6 +1101,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#getting-the-web-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting the web app
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#before-you-start" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1291,6 +1302,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#getting-the-web-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting the web app
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#before-you-start" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1446,15 +1468,34 @@ here?" page for exactly what ends up stored.</p>
 <p>For the same walkthrough using the command line instead, see the
 <a href="../guide-cli/">CLI User Guide</a>.</p>
 <hr />
+<h2 id="getting-the-web-app">Getting the web app</h2>
+<p>Prebuilt binaries — no Python or Node installation required.</p>
+<ol>
+<li>Go to the <a href="https://github.com/wildintelproject/wildintel-publisher/releases">Releases page</a>
+   and pick the latest stable release (or the <code>web-dev</code> pre-release for the latest
+   development build).</li>
+<li>Download the asset for your OS:</li>
+<li><strong>Linux</strong>: <code>wildintel-publisher-web-X.Y.Z-linux-x86_64</code></li>
+<li><strong>macOS</strong> (Apple Silicon): <code>wildintel-publisher-web-X.Y.Z-macos-arm64</code></li>
+<li><strong>Windows</strong>: <code>wildintel-publisher-web-X.Y.Z-windows-x64.exe</code></li>
+<li>Run it.</li>
+</ol>
+<p>Linux/macOS — make it executable first:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>chmod<span class="w"> </span>+x<span class="w"> </span>wildintel-publisher-web-X.Y.Z-linux-x86_64
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>./wildintel-publisher-web-X.Y.Z-linux-x86_64
+</code></pre></div></p>
+<p>Windows — run it from a terminal (or double-click):
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">.\</span><span class="n">wildintel-publisher-web-X</span><span class="p">.</span><span class="n">Y</span><span class="p">.</span><span class="n">Z-windows-x64</span><span class="p">.</span><span class="n">exe</span>
+</code></pre></div></p>
+<p>It starts a local server and opens your default browser automatically (falling back to
+the next free port if its default one is busy) — no separate step needed.</p>
+<hr />
 <h2 id="before-you-start">Before you start</h2>
-<p>Start the web app from <code>wildintel_publisher_web/</code> (see the project's own <code>README.md</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>wildintel-publisher-web<span class="w"> </span>dev
-</code></pre></div>
-<p>then open it in your browser. Have your Hugging Face Hub / Zenodo / B2SHARE access
-tokens ready — the wizard's own configuration forms are where you enter them, there's
-no separate account or config-file setup step. If you've already saved any of them via
-the CLI's <code>config set</code> commands, the wizard pre-fills its forms with those same saved
-values (both share the same <code>settings.toml</code>).</p>
+<p>Have your Hugging Face Hub / Zenodo / B2SHARE access tokens ready — the wizard's own
+configuration forms are where you enter them, there's no separate account or config-file
+setup step. If you've already saved any of them via the CLI's <code>config set</code> commands, the
+wizard pre-fills its forms with those same saved values (both share the same
+<code>settings.toml</code>).</p>
 <hr />
 <h2 id="camtrap-dp">Camtrap DP</h2>
 <h3 id="1-choose-what-to-publish">1. Choose what to publish</h3>
