@@ -1492,15 +1492,17 @@ relying on it being (or not being) reversible:</p>
   (plus <code>sync-doi</code>/<code>sync-pid</code>) are run one at a time, by hand, in the order you choose.
   Only Hugging Face Hub has a combined <code>pipeline</code> command (<code>prepare → upload → release</code>
   in one call); Zenodo and B2SHARE have no such shortcut — run their three commands in
-  sequence yourself. GBIF's single <code>register</code> command is currently CLI-only.</li>
+  sequence yourself. GBIF's single <code>register</code> command has no <code>pipeline</code> either, since it
+  is itself already a single step.</li>
 <li><strong><a href="../guide-web/">Web App User Guide</a></strong> — a wizard-driven UI covering the same product
-  types and repositories. Selecting more than one repository publishes them
-  automatically, one after another, and — uniquely to the web app — cross-references
-  whatever DOI Zenodo/B2SHARE each managed to reserve into the <em>other's</em> <code>CITATION.cff</code>
-  before either one locks, asking you which one Hugging Face Hub should treat as
-  primary if all three repositories are selected together. This cross-repository DOI
-  reflection isn't available from the CLI; the CLI's own <code>sync-doi</code>/<code>sync-pid</code> commands
-  only ever push a DOI/PID one way, into a Hugging Face Hub export, and only after the
+  types and repositories, GBIF included (Camtrap DP only). Selecting more than one
+  repository publishes them automatically, one after another, and — uniquely to the web
+  app — cross-references whatever DOI Zenodo/B2SHARE each managed to reserve into the
+  <em>other's</em> <code>CITATION.cff</code> before either one locks, asking you which one Hugging Face Hub
+  should treat as primary if all three repositories are selected together. This
+  cross-repository DOI reflection isn't available from the CLI; the CLI's own
+  <code>sync-doi</code>/<code>sync-pid</code> commands only ever push a DOI/PID one way, into a Hugging Face
+  Hub export, and only after the
   source repository has already published.</li>
 </ul>
 <p>Each guide has a section per product type, with the exact steps to publish it to every

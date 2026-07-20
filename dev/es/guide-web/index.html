@@ -1526,6 +1526,10 @@ configuration forms are where you enter them, there's no separate account or con
 setup step. If you've already saved any of them via the CLI's <code>config set</code> commands, the
 wizard pre-fills its forms with those same saved values (both share the same
 <code>settings.toml</code>).</p>
+<p>Publishing to GBIF additionally needs a gbif.org username/password and an organization/
+installation UUID pair, obtained in advance by hand — see <a href="../publishing-gbif/#2-main-characteristics">Publishing to
+GBIF</a> for how to get them (the wizard's own
+GBIF form links to the same pages).</p>
 <hr />
 <h2 id="camtrap-dp">Camtrap DP</h2>
 <h3 id="1-choose-what-to-publish">1. Choose what to publish</h3>
@@ -1539,12 +1543,15 @@ lives. If its common description is missing something required (title, descripti
 version, license, authors), a form prompts for exactly what's missing; once complete, a
 summary card shows the title, version, license, authors, and homepage.</p>
 <h3 id="4-choose-repositories-and-publish-order">4. Choose repositories and publish order</h3>
-<p>Select one or more of <strong>Hugging Face Hub</strong>, <strong>Zenodo</strong>, and <strong>B2SHARE</strong> (GBIF is
-available from the <a href="../guide-cli/#7-register-it-on-gbif">CLI</a> but not yet from this
-wizard). If you select more than one, a <strong>publish order</strong> list lets you reorder them: the
-first repository publishes the fetched package itself, and each next one publishes
-whatever the previous one wrote to its own output — so, for example, publishing to
-Hugging Face Hub before Zenodo lets Zenodo's record link back to it.</p>
+<p>Select one or more of <strong>Hugging Face Hub</strong>, <strong>Zenodo</strong>, <strong>B2SHARE</strong>, and — Camtrap DP
+only, see <a href="../publishing-gbif/#4-what-can-i-publish-here">Publishing to GBIF</a> — <strong>GBIF</strong>.
+If you select more than one, a <strong>publish order</strong> list lets you reorder them: the first
+repository publishes the fetched package itself, and each next one publishes whatever the
+previous one wrote to its own output — so, for example, publishing to Hugging Face Hub
+before Zenodo lets Zenodo's record link back to it. GBIF doesn't take part in this
+chaining (it never hosts a copy of the package — see the next step), but ordering it
+after whichever repository will host the package still lets its configuration form
+prefill the archive URL automatically.</p>
 <h3 id="5-configure-each-selected-repository">5. Configure each selected repository</h3>
 <p>The wizard walks through your selected repositories one at a time, each with its own
 configuration form:</p>
@@ -1554,6 +1561,10 @@ configuration form:</p>
 <li><strong>Zenodo</strong> — token, environment (sandbox or production), communities to submit to,
   and self-contained or linked media.</li>
 <li><strong>B2SHARE</strong> — token, environment, community, and self-contained or linked media.</li>
+<li><strong>GBIF</strong> — the archive URL (prefilled if Hugging Face Hub precedes it in the publish
+  order — see the previous step), environment, publishing organization/installation UUID,
+  registry language, and username/password. No mirror/link choice: GBIF never hosts a
+  copy of anything.</li>
 </ul>
 <h3 id="6-choose-the-primary-doi-only-if-all-three-are-selected">6. Choose the primary DOI (only if all three are selected)</h3>
 <p>If Hugging Face Hub, Zenodo, and B2SHARE are all selected together, you're asked which
@@ -1564,11 +1575,15 @@ there's more than one candidate to choose from.</p>
 <p>After a final summary screen, <strong>Publish</strong> runs the whole sequence on its own: uploading
 to every selected repository, cross-referencing whatever DOIs Zenodo/B2SHARE obtained
 into each other's (and Hugging Face Hub's) citation file, then locking each repository —
-with a single live progress view showing every repository's status as it goes.</p>
+with a single live progress view showing every repository's status as it goes. GBIF has
+no upload/lock of its own to speak of — it's registered with a single Registry API call
+during this same automated sequence, using the archive URL from step 5 (see <a href="../publishing-gbif/#2-main-characteristics">Publishing
+to GBIF</a>).</p>
 <h3 id="8-when-its-done">8. When it's done</h3>
-<p>Each repository's resulting URL/DOI/PID is shown once publishing finishes. If B2SHARE is
-still pending moderator review, that's shown too — its final PID/DOI won't be known
-until a moderator approves the submission, which happens outside this wizard run.</p>
+<p>Each repository's resulting URL/DOI/PID is shown once publishing finishes — for GBIF,
+its Registry dataset page. If B2SHARE is still pending moderator review, that's shown
+too — its final PID/DOI won't be known until a moderator approves the submission, which
+happens outside this wizard run.</p>
 <hr />
 <h2 id="yolo-dataset">YOLO Dataset</h2>
 <p>Same shape as Camtrap DP, with two differences: at step 2, only <strong>Local Directory</strong> is
