@@ -88,6 +88,12 @@ print_next_steps() {
     echo "  cli docs serve                          Serve the docs locally"
     echo "  cli docs build                          Build the static docs site"
     echo ""
+    print_info "Run the web app locally (from wildintel_publisher_web/):"
+    echo ""
+    echo "  cd wildintel_publisher_web"
+    echo "  uv sync"
+    echo "  uv run wildintel-publisher-web dev"
+    echo ""
 }
 
 print_header
