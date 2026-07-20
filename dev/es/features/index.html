@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/features/">
       
       
-        <link rel="prev" href="../publishing-b2share-yolo/">
+        <link rel="prev" href="../publishing-gbif/">
       
       
         <link rel="next" href="../developer-guide/">
@@ -946,6 +946,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing-gbif/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GBIF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1316,7 +1344,11 @@
 <li><strong><code>sync-doi</code>/<code>sync-pid</code></strong> — reflect an already-obtained Zenodo DOI or B2SHARE PID back
   into an existing Hugging Face Hub export's <code>CITATION.cff</code>, so a dataset that lives on
   Hugging Face Hub can still carry a citation pointing at its permanent DOI elsewhere.</li>
-<li><strong><a href="https://www.gbif.org/">GBIF</a></strong> — planned as a future repository integration.</li>
+<li><strong><a href="../publishing-gbif/">GBIF</a></strong> — registers a Camtrap DP already hosted anywhere public
+  (Hugging Face Hub, Zenodo, B2SHARE, your own server...) in the GBIF Registry, so its
+  crawler indexes it as biodiversity occurrence data. No file is uploaded — only a
+  <code>CAMTRAP_DP</code> endpoint pointing at that URL — and, like Zenodo/B2SHARE, both a
+  production and sandbox (<code>gbif-test.org</code>) environment are supported.</li>
 </ul>
 <h2 id="the-cli">The CLI</h2>
 <ul>
@@ -1390,7 +1422,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Pie" >
         
           
-          <a href="../publishing-b2share-yolo/" class="md-footer__link md-footer__link--prev" aria-label="Anterior: YOLO Dataset">
+          <a href="../publishing-gbif/" class="md-footer__link md-footer__link--prev" aria-label="Anterior: GBIF">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1400,7 +1432,7 @@
                 Anterior
               </span>
               <div class="md-ellipsis">
-                YOLO Dataset
+                GBIF
               </div>
             </div>
           </a>

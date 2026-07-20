@@ -85,6 +85,13 @@
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-b2share/"/>
     </url>
     <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-gbif/</loc>
+        <lastmod>2026-07-20</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-gbif/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-gbif/"/>
+    </url>
+    <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-guide/</loc>
         <lastmod>2026-07-20</lastmod>
         <changefreq>daily</changefreq>
@@ -216,6 +223,13 @@
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-b2share/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-gbif/</loc>
+        <lastmod>2026-07-20</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-gbif/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-gbif/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-guide/</loc>

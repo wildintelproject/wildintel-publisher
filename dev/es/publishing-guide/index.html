@@ -1063,6 +1063,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing-gbif/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GBIF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1335,7 +1363,9 @@ different community:</p>
     Local --&gt; HF["🤗 Hugging Face Hub"]
     Local --&gt; ZN["📚 Zenodo"]
     Local --&gt; B2["🗄️ B2SHARE 🇪🇺"]
-    Local -.-&gt; GB["🌐 GBIF 🔜"]</code></pre>
+    HF -.-&gt;|already-hosted URL| GB["🌐 GBIF&lt;br/&gt;(Camtrap DP only)"]
+    ZN -.-&gt; GB
+    B2 -.-&gt; GB</code></pre>
 <ul>
 <li><strong><a href="../publishing-hfh/">Hugging Face Hub</a></strong> — the platform the AI/ML community actually
   works with day to day. It's the one repository here that hosts the media itself by
@@ -1348,8 +1378,11 @@ different community:</p>
 <li><strong><a href="../publishing-b2share/">B2SHARE (EUDAT)</a></strong> 🇪🇺 — the European counterpart to Zenodo,
   for the EU scientific community. Same linked/self-contained choice as Zenodo, with
   community submission and moderator review built in.</li>
-<li><strong><a href="https://www.gbif.org/">GBIF</a></strong> 🔜 — the global biodiversity data network; planned as
-  a future repository, for Camtrap DP only (see <a href="../products/#where-products-can-be-published">Products</a>).</li>
+<li><strong><a href="../publishing-gbif/">GBIF</a></strong> — the global biodiversity data network, for Camtrap DP
+  only (see <a href="../products/#where-products-can-be-published">Products</a>). Unlike the other
+  three, it doesn't host anything itself: it only registers a URL where the Camtrap DP
+  is already hosted (typically one of the repositories above), so its own crawler can
+  index it.</li>
 </ul>
 <hr />
 <h2 id="the-generic-pipeline">The generic pipeline</h2>
@@ -1382,6 +1415,14 @@ different community:</p>
 obtain it the same way: some generate it automatically as part of the publishing
 process itself, while others need it requested manually ahead of time, before
 publishing can happen at all.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">GBIF doesn't follow this same shape</p>
+<p>Steps 3–4 above (build an export, push it) assume the repository hosts a copy of the
+product — GBIF never does. <code>gbif register</code> skips straight from a <code>metadata.json</code>
+description to registering a dataset in the GBIF Registry that points at a URL you
+already host elsewhere (see <a href="../publishing-gbif/">Publishing to GBIF</a>); there is no
+<code>prepare</code>/<code>upload</code> pair for it, and no publishing mode to choose.</p>
 </div>
 <h2 id="publishing-modes">Publishing modes</h2>
 <p>Every repository's export can be built in one of two modes:</p>
@@ -1440,7 +1481,10 @@ relying on it being (or not being) reversible:</p>
   actually becomes public (and gets its PID/DOI, if one wasn't already reserved ahead
   of time) once a moderator approves it, which can take a while and isn't guaranteed to
   happen at all.</li>
-<li><strong><a href="https://www.gbif.org/">GBIF</a></strong> 🔜 — coming soon.</li>
+<li><strong><a href="../publishing-gbif/">GBIF</a></strong> — has no separate locking step: every <code>gbif register</code>
+  run (create or update) is immediately live, and — unlike Zenodo's irreversible
+  <code>release</code> — re-running it later to point at a new URL is always safe; it replaces the
+  dataset's <code>CAMTRAP_DP</code> endpoint in place rather than creating a new version.</li>
 </ul>
 <h2 id="two-ways-to-publish">Two ways to publish</h2>
 <ul>
@@ -1448,7 +1492,7 @@ relying on it being (or not being) reversible:</p>
   (plus <code>sync-doi</code>/<code>sync-pid</code>) are run one at a time, by hand, in the order you choose.
   Only Hugging Face Hub has a combined <code>pipeline</code> command (<code>prepare → upload → release</code>
   in one call); Zenodo and B2SHARE have no such shortcut — run their three commands in
-  sequence yourself.</li>
+  sequence yourself. GBIF's single <code>register</code> command is currently CLI-only.</li>
 <li><strong><a href="../guide-web/">Web App User Guide</a></strong> — a wizard-driven UI covering the same product
   types and repositories. Selecting more than one repository publishes them
   automatically, one after another, and — uniquely to the web app — cross-references
