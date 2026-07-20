@@ -153,15 +153,17 @@ relying on it being (or not being) reversible:
   (plus `sync-doi`/`sync-pid`) are run one at a time, by hand, in the order you choose.
   Only Hugging Face Hub has a combined `pipeline` command (`prepare → upload → release`
   in one call); Zenodo and B2SHARE have no such shortcut — run their three commands in
-  sequence yourself. GBIF's single `register` command is currently CLI-only.
+  sequence yourself. GBIF's single `register` command has no `pipeline` either, since it
+  is itself already a single step.
 - **[Web App User Guide](guide-web.md)** — a wizard-driven UI covering the same product
-  types and repositories. Selecting more than one repository publishes them
-  automatically, one after another, and — uniquely to the web app — cross-references
-  whatever DOI Zenodo/B2SHARE each managed to reserve into the *other's* `CITATION.cff`
-  before either one locks, asking you which one Hugging Face Hub should treat as
-  primary if all three repositories are selected together. This cross-repository DOI
-  reflection isn't available from the CLI; the CLI's own `sync-doi`/`sync-pid` commands
-  only ever push a DOI/PID one way, into a Hugging Face Hub export, and only after the
+  types and repositories, GBIF included (Camtrap DP only). Selecting more than one
+  repository publishes them automatically, one after another, and — uniquely to the web
+  app — cross-references whatever DOI Zenodo/B2SHARE each managed to reserve into the
+  *other's* `CITATION.cff` before either one locks, asking you which one Hugging Face Hub
+  should treat as primary if all three repositories are selected together. This
+  cross-repository DOI reflection isn't available from the CLI; the CLI's own
+  `sync-doi`/`sync-pid` commands only ever push a DOI/PID one way, into a Hugging Face
+  Hub export, and only after the
   source repository has already published.
 
 Each guide has a section per product type, with the exact steps to publish it to every

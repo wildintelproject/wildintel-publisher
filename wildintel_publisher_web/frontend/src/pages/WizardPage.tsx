@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import B2SharePublishForm, { SyncPidSection } from '../components/B2SharePublishForm'
 import type { B2SharePublishConfig } from '../components/B2SharePublishForm'
 import CompleteMetadataForm from '../components/CompleteMetadataForm'
+import GBIFPublishForm from '../components/GBIFPublishForm'
+import type { GBIFPublishConfig } from '../components/GBIFPublishForm'
 import HFHPublishForm from '../components/HFHPublishForm'
 import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
@@ -73,14 +75,15 @@ const REPO_OPTIONS: RepoOption[] = [
   { value: 'hfh', emoji: '🤗', title: 'Hugging Face Hub', description: 'Publish as a dataset repository on Hugging Face Hub.', implemented: true },
   { value: 'zenodo', emoji: '📚', title: 'Zenodo', description: 'Archive the package with a DOI on Zenodo.', implemented: true },
   { value: 'b2share', emoji: '🗄️', title: 'B2SHARE', description: 'Deposit the package into a EUDAT B2SHARE record.', implemented: true },
-  { value: 'gbif', emoji: '🌐', title: 'GBIF', description: 'Publish occurrence data to GBIF.', implemented: false },
+  { value: 'gbif', emoji: '🌐', title: 'GBIF', description: 'Register a Camtrap DP already hosted elsewhere with GBIF, so it gets crawled and indexed.', implemented: true },
 ]
 
-// Which repositories accept which product type — GBIF isn't implemented yet
-// regardless of product type; the other product types aren't selectable yet
-// either, so they have no supported repositories of their own for now.
+// Which repositories accept which product type. GBIF only ever accepts
+// Camtrap DP (biodiversity occurrence data) — YOLO training datasets/models
+// aren't a fit (see docs/publishing-gbif.md). The other product types aren't
+// selectable yet, so they have no supported repositories of their own for now.
 const REPOS_BY_PRODUCT_TYPE: Record<ProductType, RepoId[]> = {
-  camtrapdp: ['hfh', 'zenodo', 'b2share'],
+  camtrapdp: ['hfh', 'zenodo', 'b2share', 'gbif'],
   yolo: ['hfh', 'zenodo', 'b2share'],
   ai_model: [],
   ebv: [],
@@ -140,6 +143,7 @@ interface RepoConfigs {
   hfh?: HfhPublishConfig
   zenodo?: ZenodoPublishConfig
   b2share?: B2SharePublishConfig
+  gbif?: GBIFPublishConfig
 }
 
 export default function WizardPage() {
@@ -221,7 +225,7 @@ export default function WizardPage() {
     setPublishStarted(true)
   }
 
-  function handleConfigured(repo: RepoId, config: HfhPublishConfig | ZenodoPublishConfig | B2SharePublishConfig) {
+  function handleConfigured(repo: RepoId, config: HfhPublishConfig | ZenodoPublishConfig | B2SharePublishConfig | GBIFPublishConfig) {
     setRepoConfigs((c) => ({ ...c, [repo]: config }))
     setConfigureIndex((i) => i + 1)
   }
@@ -273,10 +277,19 @@ export default function WizardPage() {
         mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communities: cfg.communities,
       }
     }
-    const cfg = repoConfigs.b2share!
+    if (repo === 'b2share') {
+      const cfg = repoConfigs.b2share!
+      return {
+        repo: 'b2share' as const, outputDir: cfg.outputDir, token: cfg.token,
+        mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communityId: cfg.communityId,
+      }
+    }
+    const cfg = repoConfigs.gbif!
     return {
-      repo: 'b2share' as const, outputDir: cfg.outputDir, token: cfg.token,
-      mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communityId: cfg.communityId,
+      repo: 'gbif' as const, outputDir: cfg.outputDir, mirrorImages: true, outputMode: 'prepared' as const,
+      archiveUrl: cfg.archiveUrl, environment: cfg.environment,
+      publishingOrganizationKey: cfg.publishingOrganizationKey, installationKey: cfg.installationKey,
+      registryLanguage: cfg.registryLanguage, username: cfg.username, password: cfg.password,
     }
   }
 
@@ -689,9 +702,10 @@ export default function WizardPage() {
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200">Dry run</span>
                   <span className="block text-zinc-500 dark:text-zinc-400">
                     Simulates the whole flow — nothing is actually uploaded to or created on Hugging
-                    Face Hub, Zenodo, or B2SHARE. Zenodo/B2SHARE's DOI is faked, and the DOI
+                    Face Hub, Zenodo, B2SHARE, or GBIF. Zenodo/B2SHARE's DOI is faked, and the DOI
                     cross-referencing step still runs against it, so you can preview exactly how
-                    every repository's CITATION.cff would end up. No token is required in this mode.
+                    every repository's CITATION.cff would end up. No token/credentials are required
+                    in this mode.
                   </span>
                 </span>
               </label>
@@ -761,6 +775,17 @@ export default function WizardPage() {
               dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
               onConfigured={(config) => handleConfigured('b2share', config)}
+            />
+          )}
+          {publishOrder[configureIndex] === 'gbif' && (
+            <GBIFPublishForm
+              dryRun={dryRun}
+              suggestedArchiveUrl={
+                repoConfigs.hfh?.repoId
+                  ? `https://huggingface.co/datasets/${repoConfigs.hfh.repoId}/resolve/main/datapackage.json`
+                  : undefined
+              }
+              onConfigured={(config) => handleConfigured('gbif', config)}
             />
           )}
         </div>

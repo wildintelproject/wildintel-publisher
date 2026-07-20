@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from settings import configure_logging, settings
-from api.routers import b2share, camtrapdp, fs, health, hfh, publish, trapper, zenodo
+from api.routers import b2share, camtrapdp, fs, gbif, health, hfh, publish, trapper, zenodo
 
 configure_logging()
 
@@ -39,6 +39,7 @@ for _router in [
     hfh.router,
     zenodo.router,
     b2share.router,
+    gbif.router,
     publish.router,
 ]:
     app.include_router(_router)

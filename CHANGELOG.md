@@ -19,7 +19,8 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
 ## Upcoming release
 
 ### Added
--
+- Web: publish Camtrap DP to GBIF from the wizard, alongside Hugging Face Hub, Zenodo, and
+  B2SHARE — previously CLI-only.
 
 ## Released
 

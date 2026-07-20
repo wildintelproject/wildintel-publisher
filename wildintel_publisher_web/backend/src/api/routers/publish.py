@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from schemas.requests import PublishAllRequest, RepoPublishConfig
-from services import b2share_service, hfh_service, publish_orchestrator, zenodo_service
+from services import b2share_service, gbif_service, hfh_service, publish_orchestrator, zenodo_service
 
 router = APIRouter(prefix="/api/publish", tags=["publish"])
 
@@ -39,6 +39,7 @@ def _resolve_repo_config(
                 "hfh": hfh_service.get_hfh_output_dir,
                 "zenodo": zenodo_service.get_zenodo_output_dir,
                 "b2share": b2share_service.get_b2share_output_dir,
+                "gbif": gbif_service.get_gbif_output_dir,
             }[cfg.repo]
             data["output_dir"] = str(get_output_dir())
         return data
@@ -71,6 +72,21 @@ def _resolve_repo_config(
         b2share_service.save_config(cfg.environment, cfg.community_id, cfg.token)
         if not data.get("output_dir"):
             data["output_dir"] = str(b2share_service.get_b2share_output_dir())
+    elif cfg.repo == "gbif":
+        if not cfg.archive_url:
+            raise HTTPException(400, "Missing the archive URL where the Camtrap DP is already hosted.")
+        if not cfg.publishing_organization_key or not cfg.installation_key:
+            raise HTTPException(400, "Missing the GBIF publishing organization/installation UUID.")
+        try:
+            data["username"], data["password"] = gbif_service.resolve_credentials(cfg.username, cfg.password)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        gbif_service.save_config(
+            cfg.environment, cfg.publishing_organization_key, cfg.installation_key,
+            cfg.registry_language, cfg.username, cfg.password,
+        )
+        if not data.get("output_dir"):
+            data["output_dir"] = str(gbif_service.get_gbif_output_dir())
 
     return data
 

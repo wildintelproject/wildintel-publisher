@@ -238,6 +238,19 @@ export const api = {
       hfh_token: params.hfhToken,
     }),
 
+  gbifGetConfig: () =>
+    req<{
+      environment: 'sandbox' | 'production'
+      publishing_organization_key: string | null
+      installation_key: string | null
+      registry_language: string | null
+      output_dir: string
+      has_credentials: boolean
+    }>('/api/gbif/config'),
+
+  gbifTestCredentials: (username: string, password: string, environment: string) =>
+    post<{ ok: boolean }>('/api/gbif/test-credentials', { username, password, environment }),
+
   // Publishes every selected repo in one go: upload phase for all of them,
   // then a cross-repo DOI populate pass, then release/lock for all of them
   // (see the backend's services.publish_orchestrator/doi_populate) — the
@@ -253,9 +266,9 @@ export const api = {
     // token/repo_id/community_id is required in this mode.
     dryRun?: boolean
     repos: Array<{
-      repo: 'hfh' | 'zenodo' | 'b2share'
+      repo: 'hfh' | 'zenodo' | 'b2share' | 'gbif'
       outputDir: string
-      token: string
+      token?: string
       mirrorImages: boolean
       outputMode: OutputMode
       repoId?: string
@@ -263,6 +276,13 @@ export const api = {
       environment?: string
       communities?: string
       communityId?: string
+      // gbif-only
+      archiveUrl?: string
+      publishingOrganizationKey?: string
+      installationKey?: string
+      registryLanguage?: string
+      username?: string
+      password?: string
     }>
   }) =>
     post<{ task_id: string }>('/api/publish/start', {
@@ -282,6 +302,12 @@ export const api = {
         environment: r.environment,
         communities: r.communities,
         community_id: r.communityId,
+        archive_url: r.archiveUrl,
+        publishing_organization_key: r.publishingOrganizationKey,
+        installation_key: r.installationKey,
+        registry_language: r.registryLanguage,
+        username: r.username,
+        password: r.password,
       })),
     }),
 

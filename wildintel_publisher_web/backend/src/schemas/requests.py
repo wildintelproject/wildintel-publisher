@@ -154,6 +154,14 @@ class B2ShareSyncPidRequest(BaseModel):
     hfh_token: Optional[str] = None
 
 
+class GBIFTestCredentialsRequest(BaseModel):
+    # Blank means "use what's already saved in settings.toml" — see
+    # services.gbif_service.resolve_credentials.
+    username: Optional[str] = None
+    password: Optional[str] = None
+    environment: Optional[str] = None
+
+
 class RepoPublishConfig(BaseModel):
     """One repo's worth of already-collected configuration — the wizard
     gathers one of these per selected repo (see each PublishForm's
@@ -163,8 +171,14 @@ class RepoPublishConfig(BaseModel):
     repo's own turn to prepare/upload, from whatever the PREVIOUS repo in
     `repos` actually published (see services.publish_orchestrator) — it
     can't be known ahead of time the way it could when each repo published
-    fully on its own, one at a time."""
-    repo: Literal["hfh", "zenodo", "b2share"]
+    fully on its own, one at a time.
+
+    GBIF never uploads or hosts anything of its own — unlike hfh/zenodo/
+    b2share it doesn't prepare a build directory, and archive_url must
+    already point somewhere public (typically another repo in this same
+    list, once it has published — the wizard prefills it from HFH's repo_id
+    when available, see WizardPage's suggestedArchiveUrl)."""
+    repo: Literal["hfh", "zenodo", "b2share", "gbif"]
     output_dir: Optional[str] = None
     token: Optional[str] = None
     mirror_images: bool = True
@@ -176,6 +190,13 @@ class RepoPublishConfig(BaseModel):
     environment: Optional[str] = None
     communities: Optional[str] = None  # zenodo
     community_id: Optional[str] = None  # b2share
+    # gbif-only — see services.gbif_service/wildintel_publisher.services.gbif
+    archive_url: Optional[str] = None
+    publishing_organization_key: Optional[str] = None
+    installation_key: Optional[str] = None
+    registry_language: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 class PublishAllRequest(BaseModel):

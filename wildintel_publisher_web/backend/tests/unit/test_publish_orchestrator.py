@@ -377,3 +377,139 @@ def test_publish_all_requires_b2share_community_id():
             "repos": [{"repo": "b2share", "token": "b2_x", "environment": "sandbox"}],
         })
     assert response.status_code == 400
+
+
+def test_publish_all_requires_gbif_archive_url():
+    with _client() as client:
+        response = client.post("/api/publish/start", json={
+            "input_dir": "/tmp/camtrapdp",
+            "repos": [{
+                "repo": "gbif", "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                "username": "alice", "password": "s3cret",
+            }],
+        })
+    assert response.status_code == 400
+
+
+def test_publish_all_requires_gbif_organization_and_installation_keys():
+    with _client() as client:
+        response = client.post("/api/publish/start", json={
+            "input_dir": "/tmp/camtrapdp",
+            "repos": [{
+                "repo": "gbif", "archive_url": "https://example.org/datapackage.json",
+                "username": "alice", "password": "s3cret",
+            }],
+        })
+    assert response.status_code == 400
+
+
+def test_publish_all_requires_gbif_credentials():
+    with _client() as client:
+        response = client.post("/api/publish/start", json={
+            "input_dir": "/tmp/camtrapdp",
+            "repos": [{
+                "repo": "gbif", "archive_url": "https://example.org/datapackage.json",
+                "publishing_organization_key": "org-1", "installation_key": "inst-1",
+            }],
+        })
+    assert response.status_code == 400
+
+
+def test_publish_all_single_gbif_repo_registers_dataset(tmp_path):
+    """GBIF never prepares/uploads files of its own (see the module's own
+    docstring) — its one real network call happens directly in the lock
+    phase, reading title/description/license straight from the task's
+    ORIGINAL input_dir (its own build_dir is never populated)."""
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with patch(
+        "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+        return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/abc-123"},
+    ) as mock_register:
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [{
+                    "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
+                    "archive_url": "https://example.org/datapackage.json",
+                    "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                    "username": "alice", "password": "s3cret", "environment": "sandbox",
+                }],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert body["repos"]["gbif"]["status"] == "done"
+    assert body["repos"]["gbif"]["repo_url"] == "https://registry.gbif-test.org/dataset/abc-123"
+    mock_register.assert_called_once()
+    assert mock_register.call_args.args[0] == "https://example.org/datapackage.json"
+    assert mock_register.call_args.args[1] == _tmp(tmp_path, "gbif")
+    assert mock_register.call_args.kwargs["title"] == "T"
+    assert mock_register.call_args.kwargs["publishing_organization_key"] == "org-1"
+
+
+def test_publish_all_gbif_dry_run_fakes_a_dataset_url_without_network(tmp_path):
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with patch("services.publish_orchestrator.gbif_cli.register_gbif_dataset") as mock_register:
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir), "dry_run": True,
+                "repos": [{"repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")), "environment": "sandbox"}],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    mock_register.assert_not_called()
+    assert body["repos"]["gbif"]["repo_url"].startswith("https://registry.gbif-test.org/dataset/dry-run-")
+
+
+def test_publish_all_hfh_then_gbif_chains_without_breaking_doi_populate(tmp_path):
+    """GBIF has no CITATION.cff of its own — this proves doi_populate.populate()
+    (which only knows about hfh/zenodo/b2share) never even sees it, and that
+    chaining past a GBIF step doesn't try to extract core files out of its
+    (never populated) build_dir."""
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_hfh(output_dir, **kwargs):
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", return_value=None),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch(
+            "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+            return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/xyz"},
+        ) as mock_register,
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {
+                        "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
+                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/datapackage.json",
+                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                        "username": "alice", "password": "s3cret", "environment": "sandbox",
+                    },
+                ],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert body["repos"]["hfh"]["repo_url"] == "https://huggingface.co/datasets/alice/dataset"
+    assert body["repos"]["gbif"]["repo_url"] == "https://registry.gbif-test.org/dataset/xyz"
+    mock_register.assert_called_once()

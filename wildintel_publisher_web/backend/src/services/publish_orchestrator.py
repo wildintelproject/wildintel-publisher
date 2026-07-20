@@ -28,6 +28,17 @@ Only after step 3 are the product's own core files copied into each
 repo's user-configured output_dir (see copy_prepared_output_files) and the
 throwaway build directories deleted.
 
+GBIF is not like the other three: it never prepares or uploads any files of
+its own — it only registers, in GBIF's Registry, a dataset whose CAMTRAP_DP
+endpoint points at a URL where the Camtrap DP is already hosted elsewhere
+(archive_url, typically another repo in the same `repos` list, once THAT
+one has published). So for repo == "gbif": phase 1 (_upload_one) is a
+no-op, it's excluded from the DOI cross-referencing dict entirely (it has no
+CITATION.cff of its own), and phase 3 (_lock_one) is where its one real
+network call happens — directly against its user-configured output_dir
+(there's nothing to stage in a temporary build_dir first, unlike the other
+three).
+
 Dry run (dry_run=True on start_publish_all_task): every step above still
 runs, EXCEPT the actual network upload/release calls to Zenodo/B2SHARE/HFH,
 which are replaced by the _dry_run_* helpers below — a synthetic record
@@ -49,6 +60,7 @@ from typing import Any
 from wildintel_publisher.config import load_settings
 from wildintel_publisher.services import b2share as b2share_cli
 from wildintel_publisher.services import doi_populate
+from wildintel_publisher.services import gbif as gbif_cli
 from wildintel_publisher.services import hfh as hfh_cli
 from wildintel_publisher.services import product
 from wildintel_publisher.services import zenodo as zenodo_cli
@@ -160,6 +172,11 @@ async def _upload_one(
             repo_status["repo_url"] = repo_url
         return
 
+    if repo == "gbif":
+        # Nothing to prepare/upload — see the module's own docstring. Its
+        # one real network call happens later, in _lock_one.
+        return
+
     hfh_repo_id = cfg.get("hfh_repo_id")
     if hfh_repo_id is None and not cfg["mirror_images"]:
         hfh_repo_id = await asyncio.to_thread(_detect_hfh_repo_id, input_dir)
@@ -228,15 +245,23 @@ async def _reupload_one(cfg: dict, *, build_dir: Path, dry_run: bool) -> None:
         )
 
 
-async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
+async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
     """Phase 3: release_on_zenodo/release_on_b2share, or
-    tag_release_on_huggingface+release_on_huggingface for HFH.
+    tag_release_on_huggingface+release_on_huggingface for HFH — or, for
+    GBIF, the one and only network call it ever makes (see the module's own
+    docstring).
 
     In dry_run, Zenodo/B2SHARE just flip their own simulated record's
     "published" flag (same doi/pid reserved back in _upload_one — a real
     release never changes the identifier, just publishes it); HFH has
     nothing to tag/release for real, so repo_status is filled from the
-    repo_url _dry_run_upload_hfh already set."""
+    repo_url _dry_run_upload_hfh already set; GBIF fakes a plausible
+    dataset_page_url instead of calling the Registry API.
+
+    `input_dir` is the publish task's ORIGINAL input directory (untouched by
+    any other repo's own build_dir) — only GBIF reads it, for the product's
+    title/description/license, since its own build_dir was never populated
+    (see _upload_one)."""
     repo = cfg["repo"]
     repo_status["stage"] = "releasing"
     if repo == "hfh":
@@ -271,6 +296,32 @@ async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: b
             record = await asyncio.to_thread(b2share_cli.release_on_b2share, build_dir, token=cfg["token"])
         repo_status["pid"] = record.get("pid")
         repo_status["repo_url"] = record.get("record_url")
+    elif repo == "gbif":
+        if dry_run:
+            dataset_key = f"dry-run-{_dry_run_id()}"
+            environment = cfg.get("environment") or "sandbox"
+            host = "www.gbif.org" if environment == "production" else "registry.gbif-test.org"
+            repo_status["repo_url"] = f"https://{host}/dataset/{dataset_key}"
+            return
+        meta = await asyncio.to_thread(product.read_metadata_json, input_dir)
+        if meta.get("product_type") != product.CAMTRAPDP:
+            raise RuntimeError(
+                f"GBIF only accepts Camtrap DP (biodiversity occurrence data) — {input_dir} is a "
+                f"{meta.get('product_type')!r} product."
+            )
+        license_info = meta.get("license") or {}
+        record = await asyncio.to_thread(
+            gbif_cli.register_gbif_dataset,
+            cfg["archive_url"], Path(cfg["output_dir"]),
+            environment=cfg.get("environment") or "sandbox",
+            publishing_organization_key=cfg.get("publishing_organization_key"),
+            installation_key=cfg.get("installation_key"),
+            username=cfg.get("username"), password=cfg.get("password"),
+            title=meta["title"], description=meta["description"],
+            license_url=license_info.get("url") or "",
+            registry_language=cfg.get("registry_language") or "eng",
+        )
+        repo_status["repo_url"] = record.get("dataset_page_url")
 
 
 async def _extract_chain_input(build_dir: Path) -> Path:
@@ -311,6 +362,13 @@ async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str,
     repo = cfg["repo"]
     output_dir = Path(cfg["output_dir"])
     output_mode = cfg.get("output_mode", "prepared")
+
+    if repo == "gbif":
+        # register_gbif_dataset already wrote gbif_linked_dataset_record.json
+        # straight into output_dir itself (see _lock_one) — there's no
+        # build_dir content to copy, and no "downloaded"/"passthrough" choice
+        # that would mean anything for a repo that never hosts a copy.
+        return str(output_dir)
 
     if repo == "hfh":
         await asyncio.to_thread(hfh_service.copy_prepared_output_files, output_dir=build_dir, target_dir=output_dir)
@@ -369,11 +427,19 @@ def start_publish_all_task(
                     cfg, input_dir=current_input_dir, build_dir=build_dir, settings=settings,
                     repo_status=repo_status, dry_run=dry_run,
                 )
-                if i < len(repos) - 1:
+                # GBIF never transforms the product (see _upload_one) — the
+                # next repo in the chain keeps whatever input the CURRENT one
+                # got, rather than trying to extract core files out of GBIF's
+                # own (empty) build_dir.
+                if i < len(repos) - 1 and repo != "gbif":
                     current_input_dir = await _extract_chain_input(build_dir)
                     chain_dirs.append(current_input_dir)
 
-            changed = await asyncio.to_thread(doi_populate.populate, build_dirs, primary_doi_source=primary_doi_source)
+            # GBIF has no CITATION.cff of its own to cross-reference DOIs
+            # into — excluded here so doi_populate.populate() (which only
+            # knows about hfh/zenodo/b2share) never sees it.
+            doi_dirs = {repo: d for repo, d in build_dirs.items() if repo != "gbif"}
+            changed = await asyncio.to_thread(doi_populate.populate, doi_dirs, primary_doi_source=primary_doi_source)
             for cfg in repos:
                 if changed.get(cfg["repo"]):
                     await _reupload_one(cfg, build_dir=build_dirs[cfg["repo"]], dry_run=dry_run)
@@ -383,7 +449,7 @@ def start_publish_all_task(
                 repo = cfg["repo"]
                 repo_status = _publish_tasks[task_id]["repos"][repo]
                 build_dir = build_dirs[repo]
-                await _lock_one(cfg, build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
+                await _lock_one(cfg, input_dir=input_dir, build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
                 final_output_dir = await _finalize_one(
                     cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
                 )

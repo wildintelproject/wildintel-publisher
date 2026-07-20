@@ -27,6 +27,8 @@ vi.mock('../api', () => ({
     b2shareGetConfig: vi.fn(),
     b2shareTestToken: vi.fn(),
     b2shareSyncPid: vi.fn(),
+    gbifGetConfig: vi.fn(),
+    gbifTestCredentials: vi.fn(),
     publishAllStart: vi.fn(),
     publishAllStatus: vi.fn(),
   },
@@ -45,6 +47,10 @@ beforeEach(() => {
   })
   mockedApi.b2shareGetConfig.mockResolvedValue({
     environment: 'sandbox', community_id: null, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false,
+  })
+  mockedApi.gbifGetConfig.mockResolvedValue({
+    environment: 'sandbox', publishing_organization_key: null, installation_key: null,
+    registry_language: 'eng', output_dir: '/gbif/output', has_credentials: false,
   })
 })
 
@@ -273,14 +279,14 @@ describe('WizardPage publish step', () => {
     expect(screen.getByText('Where do you want to publish it?')).toBeInTheDocument()
   })
 
-  it('shows Hugging Face Hub, Zenodo and B2SHARE enabled, and GBIF disabled', async () => {
+  it('shows Hugging Face Hub, Zenodo, B2SHARE and GBIF all enabled for Camtrap DP', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     expect(screen.getByRole('button', { name: /hugging face hub/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /zenodo/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /b2share/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /gbif/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /gbif/i })).toBeEnabled()
   })
 
   it('does not show any publish form while still choosing repositories', async () => {
@@ -336,6 +342,18 @@ describe('WizardPage publish step', () => {
     // settings.toml config-load effect before interacting with it further.
     await act(async () => {})
     expect(screen.getByRole('heading', { name: /configure b2share/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+  })
+
+  it('shows the GBIF configuration form after starting publishing with only GBIF selected', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await act(async () => {})
+    expect(screen.getByRole('heading', { name: /configure gbif/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
   })
 
@@ -442,6 +460,23 @@ describe('WizardPage publish order', () => {
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
     expect(screen.getByText(/Hugging Face Hub, Zenodo/)).toBeInTheDocument()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
+  })
+
+  it('prefills the GBIF archive URL from an earlier Hugging Face Hub step in the same order', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+
+    await screen.findByRole('heading', { name: /configure gbif/i })
+    await act(async () => {})
+    expect(screen.getByLabelText('Archive URL')).toHaveValue(
+      'https://huggingface.co/datasets/alice/dataset/resolve/main/datapackage.json',
+    )
   })
 
   it('asks which DOI is primary for HFH only when hfh + zenodo + b2share are all selected, then passes the choice along', async () => {
