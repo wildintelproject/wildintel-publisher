@@ -247,6 +247,11 @@ export const api = {
     version?: string
     timeout?: number
     primaryDoiSource?: 'zenodo' | 'b2share'
+    // If true, nothing is actually uploaded/created/released anywhere —
+    // Zenodo/B2SHARE's DOI reservation is simulated instead, so the DOI
+    // cross-referencing step still has something real to work with. No
+    // token/repo_id/community_id is required in this mode.
+    dryRun?: boolean
     repos: Array<{
       repo: 'hfh' | 'zenodo' | 'b2share'
       outputDir: string
@@ -265,6 +270,7 @@ export const api = {
       version: params.version,
       timeout: params.timeout,
       primary_doi_source: params.primaryDoiSource,
+      dry_run: params.dryRun ?? false,
       repos: params.repos.map((r) => ({
         repo: r.repo,
         output_dir: r.outputDir,
@@ -283,6 +289,7 @@ export const api = {
     req<{
       status: 'running' | 'done' | 'error'
       error: string | null
+      dry_run: boolean
       repos: Record<string, {
         status: 'pending' | 'running' | 'done' | 'error'
         stage: string

@@ -88,6 +88,14 @@ B2SHARE_PID_DESCRIPTION = "B2SHARE (EUDAT) dataset record PID/DOI"
 # cámaras-trampa de tamaño real.
 SELF_CONTAINED_ZIP_FILENAME = "camtrapdp.zip"
 
+
+def _self_contained_zip_filename(product_type: str) -> str:
+    """Named per product type — SELF_CONTAINED_ZIP_FILENAME is only the
+    Camtrap DP name; other product types (e.g. yolo) get their own
+    type-named zip instead of a filename that only makes sense for
+    Camtrap DP."""
+    return SELF_CONTAINED_ZIP_FILENAME if product_type == product.CAMTRAPDP else f"{product_type}.zip"
+
 # Marcador del CITATION.cff/README.md de --self-contained (link mode ya
 # apunta a una URL real, la de HuggingFace Hub, así que no necesita
 # marcador) — sustituido por la URL del resolver del DOI en cuanto
@@ -187,8 +195,9 @@ def prepare_b2share_export(
         repository_code="https://github.com/wildintelproject/wildintel-publisher",
     )
     if self_contained:
-        adapter.bundle_local_zip(output_dir, output_dir / SELF_CONTAINED_ZIP_FILENAME, embed_images=True)
-        common.cleanup_self_contained_sources(output_dir, adapter, product_meta, SELF_CONTAINED_ZIP_FILENAME)
+        zip_filename = _self_contained_zip_filename(adapter.product_type)
+        adapter.bundle_local_zip(output_dir, output_dir / zip_filename, embed_images=True)
+        common.cleanup_self_contained_sources(output_dir, adapter, product_meta, zip_filename)
     common.write_checksums(output_dir)
 
     mode = "self-contained (with images, exactly like zenodo)" if self_contained else (
@@ -222,7 +231,7 @@ def write_readme(
         description=description,
         hfh_repo_id=hfh_repo_id_display,
         self_contained=self_contained,
-        zip_filename=SELF_CONTAINED_ZIP_FILENAME,
+        zip_filename=_self_contained_zip_filename(adapter.product_type),
         license_id=license_id,
         repository_code="https://github.com/wildintelproject/wildintel-publisher",
         record_noun="record",

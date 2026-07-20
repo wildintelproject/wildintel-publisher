@@ -36,6 +36,10 @@ interface Props {
    * publishing enforces this for real regardless (hfh.upload_to_huggingface's
    * own check) — this is just an early heads-up. */
   productVersion?: string
+  /** No repo_id/token is required, and "Test token" is pointless, when the
+   * whole publish is a simulation (see WizardPage's dryRun) — nothing is
+   * ever actually sent to Hugging Face Hub. */
+  dryRun?: boolean
   /** Reports this form's current output directory whenever it changes, so a
    * later step in the publish order can use it as its own inputDir. */
   onOutputDirChange?: (dir: string) => void
@@ -51,7 +55,7 @@ function slugifyRepoName(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '')
 }
 
-export default function HFHPublishForm({ productTitle, productVersion, onOutputDirChange, onConfigured }: Props) {
+export default function HFHPublishForm({ productTitle, productVersion, dryRun, onOutputDirChange, onConfigured }: Props) {
   const [form, setForm] = useState({ outputDir: '', hfUser: '', repoName: '', token: '' })
   const [mirrorImages, setMirrorImages] = useState(true)
   const [outputMode, setOutputMode] = useState<OutputMode>('prepared')
@@ -104,7 +108,9 @@ export default function HFHPublishForm({ productTitle, productVersion, onOutputD
 
   const canTest = repoId !== '' && (form.token !== '' || hasSavedToken)
   const isTesting = test.status === 'testing'
-  const canContinue = repoId !== '' && form.outputDir !== '' && (form.token !== '' || hasSavedToken)
+  const canContinue = dryRun
+    ? form.outputDir !== ''
+    : repoId !== '' && form.outputDir !== '' && (form.token !== '' || hasSavedToken)
 
   async function handleTestToken() {
     setTest({ status: 'testing', message: '' })
@@ -186,12 +192,16 @@ export default function HFHPublishForm({ productTitle, productVersion, onOutputD
           (write permission).
         </p>
 
-        <div className="flex justify-end mt-2">
-          <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
-            {isTesting && <SmallSpinner />}
-            {isTesting ? 'Testing…' : 'Test token'}
-          </button>
-        </div>
+        {dryRun ? (
+          <p className={hintClass + ' text-right'}>Not required for a dry run.</p>
+        ) : (
+          <div className="flex justify-end mt-2">
+            <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
+              {isTesting && <SmallSpinner />}
+              {isTesting ? 'Testing…' : 'Test token'}
+            </button>
+          </div>
+        )}
         {test.status === 'ok' && (
           <p className="text-sm text-emerald-600 dark:text-emerald-400 text-right mt-2">{test.message}</p>
         )}

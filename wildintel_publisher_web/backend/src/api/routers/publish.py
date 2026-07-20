@@ -14,15 +14,34 @@ from services import b2share_service, hfh_service, publish_orchestrator, zenodo_
 router = APIRouter(prefix="/api/publish", tags=["publish"])
 
 
-def _resolve_repo_config(cfg: RepoPublishConfig, *, version: str | None, timeout: int | None) -> dict:
+def _resolve_repo_config(
+    cfg: RepoPublishConfig, *, version: str | None, timeout: int | None, dry_run: bool,
+) -> dict:
     """Validates/resolves what each single-repo publish router already did
     (token fallback to settings.toml, required fields, output_dir default)
     before handing the config off to the orchestrator — see
     services.hfh_service/zenodo_service/b2share_service's own resolve_token/
-    save_config, reused here unchanged."""
+    save_config, reused here unchanged.
+
+    In dry_run, none of that applies: no token/repo_id/community_id is
+    required (the publish never actually reaches a real repository, so
+    there's nothing to authenticate against or create), and nothing gets
+    written to settings.toml — a dry run must not have side effects on the
+    user's saved configuration."""
     data = cfg.model_dump()
     data["version"] = version
     data["timeout"] = timeout
+
+    if dry_run:
+        data["token"] = cfg.token or "dry-run"
+        if not data.get("output_dir"):
+            get_output_dir = {
+                "hfh": hfh_service.get_hfh_output_dir,
+                "zenodo": zenodo_service.get_zenodo_output_dir,
+                "b2share": b2share_service.get_b2share_output_dir,
+            }[cfg.repo]
+            data["output_dir"] = str(get_output_dir())
+        return data
 
     if cfg.repo == "hfh":
         if not cfg.repo_id:
@@ -63,10 +82,14 @@ async def start(req: PublishAllRequest) -> dict:
     if not req.repos:
         raise HTTPException(400, "No repositories to publish to.")
 
-    resolved_repos = [_resolve_repo_config(cfg, version=req.version, timeout=req.timeout) for cfg in req.repos]
+    resolved_repos = [
+        _resolve_repo_config(cfg, version=req.version, timeout=req.timeout, dry_run=req.dry_run)
+        for cfg in req.repos
+    ]
 
     task_id = publish_orchestrator.start_publish_all_task(
         input_dir=Path(req.input_dir), repos=resolved_repos, primary_doi_source=req.primary_doi_source,
+        dry_run=req.dry_run,
     )
     return {"task_id": task_id}
 

@@ -10,6 +10,12 @@ Expected layout:
     │   └── ...
     └── test/          (optional — train/val are required, test isn't)
         └── ...
+    labels/              (optional — YOLO training labels, one .txt per image,
+    ├── train/            same train/val/test split layout as images/; not
+    │   └── ...            read or validated by this tool, just carried
+    ├── val/                along if present)
+    └── test/
+        └── ...
     data.yaml
 
 data.yaml is the standard YOLO config (train/val/test split paths, nc,
@@ -28,6 +34,7 @@ regardless of the "Mode" (Mirror/Link) the user picked in the wizard.
 from __future__ import annotations
 
 import shutil
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -36,12 +43,26 @@ from wildintel_publisher.services import product
 
 DATA_YAML_FILENAME = "data.yaml"
 IMAGES_DIRNAME = "images"
+LABELS_DIRNAME = "labels"
 REQUIRED_SPLITS = ["train", "val"]
 OPTIONAL_SPLITS = ["test"]
 
 
 def _data_yaml_path(directory: Path) -> Path:
     return directory / DATA_YAML_FILENAME
+
+
+def _copy_splits(source_dir: Path, target_dir: Path, dirname: str) -> None:
+    """Copies each existing split (train/val/test) of `dirname` (images or
+    labels) from source_dir/dirname/<split> to target_dir/dirname/<split> —
+    a no-op for a split that doesn't exist in source_dir (e.g. no labels/ at
+    all, or no optional test/ split)."""
+    source_root = source_dir / dirname
+    target_root = target_dir / dirname
+    for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
+        split_dir = source_root / split
+        if split_dir.is_dir():
+            shutil.copytree(split_dir, target_root / split, dirs_exist_ok=True)
 
 
 def _load_data_yaml(directory: Path) -> dict:
@@ -131,19 +152,16 @@ class YoloAdapter:
         # image_timeout is accepted for interface parity with
         # CamtrapDPAdapter but unused: the images are already local files,
         # nothing to download. mirror does matter, though, same as Camtrap
-        # DP: True copies the images/ tree alongside data.yaml (the repo
-        # ends up self-contained); False copies only data.yaml — there's no
-        # "link to an external host" for YOLO images, so link mode simply
-        # means the images aren't part of this particular publish.
+        # DP: True copies the images/ (and labels/, if present) tree
+        # alongside data.yaml (the repo ends up self-contained); False
+        # copies only data.yaml — there's no "link to an external host" for
+        # YOLO images, so link mode simply means the images/labels aren't
+        # part of this particular publish.
         shutil.copy2(_data_yaml_path(input_dir), _data_yaml_path(output_dir))
 
         if mirror:
-            images_dir = input_dir / IMAGES_DIRNAME
-            output_images_dir = output_dir / IMAGES_DIRNAME
-            for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
-                split_dir = images_dir / split
-                if split_dir.is_dir():
-                    shutil.copytree(split_dir, output_images_dir / split, dirs_exist_ok=True)
+            _copy_splits(input_dir, output_dir, IMAGES_DIRNAME)
+            _copy_splits(input_dir, output_dir, LABELS_DIRNAME)
             self.validate(output_dir)
         else:
             _load_data_yaml(output_dir)  # at least confirm the copy is valid YAML
@@ -153,13 +171,27 @@ class YoloAdapter:
         data_yaml_source = _data_yaml_path(output_dir)
         if data_yaml_source.is_file():
             shutil.copy2(data_yaml_source, _data_yaml_path(target_dir))
+            _copy_splits(output_dir, target_dir, IMAGES_DIRNAME)
+            _copy_splits(output_dir, target_dir, LABELS_DIRNAME)
+            return
 
-        images_dir = output_dir / IMAGES_DIRNAME
-        target_images_dir = target_dir / IMAGES_DIRNAME
-        for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
-            split_dir = images_dir / split
-            if split_dir.is_dir():
-                shutil.copytree(split_dir, target_images_dir / split, dirs_exist_ok=True)
+        # --self-contained mode already bundled data.yaml/images/labels into a
+        # zip and removed the loose copies (see bundle_local_zip/
+        # common.cleanup_self_contained_sources) — pull them back out of that
+        # zip instead, so this repo's own "prepared" output
+        # (output_mode='prepared') and whatever repo comes next in the
+        # publish order (see services.publish_orchestrator's chaining) still
+        # get something usable.
+        zip_path = next(output_dir.glob("*.zip"), None)
+        if zip_path is None:
+            return
+        with zipfile.ZipFile(zip_path) as zf:
+            for name in zf.namelist():
+                if name.endswith("/"):
+                    continue
+                destination = target_dir / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(zf.read(name))
 
     def link_media_to_hfh(self, output_dir: Path, hfh_repo_id: str) -> int:
         return 0  # nothing to rewrite — images/ has no remote-URL references

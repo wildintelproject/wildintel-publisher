@@ -27,11 +27,19 @@ RepoPublishConfig):
 Only after step 3 are the product's own core files copied into each
 repo's user-configured output_dir (see copy_prepared_output_files) and the
 throwaway build directories deleted.
-"""
+
+Dry run (dry_run=True on start_publish_all_task): every step above still
+runs, EXCEPT the actual network upload/release calls to Zenodo/B2SHARE/HFH,
+which are replaced by the _dry_run_* helpers below — a synthetic record
+(fake-but-well-formed DOI/PID) is written to disk instead of a real one, so
+the populate phase's cross-referencing logic runs completely for real
+against it. prepare_*_export (local file generation) and doi_populate.
+populate() itself are never mocked — only the network boundary is."""
 from __future__ import annotations
 
 import asyncio
 import json
+import random
 import shutil
 import tempfile
 import uuid
@@ -49,7 +57,51 @@ from services import b2share_service, camtrapdp_service, hfh_service, zenodo_ser
 
 DEFAULT_TIMEOUT = 60
 
+# Unmistakably fake — never a real DOI registrant prefix — so a dry-run
+# record can never be confused with (or accidentally look up) a real DOI.
+DRY_RUN_DOI_PREFIX = "10.0000/dry-run"
+
 _publish_tasks: dict[str, dict[str, Any]] = {}
+
+
+def _dry_run_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def _dry_run_upload_hfh(cfg: dict, *, repo_status: dict) -> None:
+    """Simulated 'upload_to_huggingface' — no HTTP call, just a plausible
+    repo_url for the UI/CITATION.cff to display."""
+    repo_id = cfg.get("repo_id") or f"dry-run/{_dry_run_id()}"
+    repo_status["repo_url"] = f"https://huggingface.co/datasets/{repo_id}"
+
+
+def _dry_run_zenodo_record(cfg: dict) -> dict:
+    """Simulated 'upload_to_zenodo' response — a synthetic zenodo_record.json
+    with a fake-but-well-formed DOI, real enough for doi_populate.populate()
+    (which only cares that the 'doi' field is a non-empty string) to
+    cross-reference it into every other repo's CITATION.cff, same as a real
+    reserved DOI would be."""
+    deposition_id = random.randint(1_000_000, 9_999_999)
+    environment = cfg.get("environment") or "sandbox"
+    host = "zenodo.org" if environment == "production" else "sandbox.zenodo.org"
+    return {
+        "deposition_id": deposition_id, "environment": environment,
+        "doi": f"{DRY_RUN_DOI_PREFIX}/zenodo.{deposition_id}",
+        "record_url": f"https://{host}/records/{deposition_id}", "published": False,
+    }
+
+
+def _dry_run_b2share_record(cfg: dict) -> dict:
+    """Simulated 'upload_to_b2share' response — same idea as
+    _dry_run_zenodo_record, with B2SHARE's own field names (pid/pid_kind)."""
+    record_id = _dry_run_id()
+    environment = cfg.get("environment") or "sandbox"
+    host = "b2share.eudat.eu" if environment == "production" else "trng-b2share.eudat.eu"
+    return {
+        "record_id": record_id, "environment": environment,
+        "pid": f"{DRY_RUN_DOI_PREFIX}/b2share.{record_id}", "pid_kind": "doi",
+        "record_url": f"https://{host}/records/{record_id}", "published": False,
+    }
 
 
 def _initial_repo_status() -> dict:
@@ -75,10 +127,17 @@ def _detect_hfh_repo_id(input_dir: Path) -> str | None:
     return camtrapdp_service.detect_hfh_repo_id(meta.get("homepage"))
 
 
-async def _upload_one(cfg: dict, *, input_dir: Path, build_dir: Path, settings, repo_status: dict) -> None:
+async def _upload_one(
+    cfg: dict, *, input_dir: Path, build_dir: Path, settings, repo_status: dict, dry_run: bool,
+) -> None:
     """Phase 1 (and re-run as-is during phase 2 for a changed repo, minus
     the 'preparing' half — see _reupload_one): prepare + upload a single
-    repo into its own build_dir."""
+    repo into its own build_dir.
+
+    prepare_*_export always runs for real, dry_run or not — it's pure local
+    file generation (no network), and it's what gives doi_populate() and the
+    UI real files to work with. Only the actual network upload is
+    swapped out for a simulated one in dry_run (see the _dry_run_* helpers)."""
     repo = cfg["repo"]
     version = cfg.get("version")
     timeout = cfg.get("timeout") or DEFAULT_TIMEOUT
@@ -91,11 +150,14 @@ async def _upload_one(cfg: dict, *, input_dir: Path, build_dir: Path, settings, 
             mirror_images=cfg["mirror_images"],
         )
         repo_status["stage"] = "uploading"
-        repo_url = await asyncio.to_thread(
-            hfh_cli.upload_to_huggingface, build_dir, repo_id=cfg["repo_id"], token=cfg["token"],
-            private=cfg["private"], mirror_images=cfg["mirror_images"],
-        )
-        repo_status["repo_url"] = repo_url
+        if dry_run:
+            _dry_run_upload_hfh(cfg, repo_status=repo_status)
+        else:
+            repo_url = await asyncio.to_thread(
+                hfh_cli.upload_to_huggingface, build_dir, repo_id=cfg["repo_id"], token=cfg["token"],
+                private=cfg["private"], mirror_images=cfg["mirror_images"],
+            )
+            repo_status["repo_url"] = repo_url
         return
 
     hfh_repo_id = cfg.get("hfh_repo_id")
@@ -111,10 +173,14 @@ async def _upload_one(cfg: dict, *, input_dir: Path, build_dir: Path, settings, 
             version=version or zenodo_cli.DEFAULT_VERSION, image_timeout=timeout, overwrite=True,
         )
         repo_status["stage"] = "uploading"
-        await asyncio.to_thread(
-            zenodo_cli.upload_to_zenodo, build_dir, token=cfg["token"], environment=cfg["environment"],
-            communities=cfg.get("communities"), hfh_repo_id=hfh_repo_id,
-        )
+        if dry_run:
+            record = _dry_run_zenodo_record(cfg)
+            (build_dir / zenodo_cli.RECORD_FILENAME).write_text(json.dumps(record, indent=2), encoding="utf-8")
+        else:
+            await asyncio.to_thread(
+                zenodo_cli.upload_to_zenodo, build_dir, token=cfg["token"], environment=cfg["environment"],
+                communities=cfg.get("communities"), hfh_repo_id=hfh_repo_id,
+            )
     elif repo == "b2share":
         repo_status["stage"] = "preparing"
         await asyncio.to_thread(
@@ -123,17 +189,27 @@ async def _upload_one(cfg: dict, *, input_dir: Path, build_dir: Path, settings, 
             version=version or b2share_cli.DEFAULT_VERSION, image_timeout=timeout, overwrite=True,
         )
         repo_status["stage"] = "uploading"
-        await asyncio.to_thread(
-            b2share_cli.upload_to_b2share, build_dir, token=cfg["token"], environment=cfg["environment"],
-            community_id=cfg["community_id"], hfh_repo_id=hfh_repo_id,
-        )
+        if dry_run:
+            record = _dry_run_b2share_record(cfg)
+            (build_dir / b2share_cli.RECORD_FILENAME).write_text(json.dumps(record, indent=2), encoding="utf-8")
+        else:
+            await asyncio.to_thread(
+                b2share_cli.upload_to_b2share, build_dir, token=cfg["token"], environment=cfg["environment"],
+                community_id=cfg["community_id"], hfh_repo_id=hfh_repo_id,
+            )
 
 
-async def _reupload_one(cfg: dict, *, build_dir: Path) -> None:
+async def _reupload_one(cfg: dict, *, build_dir: Path, dry_run: bool) -> None:
     """Phase 2: re-pushes a repo's already-uploaded files after populate()
     patched its CITATION.cff/README.md — reuses the same draft/deposition/
     repository (see each upload_to_X's own docstring: calling it again is
-    safe and expected for exactly this)."""
+    safe and expected for exactly this).
+
+    In dry_run there's no real destination to re-push to — the (already
+    simulated) record file doesn't need to change just because populate()
+    patched CITATION.cff, so this is a no-op."""
+    if dry_run:
+        return
     repo = cfg["repo"]
     if repo == "hfh":
         await asyncio.to_thread(
@@ -152,12 +228,20 @@ async def _reupload_one(cfg: dict, *, build_dir: Path) -> None:
         )
 
 
-async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict) -> None:
+async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
     """Phase 3: release_on_zenodo/release_on_b2share, or
-    tag_release_on_huggingface+release_on_huggingface for HFH."""
+    tag_release_on_huggingface+release_on_huggingface for HFH.
+
+    In dry_run, Zenodo/B2SHARE just flip their own simulated record's
+    "published" flag (same doi/pid reserved back in _upload_one — a real
+    release never changes the identifier, just publishes it); HFH has
+    nothing to tag/release for real, so repo_status is filled from the
+    repo_url _dry_run_upload_hfh already set."""
     repo = cfg["repo"]
     repo_status["stage"] = "releasing"
     if repo == "hfh":
+        if dry_run:
+            return
         meta = await asyncio.to_thread(product.read_metadata_json, build_dir)
         version = meta.get("version") or hfh_cli.DEFAULT_VERSION
         await asyncio.to_thread(
@@ -168,21 +252,62 @@ async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict) -> None:
             dry_run=False, verify_only=False,
         )
     elif repo == "zenodo":
-        record = await asyncio.to_thread(zenodo_cli.release_on_zenodo, build_dir, token=cfg["token"])
+        if dry_run:
+            record_path = build_dir / zenodo_cli.RECORD_FILENAME
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["published"] = True
+            record_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        else:
+            record = await asyncio.to_thread(zenodo_cli.release_on_zenodo, build_dir, token=cfg["token"])
         repo_status["doi"] = record.get("doi")
         repo_status["repo_url"] = record.get("record_url")
     elif repo == "b2share":
-        record = await asyncio.to_thread(b2share_cli.release_on_b2share, build_dir, token=cfg["token"])
+        if dry_run:
+            record_path = build_dir / b2share_cli.RECORD_FILENAME
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["published"] = True
+            record_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        else:
+            record = await asyncio.to_thread(b2share_cli.release_on_b2share, build_dir, token=cfg["token"])
         repo_status["pid"] = record.get("pid")
         repo_status["repo_url"] = record.get("record_url")
 
 
-async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str) -> str:
+async def _extract_chain_input(build_dir: Path) -> Path:
+    """The next repo in the publish order must never receive the previous
+    repo's raw build_dir as its own input_dir — that directory also carries
+    the previous repo's own extras (README.md, LICENSE, CITATION.cff,
+    checksums-sha256.txt, images/, its zip...), and in --self-contained mode
+    the product's own core files (datapackage.json/media.csv/... or
+    data.yaml/images/labels) have already been bundled into a zip and
+    deleted from build_dir entirely (see common.cleanup_self_contained_sources)
+    — copying/validating straight from build_dir would find nothing.
+
+    Uses the same ProductAdapter.extract_core_files every single-repo
+    publish already uses for its own "prepared" user-facing output (see
+    each web service's copy_prepared_output_files) — which also knows how
+    to pull the core files back out of the self-contained zip when the loose
+    copies are gone (see camtrapdp_adapter.py/yolo_adapter.py's own
+    extract_core_files)."""
+    meta = await asyncio.to_thread(product.read_metadata_json, build_dir)
+    adapter = product.get_adapter(meta["product_type"])
+    chain_dir = Path(tempfile.mkdtemp(prefix="chain-"))
+    await asyncio.to_thread(adapter.extract_core_files, build_dir, chain_dir)
+    await asyncio.to_thread(product.copy_metadata_json, build_dir, chain_dir)
+    return chain_dir
+
+
+async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str, dry_run: bool) -> str:
     """Copies the product's own core files (see each web service's own
     copy_prepared_output_files) into this repo's user-configured
     output_dir, then resolves output_mode — same three choices each
     single-repo publish endpoint already offered, just computed here since
-    chaining is now internal (see the module's own docstring)."""
+    chaining is now internal (see the module's own docstring).
+
+    output_mode == "downloaded" means "fetch a fresh copy back from the
+    repo" — meaningless in dry_run (nothing was actually uploaded there to
+    fetch back), so it falls through to the same result as "prepared"
+    instead of hitting the network."""
     repo = cfg["repo"]
     output_dir = Path(cfg["output_dir"])
     output_mode = cfg.get("output_mode", "prepared")
@@ -196,7 +321,7 @@ async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str)
 
     if output_mode == "passthrough":
         return previous_output_dir
-    if output_mode == "downloaded":
+    if output_mode == "downloaded" and not dry_run:
         download_dir = output_dir.parent / f"{output_dir.name}-downloaded"
         if repo == "hfh":
             await asyncio.to_thread(hfh_service.download_from_repo, repo_id=cfg["repo_id"], token=cfg["token"], target_dir=download_dir)
@@ -219,39 +344,49 @@ async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str)
     return str(output_dir)
 
 
-def start_publish_all_task(*, input_dir: Path, repos: list[dict], primary_doi_source: str | None) -> str:
+def start_publish_all_task(
+    *, input_dir: Path, repos: list[dict], primary_doi_source: str | None, dry_run: bool = False,
+) -> str:
     task_id = str(uuid.uuid4())
     _publish_tasks[task_id] = {
-        "status": "running",
+        "status": "running", "dry_run": dry_run,
         "repos": {cfg["repo"]: _initial_repo_status() for cfg in repos},
     }
     settings = load_settings()
 
     async def _run() -> None:
         build_dirs: dict[str, Path] = {}
+        chain_dirs: list[Path] = []
         try:
             current_input_dir = input_dir
-            for cfg in repos:
+            for i, cfg in enumerate(repos):
                 repo = cfg["repo"]
                 repo_status = _publish_tasks[task_id]["repos"][repo]
                 repo_status["status"] = "running"
                 build_dir = Path(tempfile.mkdtemp(prefix=f"{repo}-build-"))
                 build_dirs[repo] = build_dir
-                await _upload_one(cfg, input_dir=current_input_dir, build_dir=build_dir, settings=settings, repo_status=repo_status)
-                current_input_dir = build_dir
+                await _upload_one(
+                    cfg, input_dir=current_input_dir, build_dir=build_dir, settings=settings,
+                    repo_status=repo_status, dry_run=dry_run,
+                )
+                if i < len(repos) - 1:
+                    current_input_dir = await _extract_chain_input(build_dir)
+                    chain_dirs.append(current_input_dir)
 
             changed = await asyncio.to_thread(doi_populate.populate, build_dirs, primary_doi_source=primary_doi_source)
             for cfg in repos:
                 if changed.get(cfg["repo"]):
-                    await _reupload_one(cfg, build_dir=build_dirs[cfg["repo"]])
+                    await _reupload_one(cfg, build_dir=build_dirs[cfg["repo"]], dry_run=dry_run)
 
             previous_output_dir = str(input_dir)
             for cfg in repos:
                 repo = cfg["repo"]
                 repo_status = _publish_tasks[task_id]["repos"][repo]
                 build_dir = build_dirs[repo]
-                await _lock_one(cfg, build_dir=build_dir, repo_status=repo_status)
-                final_output_dir = await _finalize_one(cfg, build_dir=build_dir, previous_output_dir=previous_output_dir)
+                await _lock_one(cfg, build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
+                final_output_dir = await _finalize_one(
+                    cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
+                )
                 repo_status["output_dir"] = final_output_dir
                 repo_status["status"] = "done"
                 repo_status["stage"] = "done"
@@ -268,6 +403,8 @@ def start_publish_all_task(*, input_dir: Path, repos: list[dict], primary_doi_so
         finally:
             for build_dir in build_dirs.values():
                 shutil.rmtree(build_dir, ignore_errors=True)
+            for chain_dir in chain_dirs:
+                shutil.rmtree(chain_dir, ignore_errors=True)
 
     asyncio.create_task(_run())
     return task_id

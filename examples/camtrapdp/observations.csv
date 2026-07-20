@@ -1,0 +1,6 @@
+observationID,deploymentID,mediaID,eventID,eventStart,eventEnd,observationLevel,observationType,cameraSetupType,scientificName,count,lifeStage,sex,behavior,individualID,individualPositionRadius,individualPositionAngle,individualSpeed,bboxX,bboxY,bboxWidth,bboxHeight,classificationMethod,classifiedBy,classificationTimestamp,classificationProbability,observationTags,observationComments
+o1,d1,m1,,2026-01-15T06:30:12+01:00,2026-01-15T06:30:12+01:00,media,animal,,Odocoileus virginianus,1,adult,female,foraging,,,,,,,,,human,Example Team,2026-01-20T10:00:00+01:00,,,
+o2,d1,m2,,2026-01-15T06:30:47+01:00,2026-01-15T06:30:47+01:00,media,animal,,Odocoileus virginianus,1,adult,female,foraging,,,,,,,,,human,Example Team,2026-01-20T10:00:00+01:00,,,
+o3,d1,m3,,2026-01-16T21:05:33+01:00,2026-01-16T21:05:33+01:00,media,animal,,Vulpes vulpes,1,adult,,walking,,,,,,,,,human,Example Team,2026-01-20T10:00:00+01:00,,,
+o4,d2,m4,,2026-01-17T09:12:04+01:00,2026-01-17T09:12:04+01:00,media,animal,,Turdus merula,1,adult,,,,,,,,,,,human,Example Team,2026-01-20T10:00:00+01:00,,,
+o5,d2,m5,,2026-01-18T14:47:51+01:00,2026-01-18T14:47:51+01:00,media,human,,,,,,,,,,,,,,,human,Example Team,2026-01-20T10:00:00+01:00,,,

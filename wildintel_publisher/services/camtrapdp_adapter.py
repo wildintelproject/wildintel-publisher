@@ -7,6 +7,7 @@ b2share no longer need to know any of this directly.
 from __future__ import annotations
 
 import shutil
+import zipfile
 from pathlib import Path
 
 from wildintel_publisher.services import common, product
@@ -57,10 +58,30 @@ class CamtrapDPAdapter:
 
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
-        for filename in common.CORE_CAMTRAPDP_FILES:
-            source = output_dir / filename
-            if source.is_file():
-                shutil.copy2(source, target_dir / filename)
+        if (output_dir / common.DATAPACKAGE_FILENAME).is_file():
+            for filename in common.CORE_CAMTRAPDP_FILES:
+                source = output_dir / filename
+                if source.is_file():
+                    shutil.copy2(source, target_dir / filename)
+            return
+
+        # --self-contained mode already bundled datapackage.json/deployments.csv/
+        # media.csv/observations.csv (and images/, if embedded) into a zip and
+        # removed the loose copies (see common.write_local_zip/
+        # cleanup_self_contained_sources) — pull them back out of that zip
+        # instead, so this repo's own "prepared" output (output_mode='prepared')
+        # and whatever repo comes next in the publish order (see
+        # services.publish_orchestrator's chaining) still get something usable.
+        zip_path = next(output_dir.glob("*.zip"), None)
+        if zip_path is None:
+            return
+        with zipfile.ZipFile(zip_path) as zf:
+            for name in zf.namelist():
+                if name.endswith("/"):
+                    continue
+                destination = target_dir / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(zf.read(name))
 
     def link_media_to_hfh(self, output_dir: Path, hfh_repo_id: str) -> int:
         return common.rewrite_media_filepaths_to_hfh(output_dir, hfh_repo_id)

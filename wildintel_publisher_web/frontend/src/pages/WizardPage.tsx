@@ -94,6 +94,14 @@ function SmallSpinner() {
   return <div className="w-4 h-4 border border-white/60 border-t-white rounded-full animate-spin" />
 }
 
+function DryRunBadge() {
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200">
+      Dry run
+    </span>
+  )
+}
+
 type DownloadStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface DownloadState {
@@ -150,6 +158,12 @@ export default function WizardPage() {
   // directory (see outputDirs/getInputDirFor below).
   const [publishOrder, setPublishOrder] = useState<RepoId[]>([])
   const [outputDirs, setOutputDirs] = useState<Partial<Record<RepoId, string>>>({})
+  // Simulates the whole publish flow with no real uploads/creations on any
+  // repository — Zenodo/B2SHARE's DOI is faked so the cross-repo DOI
+  // populate step still has something real to cross-reference (see
+  // services.publish_orchestrator's dry-run branches). No token is required
+  // in this mode.
+  const [dryRun, setDryRun] = useState(false)
 
   // Once the user starts publishing, the wizard first COLLECTS each
   // repository's configuration (token, mode, etc.), one at a time, without
@@ -227,6 +241,7 @@ export default function WizardPage() {
     setSelectedRepos(new Set())
     setPublishOrder([])
     setOutputDirs({})
+    setDryRun(false)
     setPublishStarted(false)
     setConfigureIndex(0)
     setRepoConfigs({})
@@ -281,6 +296,7 @@ export default function WizardPage() {
         timeout: IMAGE_TIMEOUT,
         repos: publishOrder.map(buildRepoPayload),
         primaryDoiSource: primaryDoiSource ?? undefined,
+        dryRun,
       })
 
       while (true) {
@@ -660,9 +676,32 @@ export default function WizardPage() {
           )}
 
           {selectedRepos.size > 0 && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dryRun}
+                  onChange={(e) => setDryRun(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">Dry run</span>
+                  <span className="block text-zinc-500 dark:text-zinc-400">
+                    Simulates the whole flow — nothing is actually uploaded to or created on Hugging
+                    Face Hub, Zenodo, or B2SHARE. Zenodo/B2SHARE's DOI is faked, and the DOI
+                    cross-referencing step still runs against it, so you can preview exactly how
+                    every repository's CITATION.cff would end up. No token is required in this mode.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
+          {selectedRepos.size > 0 && (
             <div className="flex justify-end mt-8">
               <button type="button" className={btnPrimary} onClick={startConfiguring}>
-                Start publishing
+                Start publishing{dryRun ? ' (dry run)' : ''}
               </button>
             </div>
           )}
@@ -705,18 +744,21 @@ export default function WizardPage() {
             <HFHPublishForm
               productTitle={summary?.title}
               productVersion={summary?.version}
+              dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, hfh: dir }))}
               onConfigured={(config) => handleConfigured('hfh', config)}
             />
           )}
           {publishOrder[configureIndex] === 'zenodo' && (
             <ZenodoPublishForm
+              dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, zenodo: dir }))}
               onConfigured={(config) => handleConfigured('zenodo', config)}
             />
           )}
           {publishOrder[configureIndex] === 'b2share' && (
             <B2SharePublishForm
+              dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
               onConfigured={(config) => handleConfigured('b2share', config)}
             />
@@ -757,14 +799,19 @@ export default function WizardPage() {
       {/* ── Step 3 (continued): all configured — confirm before publishing ── */}
       {step === 3 && readyToConfirm && !executing && !executionDone && (
         <div>
-          <h4 className="text-lg font-semibold mb-1">Ready to publish</h4>
+          <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
+            Ready to publish
+            {dryRun && <DryRunBadge />}
+          </h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            All the information needed has been collected. Publishing will now start for:{' '}
+            {dryRun
+              ? 'All the information needed has been collected. This is a dry run — nothing will actually be uploaded or created for:'
+              : 'All the information needed has been collected. Publishing will now start for:'}{' '}
             {publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}.
           </p>
           <div className="flex justify-end">
             <button type="button" className={btnPrimary} onClick={runPublishSequence}>
-              Start publishing now
+              {dryRun ? 'Start dry run now' : 'Start publishing now'}
             </button>
           </div>
         </div>
@@ -773,9 +820,12 @@ export default function WizardPage() {
       {/* ── Step 3 (continued): live progress while publishing runs automatically ── */}
       {step === 3 && executing && !executionDone && (
         <div>
-          <h4 className="text-lg font-semibold mb-1">Publishing…</h4>
+          <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
+            {dryRun ? 'Simulating…' : 'Publishing…'}
+            {dryRun && <DryRunBadge />}
+          </h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            Each repository publishes automatically, one after another.
+            Each repository {dryRun ? 'is simulated' : 'publishes automatically'}, one after another.
           </p>
           <ul className="flex flex-col gap-3">
             {publishOrder.map((repoId) => {
@@ -815,18 +865,31 @@ export default function WizardPage() {
       {/* ── Step 3 (continued): all repositories published ── */}
       {step === 3 && executionDone && (
         <div>
-          <h4 className="text-lg font-semibold mb-1">All done!</h4>
+          <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
+            {dryRun ? 'Dry run complete!' : 'All done!'}
+            {dryRun && <DryRunBadge />}
+          </h4>
           <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-sm">
             <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
             <span>
-              Published to: {publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}.
+              {dryRun ? 'Simulated for' : 'Published to'}: {publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}.
+              {dryRun && ' Nothing real was created — check each repo\'s output_dir below to inspect the generated files.'}
             </span>
           </div>
 
-          {publishOrder.includes('zenodo') && <SyncDoiSection zenodoOutputDir={outputDirs.zenodo ?? ''} />}
-          {publishOrder.includes('b2share') && <SyncPidSection b2shareOutputDir={outputDirs.b2share ?? ''} />}
+          {dryRun ? (
+            <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
+              DOI/PID sync isn't available for a dry run (it would perform a real Hugging Face Hub
+              upload) — the DOI cross-referencing already ran, simulated, as part of this dry run.
+            </p>
+          ) : (
+            <>
+              {publishOrder.includes('zenodo') && <SyncDoiSection zenodoOutputDir={outputDirs.zenodo ?? ''} />}
+              {publishOrder.includes('b2share') && <SyncPidSection b2shareOutputDir={outputDirs.b2share ?? ''} />}
+            </>
+          )}
 
           <button
             type="button"

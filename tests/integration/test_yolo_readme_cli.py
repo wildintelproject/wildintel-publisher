@@ -85,8 +85,8 @@ def test_b2share_prepare_self_contained_renders_the_yolo_readme(tmp_path):
     assert result.exit_code == 0, result.output
     _assert_yolo_readme(output_dir)
     assert "self-contained" in (output_dir / "README.md").read_text(encoding="utf-8").lower()
-    assert not (output_dir / "images").exists()  # bundled inside camtrapdp.zip, loose copy removed
-    assert (output_dir / "camtrapdp.zip").is_file()
+    assert not (output_dir / "images").exists()  # bundled inside yolo.zip, loose copy removed
+    assert (output_dir / "yolo.zip").is_file()
 
 
 def test_b2share_prepare_metadata_only_renders_the_yolo_readme(tmp_path):

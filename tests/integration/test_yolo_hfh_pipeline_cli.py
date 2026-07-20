@@ -21,9 +21,13 @@ runner = CliRunner()
 def _write_yolo_dataset(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     for split in ("train", "val"):
-        split_dir = root / "images" / split
-        split_dir.mkdir(parents=True, exist_ok=True)
-        (split_dir / "img0.jpg").write_bytes(b"fake-image-bytes")
+        images_split_dir = root / "images" / split
+        images_split_dir.mkdir(parents=True, exist_ok=True)
+        (images_split_dir / "img0.jpg").write_bytes(b"fake-image-bytes")
+
+        labels_split_dir = root / "labels" / split
+        labels_split_dir.mkdir(parents=True, exist_ok=True)
+        (labels_split_dir / "img0.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
 
     data = {
         "train": "images/train", "val": "images/val", "nc": 1, "names": ["animal"],
@@ -52,9 +56,9 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
     assert metadata["title"] == "Test YOLO Dataset"
     assert metadata["publish_history"] == []
 
-    # Step 2: prepare (mirror mode, default) — copies data.yaml + images/,
-    # writes README/LICENSE/CITATION/checksums/metadata.json and bundles a
-    # local zip, exactly like it would for a Camtrap DP input.
+    # Step 2: prepare (mirror mode, default) — copies data.yaml + images/ +
+    # labels/, writes README/LICENSE/CITATION/checksums/metadata.json and
+    # bundles a local zip, exactly like it would for a Camtrap DP input.
     prepare_result = runner.invoke(app, [
         "hfh", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
     ])
@@ -63,6 +67,8 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
     assert (output_dir / "data.yaml").is_file()
     assert (output_dir / "images" / "train" / "img0.jpg").is_file()
     assert (output_dir / "images" / "val" / "img0.jpg").is_file()
+    assert (output_dir / "labels" / "train" / "img0.txt").is_file()
+    assert (output_dir / "labels" / "val" / "img0.txt").is_file()
     assert (output_dir / "README.md").is_file()
     assert (output_dir / "CITATION.cff").is_file()
     assert (output_dir / "LICENSE").is_file()
@@ -75,12 +81,15 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
     assert "Camtrap DP" not in readme
     assert "datapackage.json" not in readme
 
-    zip_path = output_dir / "camtrapdp-local.zip"
+    # Named per product type, not Camtrap DP's own "camtrapdp-local.zip"
+    # (see services/hfh.py's prepare_hfh_export).
+    zip_path = output_dir / "yolo-local.zip"
     assert zip_path.is_file()
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
     assert "data.yaml" in names
     assert "images/train/img0.jpg" in names
+    assert "labels/train/img0.txt" in names
     assert "README.md" not in names  # only the product's own files get bundled
 
     # Step 3: upload (mocked HF calls) — mirror mode calls the adapter's

@@ -363,7 +363,7 @@ async function configureHfhAndContinue() {
 async function runHfhPublishToDone() {
   mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
   mockedApi.publishAllStatus.mockResolvedValue({
-    status: 'done', error: null,
+    status: 'done', error: null, dry_run: false,
     repos: {
       hfh: {
         status: 'done', stage: 'done', error: null,
@@ -474,7 +474,7 @@ describe('WizardPage publish order', () => {
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
     mockedApi.publishAllStatus.mockResolvedValue({
-      status: 'done', error: null,
+      status: 'done', error: null, dry_run: false,
       repos: {
         hfh: { status: 'done', stage: 'done', error: null, repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output' },
         zenodo: { status: 'done', stage: 'done', error: null, repo_url: 'https://zenodo.org/records/1', doi: '10.5281/zenodo.1', pid: null, output_dir: '/zenodo/output' },
@@ -508,7 +508,7 @@ describe('WizardPage publish order', () => {
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
     mockedApi.publishAllStatus.mockResolvedValue({
-      status: 'done', error: null,
+      status: 'done', error: null, dry_run: false,
       repos: {
         hfh: {
           status: 'done', stage: 'done', error: null,
@@ -552,7 +552,7 @@ describe('WizardPage publish order', () => {
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
     mockedApi.publishAllStatus.mockResolvedValue({
-      status: 'error', error: 'Invalid or unauthorized HuggingFace Hub token.',
+      status: 'error', error: 'Invalid or unauthorized HuggingFace Hub token.', dry_run: false,
       repos: {
         hfh: {
           status: 'error', stage: 'uploading', error: 'Invalid or unauthorized HuggingFace Hub token.',

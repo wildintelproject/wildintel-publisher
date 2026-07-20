@@ -1,0 +1,20 @@
+train: images/train
+val: images/val
+test: images/test
+nc: 3
+names: [deer, fox, bird]
+
+# The following keys aren't part of the YOLO spec — YOLO training scripts
+# ignore them — but wildintel-publisher reads them to seed metadata.json
+# (see services/yolo_adapter.py).
+title: Example Wildlife Detection Dataset
+description: >-
+  A small, synthetic camera-trap object-detection dataset (deer/fox/bird) used
+  as a wildintel-publisher example. Not real field data; the images are
+  generated placeholders, not photographs.
+version: "1.0"
+license: CC-BY-4.0
+authors:
+  - name: Jane Researcher
+    affiliation: WildINTEL Example Institute
+homepage: https://github.com/wildintelproject/wildintel-publisher

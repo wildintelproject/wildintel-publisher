@@ -192,3 +192,11 @@ class PublishAllRequest(BaseModel):
     # hfh.py's PROVIDES_DOI). Irrelevant if HFH isn't in `repos`, or if at
     # most one DOI ends up available.
     primary_doi_source: Optional[Literal["zenodo", "b2share"]] = None
+    # If true, nothing is actually uploaded/created/released on any real
+    # repository — see services.publish_orchestrator's dry-run branches.
+    # Zenodo/B2SHARE's DOI reservation is simulated (a synthetic doi/pid
+    # written into their own record file) so the real doi_populate.populate()
+    # cross-referencing step still has something real to work with. No
+    # token/repo_id/community_id is required in this mode, and nothing gets
+    # persisted to settings.toml.
+    dry_run: bool = False

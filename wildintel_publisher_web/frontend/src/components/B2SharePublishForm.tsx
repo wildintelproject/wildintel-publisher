@@ -44,6 +44,11 @@ export interface B2SharePublishConfig {
 }
 
 interface Props {
+  /** No token/community is required, and "Test token" is pointless, when
+   * the whole publish is a simulation (see WizardPage's dryRun) — nothing
+   * is ever actually sent to B2SHARE; the PID is faked instead (see
+   * services.publish_orchestrator's dry-run branches). */
+  dryRun?: boolean
   /** Reports this form's current output directory whenever it changes, so a
    * later step in the publish order can use it as its own inputDir. */
   onOutputDirChange?: (dir: string) => void
@@ -55,7 +60,7 @@ interface Props {
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
-export default function B2SharePublishForm({ onOutputDirChange, onConfigured }: Props) {
+export default function B2SharePublishForm({ dryRun, onOutputDirChange, onConfigured }: Props) {
   const [form, setForm] = useState({
     outputDir: '', token: '', environment: 'sandbox', communityId: '',
   })
@@ -99,7 +104,9 @@ export default function B2SharePublishForm({ onOutputDirChange, onConfigured }: 
 
   const canTest = form.token !== '' || hasSavedToken
   const isTesting = test.status === 'testing'
-  const canContinue = form.outputDir !== '' && form.communityId !== '' && (form.token !== '' || hasSavedToken)
+  const canContinue = dryRun
+    ? form.outputDir !== ''
+    : form.outputDir !== '' && form.communityId !== '' && (form.token !== '' || hasSavedToken)
 
   async function handleTestToken() {
     setTest({ status: 'testing', message: '' })
@@ -175,16 +182,19 @@ export default function B2SharePublishForm({ onOutputDirChange, onConfigured }: 
           (Applications → Personal access tokens).
         </p>
 
-        <div className="flex justify-end mt-2">
-          <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
-            {isTesting && <SmallSpinner />}
-            {isTesting ? 'Testing…' : 'Test token'}
-          </button>
-        </div>
-        {test.status === 'ok' && (
+        {dryRun && <p className={hintClass + ' text-right'}>Not required for a dry run.</p>}
+        {!dryRun && (
+          <div className="flex justify-end mt-2">
+            <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
+              {isTesting && <SmallSpinner />}
+              {isTesting ? 'Testing…' : 'Test token'}
+            </button>
+          </div>
+        )}
+        {!dryRun && test.status === 'ok' && (
           <p className="text-sm text-emerald-600 dark:text-emerald-400 text-right mt-2">{test.message}</p>
         )}
-        {test.status === 'error' && (
+        {!dryRun && test.status === 'error' && (
           <p className="text-sm text-red-600 dark:text-red-400 text-right mt-2">{test.message}</p>
         )}
       </div>

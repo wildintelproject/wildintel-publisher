@@ -22,7 +22,6 @@ from wildintel_publisher.services import common, product
 console = Console()
 
 IMAGES_DIRNAME = common.IMAGES_DIRNAME
-LOCAL_ZIP_FILENAME = common.LOCAL_ZIP_FILENAME
 
 DEFAULT_IMAGE_TIMEOUT = common.DEFAULT_IMAGE_TIMEOUT
 DEFAULT_VERSION = "1.0"
@@ -122,7 +121,15 @@ def prepare_hfh_export(
         date_released=date_released, license_id=license["id"], repository_code=metadata.repository_code,
     )
     if mirror_images:
-        adapter.bundle_local_zip(output_dir, output_dir / LOCAL_ZIP_FILENAME, embed_images=False)
+        # Named per product type — the Camtrap DP adapter's own default
+        # (common.LOCAL_ZIP_FILENAME) is "camtrapdp-local.zip"; other
+        # product types (e.g. yolo) get their own type-named zip instead of
+        # a filename that only makes sense for Camtrap DP.
+        local_zip_filename = (
+            common.LOCAL_ZIP_FILENAME if adapter.product_type == product.CAMTRAPDP
+            else f"{adapter.product_type}-local.zip"
+        )
+        adapter.bundle_local_zip(output_dir, output_dir / local_zip_filename, embed_images=False)
     common.write_checksums(output_dir)
 
     console.print(f"[green]✔  HuggingFace Hub export prepared in {output_dir}[/green]")

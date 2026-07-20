@@ -1,0 +1,6 @@
+mediaID,deploymentID,captureMethod,timestamp,filePath,filePublic,fileName,fileMediatype,exifData,favorite,mediaComments
+m1,d1,activityDetection,2026-01-15T06:30:12+01:00,images/cam1_20260115_063012.jpg,true,cam1_20260115_063012.jpg,image/jpeg,,,
+m2,d1,activityDetection,2026-01-15T06:30:47+01:00,images/cam1_20260115_063047.jpg,true,cam1_20260115_063047.jpg,image/jpeg,,,
+m3,d1,activityDetection,2026-01-16T21:05:33+01:00,images/cam1_20260116_210533.jpg,true,cam1_20260116_210533.jpg,image/jpeg,,,
+m4,d2,activityDetection,2026-01-17T09:12:04+01:00,images/cam2_20260117_091204.jpg,true,cam2_20260117_091204.jpg,image/jpeg,,,
+m5,d2,activityDetection,2026-01-18T14:47:51+01:00,images/cam2_20260118_144751.jpg,false,cam2_20260118_144751.jpg,image/jpeg,,,

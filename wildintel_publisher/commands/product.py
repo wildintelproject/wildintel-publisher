@@ -34,6 +34,14 @@ def generate_metadata(
         raise typer.Exit(1) from exc
 
     console.print(f"[green]✔  metadata.json written to {input_dir} ({product_type}):[/green]")
-    console.print(f"   title: {metadata['title']}")
-    console.print(f"   license: {metadata['license']['id']}")
-    console.print(f"   authors: {', '.join(a['name'] for a in metadata['authors'])}")
+    console.print(f"   title: {metadata.get('title')}")
+    console.print(f"   license: {(metadata.get('license') or {}).get('id')}")
+    authors = ", ".join(a.get("name") or "?" for a in metadata.get("authors") or [])
+    console.print(f"   authors: {authors}")
+
+    missing = product_service.missing_required_fields(metadata)
+    if missing:
+        console.print(
+            f"[yellow]⚠  Missing required field(s): {', '.join(missing)} — "
+            f"edit {input_dir}/metadata.json before publishing.[/yellow]"
+        )

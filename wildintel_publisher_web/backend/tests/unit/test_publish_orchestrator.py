@@ -8,6 +8,7 @@ them — this is the behavior these tests care about, not just that mocks
 got called."""
 import json
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -291,6 +292,67 @@ def test_publish_all_stops_the_sequence_on_the_first_failure(tmp_path):
     assert body["status"] == "error"
     assert "boom" in body["error"]
     mock_zenodo_prepare.assert_not_called()
+
+
+def test_publish_all_dry_run_never_touches_a_real_repo_but_still_populates_dois(tmp_path):
+    """dry_run=True: no token/repo_id/community_id required, no upload_to_X/
+    release_on_X/save_config call ever happens, yet Zenodo/B2SHARE still end
+    up with a (fake) DOI/PID and HFH's CITATION.cff still gets cross-
+    referenced with it — proving populate() ran for real against the
+    simulated records."""
+
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_prepare_repo(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+
+    never_called = [
+        "services.publish_orchestrator.hfh_cli.upload_to_huggingface",
+        "services.publish_orchestrator.hfh_cli.tag_release_on_huggingface",
+        "services.publish_orchestrator.hfh_cli.release_on_huggingface",
+        "services.publish_orchestrator.zenodo_cli.upload_to_zenodo",
+        "services.publish_orchestrator.zenodo_cli.release_on_zenodo",
+        "services.publish_orchestrator.b2share_cli.upload_to_b2share",
+        "services.publish_orchestrator.b2share_cli.release_on_b2share",
+        "services.hfh_service.save_config", "services.zenodo_service.save_config", "services.b2share_service.save_config",
+    ]
+    with ExitStack() as stack:
+        stack.enter_context(patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh))
+        stack.enter_context(patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_repo))
+        stack.enter_context(patch("services.publish_orchestrator.b2share_cli.prepare_b2share_export", side_effect=fake_prepare_repo))
+        mocks = [stack.enter_context(patch(target)) for target in never_called]
+
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "dry_run": True,
+                "primary_doi_source": "zenodo",
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh"))},
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo"))},
+                    {"repo": "b2share", "output_dir": str(_tmp(tmp_path, "b2share"))},
+                ],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    for mock in mocks:
+        mock.assert_not_called()
+
+    assert body["repos"]["hfh"]["repo_url"].startswith("https://huggingface.co/datasets/dry-run/")
+    assert body["repos"]["zenodo"]["doi"].startswith("10.0000/dry-run/zenodo.")
+    assert body["repos"]["b2share"]["pid"].startswith("10.0000/dry-run/b2share.")
+
+    # HFH never has a DOI of its own — populate() made Zenodo's the primary
+    # one (per primary_doi_source above) and B2SHARE's an alternate.
+    hfh_citation = _read_citation(Path(body["repos"]["hfh"]["output_dir"]))
+    assert hfh_citation["doi"] == body["repos"]["zenodo"]["doi"]
+    assert hfh_citation["identifiers"] == [
+        {"type": "doi", "value": f"https://doi.org/{body['repos']['b2share']['pid']}", "description": "B2SHARE (EUDAT) DOI"},
+    ]
 
 
 def test_publish_all_requires_at_least_one_repo():

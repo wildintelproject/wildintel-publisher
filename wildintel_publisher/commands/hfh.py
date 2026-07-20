@@ -85,7 +85,7 @@ def prepare(
     mirror_images: bool = typer.Option(
         True, "--mirror-images/--link-images",
         help=(
-            "mirror (default): downloads the public images and bundles a camtrapdp-local.zip. "
+            "mirror (default): downloads the public images and bundles a local, self-contained zip. "
             "link: doesn't download any image — media.csv keeps its original filePath as-is."
         ),
     ),

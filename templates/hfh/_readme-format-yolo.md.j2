@@ -15,10 +15,18 @@ It has {{ num_classes }} class{{ "es" if num_classes != 1 else "" }}: {{ class_n
 │   ├── train/            ← training images
 │   ├── val/               ← validation images
 │   └── test/              ← test images (if present)
+├── labels/                ← training labels (if present in the source dataset)
+│   ├── train/
+│   ├── val/
+│   └── test/
+├── yolo-local.zip         ← same dataset (data.yaml + images/ + labels/), bundled
 ├── checksums-sha256.txt
 ├── CITATION.cff
 └── LICENSE
 ```
+
+`yolo-local.zip` bundles everything above (except this README/checksums/citation/license)
+into a single archive, for local use without depending on the folder structure.
 {% else %}
 ```text
 .
