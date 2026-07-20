@@ -1080,6 +1080,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#running-the-web-app-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the web app locally
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#adding-a-new-product-type" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1363,6 +1374,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#running-the-web-app-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the web app locally
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#adding-a-new-product-type" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1587,6 +1609,59 @@ type or repository integration written in <code>wildintel_publisher/services/</c
 automatically available to both the CLI and the web app — there is nothing to
 duplicate on the web side beyond a router/schema/UI form for it.</p>
 <hr />
+<h2 id="running-the-web-app-locally">Running the web app locally</h2>
+<p>From <code>wildintel_publisher_web/</code> (requires Node.js v18+ for the frontend):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>sync
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>run<span class="w"> </span>wildintel-publisher-web<span class="w"> </span>dev
+</code></pre></div>
+<p>This starts the FastAPI backend (<code>--reload</code>, default port <code>8767</code> or
+<code>WILDINTEL_PUBLISHER_WEB_PORT</code>) and the Vite frontend dev server (port <code>5174</code>) together,
+streaming both logs interleaved — Ctrl+C stops both. Override ports with
+<code>--backend-port</code>/<code>--frontend-port</code>.</p>
+<p><code>wildintel_publisher_web/webcli.py</code> (installed as the <code>wildintel-publisher-web</code> entry
+point) also exposes each piece individually, useful when you only need one side running:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>uv run wildintel-publisher-web backend serve [dev\|prod]</code></td>
+<td>Backend only — <code>dev</code> reloads on change, <code>prod</code> runs multi-worker without reload.</td>
+</tr>
+<tr>
+<td><code>uv run wildintel-publisher-web backend test</code></td>
+<td>Backend pytest suite (<code>-v</code>/<code>-k</code> passthrough).</td>
+</tr>
+<tr>
+<td><code>uv run wildintel-publisher-web frontend dev</code></td>
+<td>Frontend dev server only (hot-reload).</td>
+</tr>
+<tr>
+<td><code>uv run wildintel-publisher-web frontend build</code></td>
+<td>Production build → <code>frontend/dist/</code>.</td>
+</tr>
+<tr>
+<td><code>uv run wildintel-publisher-web frontend preview</code></td>
+<td>Serves the production build locally.</td>
+</tr>
+<tr>
+<td><code>uv run wildintel-publisher-web frontend lint</code></td>
+<td>oxlint over the frontend source.</td>
+</tr>
+<tr>
+<td><code>uv run wildintel-publisher-web frontend test</code></td>
+<td>Frontend Vitest suite.</td>
+</tr>
+</tbody>
+</table>
+<p>This <code>dev</code> command is for local development only — end users run the app from the
+prebuilt release binary instead (see the
+<a href="../guide-web/#getting-the-web-app">Web App User Guide's "Getting the web app"</a>).</p>
+<hr />
 <h2 id="adding-a-new-product-type">Adding a new product type</h2>
 <p>A <strong>product type</strong> (<code>camtrapdp</code>, <code>yolo</code>, ...) is anything <code>wildintel-publisher</code> can turn
 into a publishable export. Every repository integration (<code>hfh.py</code>/<code>zenodo.py</code>/
@@ -1638,7 +1713,7 @@ a fixed set of methods, implemented once per product type
 </table>
 <h3 id="2-register-it">2. Register it</h3>
 <p>At the bottom of your new adapter module:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">product</span><span class="o">.</span><span class="n">register_adapter</span><span class="p">(</span><span class="n">MyNewAdapter</span><span class="p">())</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">product</span><span class="o">.</span><span class="n">register_adapter</span><span class="p">(</span><span class="n">MyNewAdapter</span><span class="p">())</span>
 </code></pre></div>
 <p>and make sure that module gets imported somewhere on startup (see how
 <code>camtrapdp_adapter.py</code>/<code>yolo_adapter.py</code> are imported) — <code>get_adapter()</code>/
