@@ -7,6 +7,52 @@ If you only want to publish something, see the [Products](products.md) and
 
 ---
 
+## Commit messages
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/): a single
+type prefix, a colon, and a short imperative description.
+
+1. Pick **one** type prefix — don't combine two:
+   - `feat` — new functionality (a new command, adapter, UI feature...).
+   - `fix` — a bug fix.
+   - `docs` — documentation only (`docs/`, `README.md`, docstrings).
+   - `chore` — maintenance with no behavior change (deps, formatting, config).
+   - `ci` — GitHub Actions workflows or other CI/CD setup.
+   - `refactor` — restructuring code with no behavior change.
+   - `test` — adding or fixing tests only.
+2. Write the summary line in the imperative mood ("add", "fix", "trigger" — not "added"/
+   "fixes"/"triggered"), lower case after the colon, no trailing period, ideally under
+   ~70 characters:
+   ```
+   ci: run docs workflow also on push to development
+   ```
+3. If the change needs more explanation than the summary allows, add a blank line and a
+   short body explaining *why*, not what (the diff already shows what).
+4. Note that `.github/workflows/docs.yml` only runs on pushes to `main`/`development`
+   that touch `docs/**`, `mkdocs.yml`, or `README.md` (plus `v*.*.*` tags) — a `docs`/`ci`
+   commit that doesn't touch those paths won't trigger it.
+
+---
+
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Add an
+entry under `## Upcoming release` for any user-facing change (new feature, bug fix,
+behavior change) as part of the same commit/PR that makes the change — not as a separate
+step afterwards.
+
+- The CLI and the web app are tagged and released independently (`vX.Y.Z` vs.
+  `web-vX.Y.Z`), so once a release is cut, its entries move from `## Upcoming release`
+  into a dated section headed `### [CLI vX.Y.Z](...)` or `### [Web vX.Y.Z](...)` — see the
+  existing entries for the exact link format.
+- `.github/workflows/release-cli.yml` and `release-web.yml` read straight from
+  `CHANGELOG.md` (via `awk`) to populate GitHub Release notes: the stable-release step
+  matches the `### [CLI vX.Y.Z]`/`### [Web vX.Y.Z]` header for the tag being released, and
+  the dev-build step matches `## Upcoming release`. A change that isn't logged in the
+  changelog won't show up in the release notes, even if it's in the diff.
+
+---
+
 ## Project layout
 
 ```

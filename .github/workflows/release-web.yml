@@ -268,18 +268,37 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Extract release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#web-v}"
+          awk "/^### \[Web v${VERSION}\]/{found=1; next} found && /^### \[/{exit} found{print}" \
+            CHANGELOG.md > release_notes.txt
+
       - name: Create stable release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
-          generate_release_notes: true
+          body_path: release_notes.txt
 
       - name: Force-move dev tag
         if: github.event_name == 'workflow_dispatch'
         run: |
           git tag -f web-dev
           git push origin web-dev --force
+
+      - name: Build dev release notes
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          {
+            echo "Development build of the \`wildintel-publisher-web\` app — not for production use."
+            echo "Built from commit \`${{ github.sha }}\` on branch \`${{ github.ref_name }}\`."
+            echo ""
+            echo "---"
+            echo ""
+            awk '/^## Upcoming release/{found=1; next} found && /^## /{exit} found{print}' CHANGELOG.md
+          } > dev_release_notes.txt
 
       - name: Create dev pre-release
         if: github.event_name == 'workflow_dispatch'
@@ -290,6 +309,4 @@ jobs:
           prerelease: true
           make_latest: false
           files: release-assets/*
-          body: |
-            Development build of the `wildintel-publisher-web` app — not for production use.
-            Built from commit `${{ github.sha }}`.
+          body_path: dev_release_notes.txt
