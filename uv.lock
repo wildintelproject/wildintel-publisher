@@ -1777,19 +1777,6 @@ wheels = [
 ]
 
 [[package]]
-name = "trapper-client"
-version = "0.1.0"
-source = { git = "https://github.com/ijfvianauhu/trapper-client?rev=refactor#fbd6910845fba6281757cc0405eca70c06fc1fa1" }
-dependencies = [
-    { name = "attrs" },
-    { name = "httpx" },
-    { name = "mkdocstrings", extra = ["python"] },
-    { name = "pydantic" },
-    { name = "tenacity" },
-    { name = "typing-extensions" },
-]
-
-[[package]]
 name = "typer"
 version = "0.27.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1921,8 +1908,8 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
-    { name = "trapper-client" },
     { name = "typer" },
+    { name = "wildintel-trapper-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -1947,8 +1934,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0" },
-    { name = "trapper-client", git = "https://github.com/ijfvianauhu/trapper-client?rev=refactor" },
     { name = "typer", specifier = ">=0.15" },
+    { name = "wildintel-trapper-sdk", git = "https://github.com/wildintelproject/wildintelproject-trapper-sdk?tag=v0.1.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1960,6 +1947,19 @@ dev = [
     { name = "mkdocs-with-pdf", specifier = ">=0.9.3" },
     { name = "pyinstaller", specifier = ">=6.21.0" },
     { name = "pytest", specifier = ">=8.0" },
+]
+
+[[package]]
+name = "wildintel-trapper-sdk"
+version = "0.1.0"
+source = { git = "https://github.com/wildintelproject/wildintelproject-trapper-sdk?tag=v0.1.0#415a6ef03490622f82dc782def80bc8a5f1646d6" }
+dependencies = [
+    { name = "attrs" },
+    { name = "httpx" },
+    { name = "mkdocstrings", extra = ["python"] },
+    { name = "pydantic" },
+    { name = "tenacity" },
+    { name = "typing-extensions" },
 ]
 
 [[package]]

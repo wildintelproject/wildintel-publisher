@@ -22,7 +22,7 @@ dependencies = [
   "pydantic>=2.9",
   "pyyaml>=6.0",
   "rich>=13.0",
-  "trapper-client",
+  "wildintel-trapper-sdk",
   "typer>=0.15",
 ]
 
@@ -31,8 +31,8 @@ cli = "cli:app"
 wildintel-publisher = "wildintel_publisher.main:app"
 
 [tool.uv.sources]
-# trapper-client aún no está publicado en PyPI.
-trapper-client = { git = "https://github.com/ijfvianauhu/trapper-client", rev = "refactor" }
+# wildintel-trapper-sdk aún no está publicado en PyPI, solo como release de GitHub.
+wildintel-trapper-sdk = { git = "https://github.com/wildintelproject/wildintelproject-trapper-sdk", tag = "v0.1.0" }
 
 [dependency-groups]
 dev = [

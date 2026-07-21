@@ -1,6 +1,6 @@
 """Conexión a Trapper y descarga del paquete Camtrap DP de un proyecto de clasificación.
 
-Usa `trapper-client` (repo hermano, ver [tool.uv.sources] en pyproject.toml):
+Usa `wildintel-trapper-sdk` (repo hermano, ver [tool.uv.sources] en pyproject.toml):
 ``/media_classification/api/package/{project_pk}/`` genera (o reutiliza un
 paquete ya cacheado) y devuelve una URL de descarga absoluta en
 ``data.package`` — esa URL ya lleva su propio token de un solo uso

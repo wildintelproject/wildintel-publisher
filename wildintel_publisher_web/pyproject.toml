@@ -17,7 +17,7 @@ dependencies = [
     "huggingface-hub>=0.23.0",
     "platformdirs>=4.10.0",
     "pydantic-settings>=2.0",
-    "trapper-client",
+    "wildintel-trapper-sdk",
     "uvicorn[standard]>=0.49.0",
     "wildintel-publisher",
 ]
@@ -31,8 +31,8 @@ dev = [
 ]
 
 [project.scripts]
-# Módulo llamado webcli (no cli) a propósito: trapper-client (dependencia de
-# este proyecto) también instala su propio módulo de nivel superior "cli" en
+# Módulo llamado webcli (no cli) a propósito: wildintel-trapper-sdk (dependencia
+# de este proyecto) también instala su propio módulo de nivel superior "cli" en
 # el mismo venv — con el mismo nombre, "import cli" resolvería a uno u otro
 # según el orden de sys.path (nos ha pasado; renombrar solo el script de
 # consola, sin renombrar el módulo, no basta). El mismo problema existe, sin
@@ -40,8 +40,8 @@ dev = [
 wildintel-publisher-web = "webcli:app"
 
 [tool.uv.sources]
-# trapper-client aún no está publicado en PyPI.
-trapper-client = { git = "https://github.com/ijfvianauhu/trapper-client", rev = "refactor" }
+# wildintel-trapper-sdk aún no está publicado en PyPI, solo como release de GitHub.
+wildintel-trapper-sdk = { git = "https://github.com/wildintelproject/wildintelproject-trapper-sdk", tag = "v0.1.0" }
 # El paquete de la CLI (repo padre de este mismo directorio) — para reutilizar
 # wildintel_publisher.config (mismo settings.toml que la CLI) y, más
 # adelante, sus services/ (hfh/zenodo/b2share) en vez de duplicar lógica.
