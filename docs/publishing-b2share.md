@@ -2,7 +2,7 @@
 
 This guide explains what **B2SHARE** is, its main characteristics as a publishing
 target, and what can be published to it — see the
-[CLI](guide-cli.md)/[Web App](guide-web.md) User Guides for the exact steps.
+[CLI](guide-cli.md)/[Web App](guide-web-b2share.md) User Guides for the exact steps.
 
 ---
 
@@ -57,7 +57,7 @@ example per product type — see:
 - **[CLI User Guide](guide-cli.md)** — the `b2share prepare`/`upload`/`release`/
   `sync-pid` commands (there is no combined `pipeline` command for B2SHARE — each step
   is run on its own).
-- **[Web App User Guide](guide-web.md)** — the same flow through the wizard, no
+- **[Web App User Guide](guide-web-b2share.md)** — the same flow through the wizard, no
   commands involved.
 
 ## 4. What can I publish here?

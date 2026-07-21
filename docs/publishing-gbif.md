@@ -2,7 +2,7 @@
 
 This guide explains what **GBIF** is, its main characteristics as a publishing target,
 and what can be published to it — see the [CLI User Guide](guide-cli.md#7-register-it-on-gbif)
-for the exact command-line steps, or the [Web App User Guide](guide-web.md#4-choose-repositories-and-publish-order)
+for the exact command-line steps, or the [Web App User Guide](guide-web-gbif.md)
 for the same thing from the wizard.
 
 ---
@@ -50,7 +50,7 @@ username/password (`GBIF_USERNAME`/`GBIF_PASSWORD`).
 
 For the exact steps — first-time account/organization/installation setup and a full
 example — see the [CLI User Guide](guide-cli.md#7-register-it-on-gbif) or the [Web App
-User Guide](guide-web.md#4-choose-repositories-and-publish-order).
+User Guide](guide-web-gbif.md).
 
 ## 4. What can I publish here?
 

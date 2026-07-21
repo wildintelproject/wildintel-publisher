@@ -2,7 +2,7 @@
 
 This guide explains what **Hugging Face Hub** is, its main characteristics as a
 publishing target, and what can be published to it — see the
-[CLI](guide-cli.md)/[Web App](guide-web.md) User Guides for the exact steps.
+[CLI](guide-cli.md)/[Web App](guide-web-hfh.md) User Guides for the exact steps.
 
 ---
 
@@ -41,7 +41,7 @@ example per product type — see:
 
 - **[CLI User Guide](guide-cli.md)** — the `hfh prepare`/`upload`/`release` (and
   one-shot `pipeline`) commands.
-- **[Web App User Guide](guide-web.md)** — the same flow through the wizard, no
+- **[Web App User Guide](guide-web-hfh.md)** — the same flow through the wizard, no
   commands involved.
 
 ## 4. What can I publish here?

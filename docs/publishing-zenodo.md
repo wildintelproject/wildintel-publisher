@@ -2,7 +2,7 @@
 
 This guide explains what **Zenodo** is, its main characteristics as a publishing target,
 and what can be published to it — see the
-[CLI](guide-cli.md)/[Web App](guide-web.md) User Guides for the exact steps.
+[CLI](guide-cli.md)/[Web App](guide-web-zenodo.md) User Guides for the exact steps.
 
 ---
 
@@ -49,7 +49,7 @@ example per product type — see:
 - **[CLI User Guide](guide-cli.md)** — the `zenodo prepare`/`upload`/`release`/
   `sync-doi` commands (there is no combined `pipeline` command for Zenodo — each step
   is run on its own).
-- **[Web App User Guide](guide-web.md)** — the same flow through the wizard, no
+- **[Web App User Guide](guide-web-zenodo.md)** — the same flow through the wizard, no
   commands involved.
 
 ## 4. What can I publish here?
