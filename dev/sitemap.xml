@@ -2,280 +2,364 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/about/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/about/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/about/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/developer-guide/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/developer-guide/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/developer-guide/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/features/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/features/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/features/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-cli/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-cli/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-cli/"/>
     </url>
     <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-b2share/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-b2share/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web-b2share/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-camtrapdp/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-camtrapdp/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web-camtrapdp/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-gbif/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-gbif/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web-gbif/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-hfh/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-hfh/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web-hfh/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-yolo/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-yolo/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web-yolo/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-zenodo/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web-zenodo/"/>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web-zenodo/"/>
+    </url>
+    <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/guide-web/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/guide-web/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/guide-web/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/product-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/product-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/product-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/product-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/product-yolo/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/product-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/products/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/products/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/products/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-b2share-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-b2share-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-b2share-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-b2share-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-b2share-yolo/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-b2share-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-b2share/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-b2share/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-b2share/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-gbif/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-gbif/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-gbif/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-guide/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-guide/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-guide/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-hfh-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-hfh-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-hfh-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-hfh-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-hfh-yolo/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-hfh-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-hfh/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-hfh/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-hfh/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-zenodo-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-zenodo-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-zenodo-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-zenodo-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-zenodo-yolo/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-zenodo-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/publishing-zenodo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev/publishing-zenodo/"/>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/deves/publishing-zenodo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/dev"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/about/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/about/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devabout/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/developer-guide/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/developer-guide/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devdeveloper-guide/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/features/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/features/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devfeatures/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-cli/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-cli/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-cli/"/>
     </url>
     <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-b2share/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-b2share/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web-b2share/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-camtrapdp/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-camtrapdp/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web-camtrapdp/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-gbif/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-gbif/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web-gbif/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-hfh/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-hfh/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web-hfh/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-yolo/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-yolo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web-yolo/"/>
+    </url>
+    <url>
+        <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-zenodo/</loc>
+        <lastmod>2026-07-21</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web-zenodo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web-zenodo/"/>
+    </url>
+    <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/guide-web/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devguide-web/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/product-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/product-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devproduct-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/product-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/product-yolo/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devproduct-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/products/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/products/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devproducts/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-b2share-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share-yolo/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-b2share-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-b2share/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-b2share/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-gbif/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-gbif/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-gbif/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-guide/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-guide/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-guide/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-hfh-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-hfh-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-hfh-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-hfh-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-hfh-yolo/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-hfh-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-hfh/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-hfh/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-hfh/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-zenodo-camtrapdp/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-zenodo-camtrapdp/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-zenodo-camtrapdp/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-zenodo-yolo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-zenodo-yolo/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-zenodo-yolo/"/>
     </url>
     <url>
         <loc>https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-zenodo/</loc>
-        <lastmod>2026-07-20</lastmod>
+        <lastmod>2026-07-21</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="es" href="https://wildintelproject.github.io/wildintel-publisher/dev/es/publishing-zenodo/"/>
         <xhtml:link rel="alternate" hreflang="en" href="https://wildintelproject.github.io/wildintel-publisher/devpublishing-zenodo/"/>
