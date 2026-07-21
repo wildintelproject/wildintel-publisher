@@ -31,18 +31,34 @@ const BASE_URL = `http://localhost:${PORT}`
 const HFH_REPO_ID = 'wildintel/sierra-cazorla-camtraps'
 const DOCS_DIR = '/home/alice/Documents/wildintel-publisher'
 
+// generate-metadata is handled separately below (see installApiMocks) rather
+// than through the generic FIXTURES lookup, because its response depends on
+// the request body's product_type (camtrapdp vs. yolo) — the two products'
+// walkthroughs (guide-web-camtrapdp.md / guide-web-yolo.md) each need their
+// own realistic summary.
+const CAMTRAPDP_SUMMARY = {
+  product_type: 'camtrapdp',
+  title: 'Sierra de Cazorla Camera Traps 2025',
+  description: 'Camera-trap monitoring of medium and large mammals in Sierra de Cazorla, Jaén (Spain), 2024–2025.',
+  version: '1.0.0',
+  license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: 'https://creativecommons.org/licenses/by/4.0/' },
+  authors: [{ name: 'Alice Example', affiliation: 'WildINTEL Project' }],
+  homepage: null,
+  hfh_repo_id: null,
+}
+const YOLO_SUMMARY = {
+  product_type: 'yolo',
+  title: 'Sierra de Cazorla Wildlife Detections 2025',
+  description: 'YOLO-format object-detection dataset (deer/fox/bird) derived from Sierra de Cazorla camera-trap images, 2024–2025.',
+  version: '1.0.0',
+  license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: 'https://creativecommons.org/licenses/by/4.0/' },
+  authors: [{ name: 'Alice Example', affiliation: 'WildINTEL Project' }],
+  homepage: null,
+  hfh_repo_id: null,
+}
+
 const FIXTURES = {
   'GET /api/version': { current: '1.4.0', latest: '1.4.0', update_available: false, release_url: null },
-  'POST /api/camtrapdp/generate-metadata': {
-    product_type: 'camtrapdp',
-    title: 'Sierra de Cazorla Camera Traps 2025',
-    description: 'Camera-trap monitoring of medium and large mammals in Sierra de Cazorla, Jaén (Spain), 2024–2025.',
-    version: '1.0.0',
-    license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: 'https://creativecommons.org/licenses/by/4.0/' },
-    authors: [{ name: 'Alice Example', affiliation: 'WildINTEL Project' }],
-    homepage: null,
-    hfh_repo_id: null,
-  },
   'GET /api/hfh/config': {
     username: 'wildintel', output_dir: `${DOCS_DIR}/hfh`, version: '1.0.0', timeout: 60, has_token: false,
   },
@@ -115,6 +131,11 @@ async function installApiMocks(page) {
     const { pathname } = new URL(req.url())
     const key = `${req.method()} ${pathname}`
     if (key === 'GET /api/health') return route.fulfill({ status: 200, body: '{}' })
+    if (key === 'POST /api/camtrapdp/generate-metadata') {
+      const { product_type } = JSON.parse(req.postData() ?? '{}')
+      const summary = product_type === 'yolo' ? YOLO_SUMMARY : CAMTRAPDP_SUMMARY
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summary) })
+    }
     if (!(key in FIXTURES)) {
       console.warn(`[generate-screenshots] Unmocked request: ${key} — failing it.`)
       return route.fulfill({ status: 501, contentType: 'application/json', body: JSON.stringify({ detail: `No fixture for ${key}` }) })
@@ -130,6 +151,18 @@ async function installApiMocks(page) {
 async function shot(locator, name) {
   await locator.screenshot({ path: path.join(OUT_DIR, name) })
   console.log(`  ✔ ${name}`)
+}
+
+/** Waits for the step's "Next" button to be enabled — it's disabled until
+ * the local directory (or Trapper selection) has validated successfully. */
+async function waitForEnabledNext(page) {
+  const nextBtn = page.getByRole('button', { name: /^next$/i })
+  await nextBtn.waitFor()
+  await page.waitForFunction(() => {
+    const btn = [...document.querySelectorAll('button')].find((b) => /^next$/i.test(b.textContent ?? ''))
+    return btn && !btn.disabled
+  })
+  return nextBtn
 }
 
 async function main() {
@@ -149,17 +182,24 @@ async function main() {
     await page.goto(BASE_URL)
     await page.getByRole('button', { name: /get started/i }).click()
 
+    // Step 0: product type, nothing picked yet — shared by both product
+    // walkthroughs' own "choose what to publish" screenshot.
+    await shot(page.locator('main > div'), 'product-selection.png')
+
     // Step 0-2: Camtrap DP, local directory, past the download-result screen.
     await page.getByRole('button', { name: /camtrap dp/i }).click()
+    // Move the mouse off the "Local Directory" card first — it sits right
+    // where "Camtrap DP" was on the previous screen, so the leftover cursor
+    // position would otherwise trigger its :hover style and make it look
+    // pre-selected.
+    await page.mouse.move(0, 0)
+    await shot(page.locator('main > div'), 'source-selection.png')
     await page.getByRole('button', { name: /local directory/i }).click()
     await page.getByLabel('Directory').fill(`${DOCS_DIR}/trapper`)
-    const nextBtn = page.getByRole('button', { name: /^next$/i })
-    await nextBtn.waitFor()
-    await page.waitForFunction(() => {
-      const btn = [...document.querySelectorAll('button')].find((b) => /^next$/i.test(b.textContent ?? ''))
-      return btn && !btn.disabled
-    })
+    let nextBtn = await waitForEnabledNext(page)
     await nextBtn.click()
+    await page.getByText('Package ready').waitFor()
+    await shot(page.locator('main > div'), 'confirm-package.png')
     await nextBtn.click()
 
     // Step 3: select all four repositories, reorder so HFH publishes first
@@ -239,6 +279,26 @@ async function main() {
     const b2shareSynced = page.getByText('PID/DOI synced to').locator('xpath=..')
     await b2shareSynced.waitFor()
     await shot(b2shareSynced, 'b2share-sync-pid-done.png')
+
+    // ── Second walk: YOLO Dataset's own product/source/confirm screenshots
+    // — a fresh page load rather than "Publish again", since that's simpler
+    // than unwinding the Camtrap DP run's dry-run/publish-order state. YOLO's
+    // steps 4-8 aren't screenshotted separately — guide-web-yolo.md notes
+    // they look the same as Camtrap DP's, minus GBIF. ──────────────────────
+    console.log('Walking the wizard again, for YOLO Dataset...')
+    await page.goto(BASE_URL)
+    await page.getByRole('button', { name: /get started/i }).click()
+    await page.getByRole('button', { name: /yolo dataset/i }).click()
+    await shot(page.locator('main > div'), 'source-selection-yolo.png')
+    await page.getByRole('button', { name: /^back$/i }).click()
+    await shot(page.locator('main > div'), 'product-selection-yolo.png')
+    await page.getByRole('button', { name: /yolo dataset/i }).click()
+    await page.getByRole('button', { name: /local directory/i }).click()
+    await page.getByLabel('Directory').fill(`${DOCS_DIR}/yolo`)
+    nextBtn = await waitForEnabledNext(page)
+    await nextBtn.click()
+    await page.getByText('Package ready').waitFor()
+    await shot(page.locator('main > div'), 'confirm-package-yolo.png')
 
     await browser.close()
     console.log(`\nDone — screenshots written to ${OUT_DIR}`)

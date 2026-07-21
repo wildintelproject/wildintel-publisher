@@ -24,13 +24,11 @@ Pick **Trapper Instance** to fetch a package from a Trapper classification proje
 ## 3. Confirm the package and its description
 
 Once the package is ready (downloaded, or already local), the wizard shows where it
-lives:
+lives. If its common description is missing something required (title, description,
+version, license, authors), a form prompts for exactly what's missing; once complete, a
+summary card shows the title, version, license, authors, and homepage.
 
-![Package ready](img/web/package-ready.png)
-
-If its common description is missing something required (title, description, version,
-license, authors), a form prompts for exactly what's missing; once complete, a summary
-card shows the title, version, license, authors, and homepage.
+![Confirming the package's description](img/web/confirm-package.png)
 
 ![Confirming the package's description](img/web/confirm-package.png)
 
