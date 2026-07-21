@@ -69,6 +69,10 @@ On the wizard's first screen, pick what you want to publish. Currently we can pu
   Zenodo, B2SHARE, and/or GBIF.
 - **[YOLO Dataset](guide-web-yolo.md)** — a local YOLO training dataset, to Hugging Face
   Hub, Zenodo, and/or B2SHARE.
+- **AI Model** *(coming soon)* — a trained AI model artifact.
+- **EBV** *(coming soon)* — Essential Biodiversity Variables derived from the project
+  data.
+- **Image Gallery** *(coming soon)* — a curated gallery of camera-trap images.
 
-Each page above walks through the wizard for that product, screen by screen, with
-screenshots.
+Each of the first two links above walks through the wizard for that product, screen by
+screen, with screenshots — the rest are shown on this screen but aren't selectable yet.
