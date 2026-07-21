@@ -186,7 +186,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      # For a tag push, check out `development` (not the tag) so CHANGELOG.md
+      # can be promoted and committed straight back to it — mirrors
+      # wildintel-trapper-sdk's release.yml. `development` is expected to be
+      # what the tag was actually cut from. workflow_dispatch (dev builds)
+      # keeps checking out whatever ref triggered it, as before.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ startsWith(github.ref, 'refs/tags/') && 'development' || github.ref }}
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -194,12 +202,38 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Extract release notes from CHANGELOG
+      - name: Resolve version, date, and previous CLI tag
+        id: relver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            PREV_TAG=$(git tag --sort=-creatordate | grep -E '^v[0-9]' | grep -vx "${GITHUB_REF_NAME}" | head -n1 || true)
+            echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Promote "Upcoming release" (CLI) to a dated, versioned CHANGELOG entry
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          awk "/^### \[CLI v${VERSION}\]/{found=1; next} found && /^### \[/{exit} found{print}" \
-            CHANGELOG.md > release_notes.txt
+          python3 .github/scripts/promote_changelog.py \
+            --product CLI \
+            --version "${{ steps.relver.outputs.version }}" \
+            --tag-name "${{ github.ref_name }}" \
+            --date "${{ steps.relver.outputs.date }}" \
+            --repo "${{ github.repository }}" \
+            --prev-tag "${{ steps.relver.outputs.prev_tag }}" \
+            --notes-out release_notes.txt
+
+      - name: Commit and push the promoted CHANGELOG.md to development
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: promote Upcoming release (CLI) to ${{ github.ref_name }} in CHANGELOG.md"
+          git push origin HEAD:development
 
       - name: Create stable release
         if: startsWith(github.ref, 'refs/tags/')
