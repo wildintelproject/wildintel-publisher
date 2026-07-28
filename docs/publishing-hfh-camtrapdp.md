@@ -18,10 +18,17 @@ documentation (`README.md`, `LICENSE`, `CITATION.cff`, `checksums-sha256.txt`).
   repository as its own individual file, under `images/`, preserving the original file
   arrangement: one file per image, never a zip. `media.csv`'s `filePath` is rewritten,
   once the destination repository is known, to the real, permanent Hugging Face Hub URL
-  of each image. An additional `camtrapdp-local.zip` is also generated for convenience —
-  the same tables with `filePath` made relative to `images/`, meant to be used together
-  with the already-downloaded `images/` folder without needing network access to resolve
-  each file again.
+  of each image. Two additional zips are also generated:
+    - `camtrapdp-local.zip` — the same tables with `filePath` made relative to `images/`,
+      meant to be used together with the already-downloaded `images/` folder without
+      needing network access to resolve each file again.
+    - `camtrapdp-remote.zip` — the same tables as-is, `filePath` left pointing at the real
+      Hugging Face Hub URLs. This is the one to register as
+      [GBIF](publishing-gbif.md)'s `--archive-url` — GBIF's `CAMTRAP_DP` crawler
+      downloads and decompresses whatever URL it's given, so it needs a real zip archive
+      whose media references are resolvable once extracted in isolation, unlike
+      `camtrapdp-local.zip`'s relative paths (meaningful only alongside a sibling
+      `images/` folder) or a bare `datapackage.json` (not an archive at all).
 - **Link mode** — no images are downloaded or uploaded at all. The repository still gets
   the four core tables, but `media.csv`'s `filePath` is left exactly as Trapper
   delivered it: a temporary, one-shot URL that expires. This only really makes sense for

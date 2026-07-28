@@ -31,6 +31,48 @@ no [publishing mode](publishing-guide.md#publishing-modes) to choose — a singl
 updates it (replacing its `CAMTRAP_DP` endpoint) on every later run, so re-running it
 after publishing a new version is always safe.
 
+!!! warning "`--archive-url` must point to `camtrapdp-remote.zip`"
+    GBIF's `CAMTRAP_DP` crawler downloads whatever's at this URL and decompresses it
+    itself — a bare `datapackage.json` downloads successfully but then fails to
+    decompress (silently: the crawl finishes with `finishReason: ABORT` and nothing ever
+    gets indexed, with no error visible anywhere in this project), since it isn't an
+    archive. Hugging Face Hub's default mirror mode also generates `camtrapdp-local.zip`,
+    but its `media.csv` uses paths relative to a sibling `images/` folder — meaningless
+    once GBIF extracts the zip on its own, in isolation. Use `camtrapdp-remote.zip`
+    instead — built right after the images have real Hugging Face Hub URLs, so
+    `media.csv` resolves correctly with nothing else needed alongside it. `gbif register`/
+    the web wizard's **Validate archive** button checks this upfront (see
+    `gbif.validate_camtrap_dp_archive`).
+
+    `camtrapdp-remote.zip` also nests its four files inside a single top-level folder,
+    rather than at the zip's own root — GBIF's crawler requires exactly one root
+    directory once it unpacks the archive (`org.gbif.utils.file.CompressionUtil` errors
+    with "More than one root directory" otherwise, and treats the whole dataset as
+    empty — the crawl finishes `NORMAL`, but indexes zero records, with no error visible
+    anywhere in this project either).
+
+!!! warning "`observationLevel` must match `datapackage.json`'s `gbifIngestion` field"
+    Once the archive itself downloads and decompresses correctly, GBIF's own Camtrap DP
+    -> Darwin Core conversion (internally, the `camtrapdp`/`camtraptor` R packages) still
+    only keeps observations whose own `observationLevel` (`"event"` or `"media"`, per the
+    Camtrap DP standard) matches a `gbifIngestion.observationLevel` field in
+    `datapackage.json` — **defaulting to `"event"` when that field is absent**. Trapper's
+    own exports (and this project's own `examples/camtrapdp/`) are always media-level, so
+    without this field every observation gets silently filtered out — the crawl still
+    finishes `NORMAL`, `camtraptor` still writes `occurrence.csv`, just with zero rows in
+    it, with no error surfaced anywhere (this project, the GBIF Registry API, or the
+    dataset's own page). `camtrapdp-remote.zip` sets this field automatically, detected
+    from `observations.csv` itself (see `common.write_remote_zip`) — same as the other two
+    fixes above, it's only added to this zip, never to the on-disk `datapackage.json`
+    every other repository also copies as-is (it's a GBIF-only vendor extension, not part
+    of the Camtrap DP standard itself).
+
+Registering an already-published Camtrap DP that this tool didn't just publish itself?
+The web wizard's **Public URL** source (see [Camtrap DP](product-camtrapdp.md#1-what-is-camtrap-dp))
+fetches and validates that same zip on the way in, so the URL you point it at is
+directly reusable here as `--archive-url` — already confirmed public and valid, no
+separate check needed.
+
 Publishing through GBIF requires an **organization** endorsed by a GBIF Participant
 Node, and an **installation** registered under it — both created by hand on `gbif.org`
 (or its sandbox), since this is a manual review process that cannot be automated via

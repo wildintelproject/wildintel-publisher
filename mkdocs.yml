@@ -115,6 +115,7 @@ nav:
       - Overview: products.md
       - Camtrap DP: product-camtrapdp.md
       - YOLO Dataset: product-yolo.md
+      - Software Application: product-software.md
   - Publishing:
       - Overview: publishing-guide.md
       - Hugging Face Hub:

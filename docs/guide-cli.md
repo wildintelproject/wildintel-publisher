@@ -342,15 +342,27 @@ submission yet — check back later and re-run it.
 ### 7. Register it on GBIF
 
 `gbif register` doesn't upload anything — it points GBIF's Registry at a URL where the
-Camtrap DP is already hosted (here, the Hugging Face Hub export from step 3):
+Camtrap DP is already hosted (here, the Hugging Face Hub export from step 3).
+
+!!! warning "The URL must point to `camtrapdp-remote.zip`, not `datapackage.json` or `camtrapdp-local.zip`"
+    GBIF's `CAMTRAP_DP` crawler expects `--archive-url` to point to a **zip archive**
+    containing the whole Camtrap DP package, resolvable once extracted in isolation — it
+    downloads whatever's at that URL and decompresses it itself. A bare `datapackage.json`
+    URL downloads fine but then fails to decompress (silently, as an `ABORT` with no
+    records crawled), since it isn't an archive at all. `camtrapdp-local.zip` *is* a real
+    zip, but its `media.csv` uses paths relative to a sibling `images/` folder (meant for
+    local/offline use, not standalone extraction) — GBIF can't resolve those in isolation
+    either. Use `camtrapdp-remote.zip` instead: generated after `hfh upload` has already
+    rewritten `media.csv` to real Hugging Face Hub URLs, so every image resolves correctly
+    once GBIF extracts it on its own.
 
 <div class="termy">
 
 ```console
-$ wildintel-publisher gbif register --input-dir <trapper-output-dir> --archive-url https://huggingface.co/datasets/<your-user>/<dataset-slug>/resolve/main/datapackage.json
+$ wildintel-publisher gbif register --input-dir <trapper-output-dir> --archive-url https://huggingface.co/datasets/<your-user>/<dataset-slug>/resolve/main/camtrapdp-remote.zip
 Registering new GBIF dataset (sandbox)...
 Created GBIF dataset: 3a2f9c1e-...
-Adding CAMTRAP_DP endpoint: https://huggingface.co/datasets/<your-user>/<dataset-slug>/resolve/main/datapackage.json
+Adding CAMTRAP_DP endpoint: https://huggingface.co/datasets/<your-user>/<dataset-slug>/resolve/main/camtrapdp-remote.zip
 ✔  GBIF dataset registered: https://registry.gbif-test.org/dataset/3a2f9c1e-...
    GBIF crawls new/updated endpoints within a few hours — check back at the link above.
 ```

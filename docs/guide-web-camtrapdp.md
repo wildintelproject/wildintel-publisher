@@ -16,8 +16,11 @@ On the wizard's first screen, pick **Camtrap DP**.
 
 ## 2. Choose where it comes from
 
-Pick **Trapper Instance** to fetch a package from a Trapper classification project, or
-**Local Directory** if you already have one on this machine.
+Pick **Trapper Instance** to fetch a package from a Trapper classification project,
+**Local Directory** if you already have one on this machine, or **Public URL** to fetch
+an already-published Camtrap DP zip archive from a public URL (validated against the
+official schema on the way in — the same URL is then reusable as-is for
+[GBIF](publishing-gbif.md)'s own archive URL, since it's already confirmed public).
 
 ![Choosing where the package comes from](img/web/source-selection.png)
 
@@ -87,3 +90,10 @@ success with a direct link back to it (see [Zenodo](guide-web-zenodo.md#sync-doi
 [B2SHARE](guide-web-b2share.md#sync-piddoi-to-hugging-face-hub)). If B2SHARE is still
 pending moderator review, that's shown too — its final PID/DOI won't be known until a
 moderator approves the submission, which happens outside this wizard run.
+
+If GBIF was published alongside Hugging Face Hub in the same run and came back with a
+DOI, it's already synced into Hugging Face Hub's `CITATION.cff` automatically — this
+screen just confirms it, with a link back to the export, no extra step needed. GBIF's own
+**Sync DOI** section only shows up as something to fill in by hand when that couldn't
+happen automatically (GBIF published on its own, without Hugging Face Hub in the same
+run) — see [Publishing to GBIF](publishing-gbif.md).

@@ -17,12 +17,17 @@ deployments, the media (images/videos) they captured, and the observations
 (species/individual identifications) derived from that media, as a small set of
 tabular files tied together by one JSON metadata descriptor.
 
-In this project, Camtrap DP packages come from a
-[Trapper](https://gitlab.com/trapper-project/trapper) classification project —
-Trapper is the platform researchers use to manage camera-trap deployments and classify
-the media they capture. A Camtrap DP export of a given classification project
-(optionally scoped to a single deployment) is generated, downloaded, and extracted
-locally before anything is published.
+In this project, a Camtrap DP package is obtained one of three ways before anything is
+published: fetched from a [Trapper](https://gitlab.com/trapper-project/trapper)
+classification project (the platform researchers use to manage camera-trap deployments
+and classify the media they capture — an export of a given project, optionally scoped
+to a single deployment, is generated, downloaded, and extracted locally), pointed at an
+already-local directory, or fetched from a **public URL** to a zip archive of an
+already-published Camtrap DP (downloaded and validated against the official schema the
+same way a real publish would validate it — useful when re-registering an
+already-hosted package with [GBIF](publishing-gbif.md), since the same URL used to fetch
+it is then directly reusable as GBIF's own `--archive-url`, already confirmed public and
+valid).
 
 ## 2. Raw package layout
 
@@ -48,7 +53,7 @@ The publishing process filters `media.csv` down to public rows only, and drops a
 observation that referenced a now-removed media file — private media never leaves your
 machine.
 
-### `filePath` is a one-shot token URL
+### `filePath` — a one-shot token URL, or already local
 
 `media.csv`'s `filePath`, as delivered by Trapper, is a temporary, one-time-use signed
 URL — it resolves once (or for a limited time) and then expires. This is why the
@@ -56,6 +61,15 @@ publishing process rewrites it before publishing anywhere permanent — to a pre
 Hugging Face Hub URL, to a self-contained bundle with a relative path, or, for a quick,
 throwaway local inspection rather than anything meant to stay citable, left as-is — see
 [Publishing modes](publishing-guide.md#publishing-modes) in the Publishing Guide.
+
+An already-local, self-contained Camtrap DP package (the standard's own alternative to
+an absolute URL) instead has `filePath` values as paths *relative to the package
+itself* — e.g. `images/<file>.jpg`, resolving against a sibling `images/` folder next to
+`datapackage.json` (the same convention this project's own `camtrapdp-local.zip`
+generates — see this repository's own `examples/camtrapdp/` for a working example you
+can point **Local Directory** at). Publishing in mirror mode picks either one up
+transparently — an absolute `http(s)://` URL is downloaded, anything else is copied
+straight from the local package.
 
 ## 3. What gets published
 

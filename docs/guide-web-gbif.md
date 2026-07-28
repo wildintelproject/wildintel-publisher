@@ -14,10 +14,18 @@ you to fill in the following fields:
 ## Fields
 
 - **Archive URL** — the public URL where the Camtrap DP is already hosted; GBIF will
-  crawl it from there. If Hugging Face Hub precedes GBIF in the publish order, this is
-  pre-filled automatically (`https://huggingface.co/datasets/<repo>/resolve/main/datapackage.json`,
-  fully derived from what you typed into the Hugging Face Hub form) — still editable if
-  you'd rather point at somewhere else.
+  crawl it from there. **Must point to `camtrapdp-remote.zip`** — GBIF's `CAMTRAP_DP`
+  crawler downloads whatever's at this URL and decompresses it itself, so a bare
+  `datapackage.json` downloads fine but then fails to decompress, silently, with nothing
+  ever crawled; `camtrapdp-local.zip` *is* a real zip, but its `media.csv` uses paths
+  relative to a sibling `images/` folder, meaningless once GBIF extracts it in isolation.
+  `camtrapdp-remote.zip` is built specifically for this — its `media.csv` already points at
+  real Hugging Face Hub URLs. If Hugging Face Hub precedes GBIF in the publish order, this
+  is pre-filled automatically
+  (`https://huggingface.co/datasets/<repo>/resolve/main/camtrapdp-remote.zip`, fully
+  derived from what you typed into the Hugging Face Hub form) — still editable if you'd
+  rather point at somewhere else. Use **Validate archive** to check upfront that the URL
+  really is a zip containing a valid Camtrap DP, before registering it with GBIF.
 - **Environment** — **Sandbox** (`gbif-test.org`, testing — its own separate account) or
   **Production** (`gbif.org`).
 - **Registry language** — ISO 639-2/T code the Registry API requires (defaults to
@@ -39,6 +47,10 @@ you to fill in the following fields:
 GBIF has no separate locking step — every registration (create or update) is immediately
 live, so re-running it later (e.g. after publishing a new version elsewhere) is always
 safe; it replaces the dataset's endpoint in place rather than creating a duplicate. There
-is no "Sync" section for GBIF — it doesn't provide a DOI/PID of its own to reflect
-anywhere else. See step 8 of the [walkthrough](guide-web-camtrapdp.md#8-when-its-done) for
-where its registration shows up once publishing finishes.
+is no "Sync" section for GBIF — `wildintel-publisher` never requests a DOI/PID from it,
+and doesn't cross-reference one back into HFH's citation the way it does for Zenodo/
+B2SHARE. (Some organizations have their own DataCite arrangement with GBIF that makes it
+auto-assign a DOI on registration anyway — that's entirely GBIF/organization-side, not
+something this tool controls or can predict.) See step 8 of the
+[walkthrough](guide-web-camtrapdp.md#8-when-its-done) for where its registration shows up
+once publishing finishes.
