@@ -447,6 +447,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../product-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Software Application
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1588,10 +1616,19 @@ documentation (<code>README.md</code>, <code>LICENSE</code>, <code>CITATION.cff<
   repository as its own individual file, under <code>images/</code>, preserving the original file
   arrangement: one file per image, never a zip. <code>media.csv</code>'s <code>filePath</code> is rewritten,
   once the destination repository is known, to the real, permanent Hugging Face Hub URL
-  of each image. An additional <code>camtrapdp-local.zip</code> is also generated for convenience —
-  the same tables with <code>filePath</code> made relative to <code>images/</code>, meant to be used together
-  with the already-downloaded <code>images/</code> folder without needing network access to resolve
-  each file again.</li>
+  of each image. Two additional zips are also generated:<ul>
+<li><code>camtrapdp-local.zip</code> — the same tables with <code>filePath</code> made relative to <code>images/</code>,
+  meant to be used together with the already-downloaded <code>images/</code> folder without
+  needing network access to resolve each file again.</li>
+<li><code>camtrapdp-remote.zip</code> — the same tables as-is, <code>filePath</code> left pointing at the real
+  Hugging Face Hub URLs. This is the one to register as
+  <a href="../publishing-gbif/">GBIF</a>'s <code>--archive-url</code> — GBIF's <code>CAMTRAP_DP</code> crawler
+  downloads and decompresses whatever URL it's given, so it needs a real zip archive
+  whose media references are resolvable once extracted in isolation, unlike
+  <code>camtrapdp-local.zip</code>'s relative paths (meaningful only alongside a sibling
+  <code>images/</code> folder) or a bare <code>datapackage.json</code> (not an archive at all).</li>
+</ul>
+</li>
 <li><strong>Link mode</strong> — no images are downloaded or uploaded at all. The repository still gets
   the four core tables, but <code>media.csv</code>'s <code>filePath</code> is left exactly as Trapper
   delivered it: a temporary, one-shot URL that expires. This only really makes sense for

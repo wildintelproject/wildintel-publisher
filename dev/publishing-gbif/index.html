@@ -447,6 +447,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../product-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Software Application
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1661,6 +1689,48 @@ no <a href="../publishing-guide/#publishing-modes">publishing mode</a> to choose
 <code>gbif register --archive-url &lt;url&gt;</code> command creates the dataset the first time and
 updates it (replacing its <code>CAMTRAP_DP</code> endpoint) on every later run, so re-running it
 after publishing a new version is always safe.</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>--archive-url</code> must point to <code>camtrapdp-remote.zip</code></p>
+<p>GBIF's <code>CAMTRAP_DP</code> crawler downloads whatever's at this URL and decompresses it
+itself — a bare <code>datapackage.json</code> downloads successfully but then fails to
+decompress (silently: the crawl finishes with <code>finishReason: ABORT</code> and nothing ever
+gets indexed, with no error visible anywhere in this project), since it isn't an
+archive. Hugging Face Hub's default mirror mode also generates <code>camtrapdp-local.zip</code>,
+but its <code>media.csv</code> uses paths relative to a sibling <code>images/</code> folder — meaningless
+once GBIF extracts the zip on its own, in isolation. Use <code>camtrapdp-remote.zip</code>
+instead — built right after the images have real Hugging Face Hub URLs, so
+<code>media.csv</code> resolves correctly with nothing else needed alongside it. <code>gbif register</code>/
+the web wizard's <strong>Validate archive</strong> button checks this upfront (see
+<code>gbif.validate_camtrap_dp_archive</code>).</p>
+<p><code>camtrapdp-remote.zip</code> also nests its four files inside a single top-level folder,
+rather than at the zip's own root — GBIF's crawler requires exactly one root
+directory once it unpacks the archive (<code>org.gbif.utils.file.CompressionUtil</code> errors
+with "More than one root directory" otherwise, and treats the whole dataset as
+empty — the crawl finishes <code>NORMAL</code>, but indexes zero records, with no error visible
+anywhere in this project either).</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title"><code>observationLevel</code> must match <code>datapackage.json</code>'s <code>gbifIngestion</code> field</p>
+<p>Once the archive itself downloads and decompresses correctly, GBIF's own Camtrap DP
+-&gt; Darwin Core conversion (internally, the <code>camtrapdp</code>/<code>camtraptor</code> R packages) still
+only keeps observations whose own <code>observationLevel</code> (<code>"event"</code> or <code>"media"</code>, per the
+Camtrap DP standard) matches a <code>gbifIngestion.observationLevel</code> field in
+<code>datapackage.json</code> — <strong>defaulting to <code>"event"</code> when that field is absent</strong>. Trapper's
+own exports (and this project's own <code>examples/camtrapdp/</code>) are always media-level, so
+without this field every observation gets silently filtered out — the crawl still
+finishes <code>NORMAL</code>, <code>camtraptor</code> still writes <code>occurrence.csv</code>, just with zero rows in
+it, with no error surfaced anywhere (this project, the GBIF Registry API, or the
+dataset's own page). <code>camtrapdp-remote.zip</code> sets this field automatically, detected
+from <code>observations.csv</code> itself (see <code>common.write_remote_zip</code>) — same as the other two
+fixes above, it's only added to this zip, never to the on-disk <code>datapackage.json</code>
+every other repository also copies as-is (it's a GBIF-only vendor extension, not part
+of the Camtrap DP standard itself).</p>
+</div>
+<p>Registering an already-published Camtrap DP that this tool didn't just publish itself?
+The web wizard's <strong>Public URL</strong> source (see <a href="../product-camtrapdp/#1-what-is-camtrap-dp">Camtrap DP</a>)
+fetches and validates that same zip on the way in, so the URL you point it at is
+directly reusable here as <code>--archive-url</code> — already confirmed public and valid, no
+separate check needed.</p>
 <p>Publishing through GBIF requires an <strong>organization</strong> endorsed by a GBIF Participant
 Node, and an <strong>installation</strong> registered under it — both created by hand on <code>gbif.org</code>
 (or its sandbox), since this is a manual review process that cannot be automated via

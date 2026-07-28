@@ -447,6 +447,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../product-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Software Application
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1737,8 +1765,11 @@ plan to use is ready — see <a href="../guide-web/#before-you-start">Before you
 <p>On the wizard's first screen, pick <strong>Camtrap DP</strong>.</p>
 <p><img alt="Choosing what to publish" src="../img/web/product-selection.png" /></p>
 <h2 id="2-choose-where-it-comes-from">2. Choose where it comes from</h2>
-<p>Pick <strong>Trapper Instance</strong> to fetch a package from a Trapper classification project, or
-<strong>Local Directory</strong> if you already have one on this machine.</p>
+<p>Pick <strong>Trapper Instance</strong> to fetch a package from a Trapper classification project,
+<strong>Local Directory</strong> if you already have one on this machine, or <strong>Public URL</strong> to fetch
+an already-published Camtrap DP zip archive from a public URL (validated against the
+official schema on the way in — the same URL is then reusable as-is for
+<a href="../publishing-gbif/">GBIF</a>'s own archive URL, since it's already confirmed public).</p>
 <p><img alt="Choosing where the package comes from" src="../img/web/source-selection.png" /></p>
 <h2 id="3-confirm-the-package-and-its-description">3. Confirm the package and its description</h2>
 <p>Once the package is ready (downloaded, or already local), the wizard shows where it
@@ -1790,6 +1821,12 @@ success with a direct link back to it (see <a href="../guide-web-zenodo/#sync-do
 <a href="../guide-web-b2share/#sync-piddoi-to-hugging-face-hub">B2SHARE</a>). If B2SHARE is still
 pending moderator review, that's shown too — its final PID/DOI won't be known until a
 moderator approves the submission, which happens outside this wizard run.</p>
+<p>If GBIF was published alongside Hugging Face Hub in the same run and came back with a
+DOI, it's already synced into Hugging Face Hub's <code>CITATION.cff</code> automatically — this
+screen just confirms it, with a link back to the export, no extra step needed. GBIF's own
+<strong>Sync DOI</strong> section only shows up as something to fill in by hand when that couldn't
+happen automatically (GBIF published on its own, without Hugging Face Hub in the same
+run) — see <a href="../publishing-gbif/">Publishing to GBIF</a>.</p>
 
 
 

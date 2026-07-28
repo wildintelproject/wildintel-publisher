@@ -520,6 +520,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../product-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Software Application
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1619,6 +1647,11 @@ it can be published to.</p>
 <td>Available</td>
 </tr>
 <tr>
+<td><a href="../product-software/">Software Application</a></td>
+<td>A git repository, cloned via its URL</td>
+<td>Available</td>
+</tr>
+<tr>
 <td>YOLO-based AI models</td>
 <td>Trained model weights/checkpoints produced from a YOLO dataset</td>
 <td>🔜 Coming soon</td>
@@ -1633,6 +1666,8 @@ it can be published to.</p>
 <li><strong><a href="../product-yolo/">YOLO Dataset</a></strong> — an object-detection training dataset in
   <a href="https://docs.ultralytics.com/datasets/">YOLO</a>'s standard layout: images split into
   training/validation/test sets, each paired with its bounding-box labels.</li>
+<li><strong><a href="../product-software/">Software Application</a></strong> — source code archived as its own
+  citable artifact. Comes from a <code>git clone</code> of a repository URL you provide.</li>
 <li><strong>YOLO-based AI models</strong> <em>(coming soon)</em> — trained model weights/checkpoints produced
   from a YOLO dataset, published as their own citable artifact rather than as training
   data.</li>
@@ -1646,18 +1681,21 @@ support for a new one to this tool.</p>
 <hr />
 <h2 id="where-products-can-be-published">Where products can be published</h2>
 <p>Not every repository accepts every product type. Camtrap DP, being a biodiversity data
-standard, can be published to all of them — including GBIF, the global biodiversity data
-network. Unlike the other three, GBIF doesn't host the package itself: <code>gbif register</code>
-only points GBIF's Registry at a URL where the Camtrap DP is already hosted (e.g. one of
-the other three repositories above). YOLO training datasets and models are
-machine-learning artifacts rather than biodiversity occurrence records, so they aren't a
-fit for GBIF.</p>
+standard, is the only one GBIF (the global biodiversity data network) ever registers.
+Unlike the other three, GBIF doesn't host the package itself: <code>gbif register</code> only
+points GBIF's Registry at a URL where the Camtrap DP is already hosted (e.g. Hugging
+Face Hub). YOLO training datasets/models are machine-learning artifacts, and a software
+application is source code — neither is biodiversity occurrence data, so GBIF isn't a
+fit for either. Conversely, a software application has no media/dataset content of its
+own, so Hugging Face Hub isn't a fit for it either — only Zenodo/B2SHARE, which mint a
+DOI for the code itself.</p>
 <table>
 <thead>
 <tr>
 <th>Repository</th>
 <th style="text-align: center;">Camtrap DP</th>
 <th style="text-align: center;">YOLO Dataset</th>
+<th style="text-align: center;">Software Application</th>
 <th style="text-align: center;">YOLO-based AI models</th>
 </tr>
 </thead>
@@ -1666,16 +1704,19 @@ fit for GBIF.</p>
 <td><a href="../publishing-hfh/">Hugging Face Hub</a></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
+<td style="text-align: center;">❌</td>
 <td style="text-align: center;">🔜</td>
 </tr>
 <tr>
 <td><a href="../publishing-zenodo/">Zenodo</a></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
 <td style="text-align: center;">🔜</td>
 </tr>
 <tr>
 <td><a href="../publishing-b2share/">B2SHARE (EUDAT)</a> 🇪🇺</td>
+<td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">🔜</td>
@@ -1685,10 +1726,19 @@ fit for GBIF.</p>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">❌</td>
 <td style="text-align: center;">❌</td>
+<td style="text-align: center;">❌</td>
 </tr>
 </tbody>
 </table>
 <p>✅ available today · 🔜 planned · ❌ not applicable</p>
+<div class="admonition note">
+<p class="admonition-title">The web wizard narrows Camtrap DP further, to Hugging Face Hub + GBIF only</p>
+<p>The table above reflects what each repository integration actually supports — the
+CLI's <code>hfh</code>/<code>zenodo</code>/<code>b2share</code>/<code>gbif</code> commands stay generic across product types (see
+the <a href="../developer-guide/">Developer Guide</a>). The web app's own wizard, however, only
+lets a Camtrap DP package be published to Hugging Face Hub and GBIF, keeping
+Zenodo/B2SHARE reserved for YOLO datasets and software applications in that flow.</p>
+</div>
 <p>See the <a href="../publishing-guide/">Publishing Guide</a> for how the publishing process itself
 works, and each repository's own guide (linked above) for what publishing a given
 product there actually involves.</p>

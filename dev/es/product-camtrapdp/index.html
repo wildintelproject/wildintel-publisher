@@ -496,10 +496,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#filepath-is-a-one-shot-token-url" class="md-nav__link">
+  <a href="#filepath-a-one-shot-token-url-or-already-local" class="md-nav__link">
     <span class="md-ellipsis">
       
-        filePath is a one-shot token URL
+        filePath — a one-shot token URL, or already local
       
     </span>
   </a>
@@ -557,6 +557,34 @@
     
   
     YOLO Dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../product-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Software Application
   
 
     
@@ -1635,10 +1663,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#filepath-is-a-one-shot-token-url" class="md-nav__link">
+  <a href="#filepath-a-one-shot-token-url-or-already-local" class="md-nav__link">
     <span class="md-ellipsis">
       
-        filePath is a one-shot token URL
+        filePath — a one-shot token URL, or already local
       
     </span>
   </a>
@@ -1706,12 +1734,17 @@ data exchange standard for structuring and sharing camera-trap data, maintained 
 deployments, the media (images/videos) they captured, and the observations
 (species/individual identifications) derived from that media, as a small set of
 tabular files tied together by one JSON metadata descriptor.</p>
-<p>In this project, Camtrap DP packages come from a
-<a href="https://gitlab.com/trapper-project/trapper">Trapper</a> classification project —
-Trapper is the platform researchers use to manage camera-trap deployments and classify
-the media they capture. A Camtrap DP export of a given classification project
-(optionally scoped to a single deployment) is generated, downloaded, and extracted
-locally before anything is published.</p>
+<p>In this project, a Camtrap DP package is obtained one of three ways before anything is
+published: fetched from a <a href="https://gitlab.com/trapper-project/trapper">Trapper</a>
+classification project (the platform researchers use to manage camera-trap deployments
+and classify the media they capture — an export of a given project, optionally scoped
+to a single deployment, is generated, downloaded, and extracted locally), pointed at an
+already-local directory, or fetched from a <strong>public URL</strong> to a zip archive of an
+already-published Camtrap DP (downloaded and validated against the official schema the
+same way a real publish would validate it — useful when re-registering an
+already-hosted package with <a href="../publishing-gbif/">GBIF</a>, since the same URL used to fetch
+it is then directly reusable as GBIF's own <code>--archive-url</code>, already confirmed public and
+valid).</p>
 <h2 id="2-raw-package-layout">2. Raw package layout</h2>
 <p>A Camtrap DP package is four files at the root of a directory:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>.
@@ -1729,13 +1762,21 @@ people, and Trapper's own privacy rules decide whether a given file counts as pu
 The publishing process filters <code>media.csv</code> down to public rows only, and drops any
 observation that referenced a now-removed media file — private media never leaves your
 machine.</p>
-<h3 id="filepath-is-a-one-shot-token-url"><code>filePath</code> is a one-shot token URL</h3>
+<h3 id="filepath-a-one-shot-token-url-or-already-local"><code>filePath</code> — a one-shot token URL, or already local</h3>
 <p><code>media.csv</code>'s <code>filePath</code>, as delivered by Trapper, is a temporary, one-time-use signed
 URL — it resolves once (or for a limited time) and then expires. This is why the
 publishing process rewrites it before publishing anywhere permanent — to a predictable
 Hugging Face Hub URL, to a self-contained bundle with a relative path, or, for a quick,
 throwaway local inspection rather than anything meant to stay citable, left as-is — see
 <a href="../publishing-guide/#publishing-modes">Publishing modes</a> in the Publishing Guide.</p>
+<p>An already-local, self-contained Camtrap DP package (the standard's own alternative to
+an absolute URL) instead has <code>filePath</code> values as paths <em>relative to the package
+itself</em> — e.g. <code>images/&lt;file&gt;.jpg</code>, resolving against a sibling <code>images/</code> folder next to
+<code>datapackage.json</code> (the same convention this project's own <code>camtrapdp-local.zip</code>
+generates — see this repository's own <code>examples/camtrapdp/</code> for a working example you
+can point <strong>Local Directory</strong> at). Publishing in mirror mode picks either one up
+transparently — an absolute <code>http(s)://</code> URL is downloaded, anything else is copied
+straight from the local package.</p>
 <h2 id="3-what-gets-published">3. What gets published</h2>
 <p>Before a Camtrap DP package can be published anywhere, it's given a common description —
 the same envelope every product type carries, regardless of its own underlying format:</p>
