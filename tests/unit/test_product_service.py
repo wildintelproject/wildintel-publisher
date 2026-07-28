@@ -8,9 +8,10 @@ from wildintel_publisher.services import product
 
 
 def test_registered_product_types_includes_the_built_in_adapters():
-    # camtrapdp_adapter/yolo_adapter self-register on import (see
-    # services/__init__.py) — this fails loudly if that wiring breaks.
-    assert {"camtrapdp", "yolo"} <= set(product.registered_product_types())
+    # camtrapdp_adapter/yolo_adapter/software_adapter self-register on
+    # import (see services/__init__.py) — this fails loudly if that wiring
+    # breaks.
+    assert {"camtrapdp", "yolo", "software"} <= set(product.registered_product_types())
 
 
 def test_get_adapter_raises_for_an_unknown_product_type():

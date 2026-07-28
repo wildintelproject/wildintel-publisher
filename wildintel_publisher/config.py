@@ -61,6 +61,16 @@ def get_gbif_output_dir() -> Path:
     return get_app_documents_dir() / "gbif"
 
 
+def get_software_output_dir() -> Path:
+    """Directorio por defecto donde se clonan los repositorios git de productos software."""
+    return get_app_documents_dir() / "software"
+
+
+def get_camtrapdp_archive_output_dir() -> Path:
+    """Directorio por defecto donde se descargan/extraen los Camtrap DP obtenidos por URL pública."""
+    return get_app_documents_dir() / "camtrapdp-archive"
+
+
 def _slug_to_dataset_name(slug: str) -> str:
     """Deriva un nombre legible ('wildintel-camtrapdp' -> 'Wildintel Camtrapdp')
     a partir de un slug, igual que donadataset.config._slug_to_dataset_name."""

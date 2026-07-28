@@ -18,10 +18,14 @@ HFH nunca provee su propio DOI (PROVIDES_DOI=False — ver hfh.py) — si
 populate() recibe más de un DOI candidato y no se indica
 `primary_doi_source`, ninguno se marca como principal en su CITATION.cff
 (todos van a identifiers); con un único candidato disponible, ese se usa
-como principal automáticamente. El README.md de un repo solo se parchea si
-ese módulo define su propio PLACEHOLDER_CITATION_URL (Zenodo/B2SHARE ya lo
-tienen — ver sus respectivos write_readme; HFH todavía no, así que de
-momento su README no refleja el DOI cruzado, solo su CITATION.cff).
+como principal automáticamente. El README.md de un repo que SÍ se marca
+como principal (solo posible para uno con PROVIDES_DOI=False, hoy solo
+HFH) también se actualiza — ver common.patch_readme_citation_url, que
+sustituye lo que sea que haya ahora mismo en su sección "## Citation" (su
+propia URL por defecto, la de una llamada anterior...) por la del DOI
+cruzado, sin depender de un marcador de una sola vez como el
+PLACEHOLDER_CITATION_URL de Zenodo/B2SHARE (que sí resuelven su propio DOI
+siempre pronto, al subir).
 """
 import json
 from pathlib import Path
@@ -121,7 +125,6 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
 
         citation_path = output_dir / "CITATION.cff"
         readme_path = output_dir / "README.md"
-        placeholder = getattr(module, "PLACEHOLDER_CITATION_URL", None)
         repo_changed = False
 
         for ident in others:
@@ -131,10 +134,16 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
                 description=f"{REPO_LABELS.get(ident.repo, ident.repo)} DOI", allow_as_primary=allow_as_primary,
             )
             repo_changed = repo_changed or file_changed
-            if file_changed and allow_as_primary and placeholder and readme_path.is_file():
-                text = readme_path.read_text(encoding="utf-8")
-                if placeholder in text:
-                    readme_path.write_text(text.replace(placeholder, ident.url), encoding="utf-8")
+            if allow_as_primary:
+                # Only a repo that never provides its own DOI (HFH — see
+                # PROVIDES_DOI) ever reaches here: its README's own Citation
+                # section still shows its default (own-repo) URL, since
+                # nothing set it otherwise at prepare/upload time — replace
+                # it with the cross-referenced DOI's own resolver URL (see
+                # common.patch_readme_citation_url — value-aware, so this
+                # works regardless of what's currently there).
+                readme_changed = common.patch_readme_citation_url(readme_path, ident.url)
+                repo_changed = repo_changed or readme_changed
 
         if repo_changed:
             common.write_checksums(output_dir)

@@ -510,9 +510,11 @@ def _patch_citation_with_doi(citation_path: Path, *, doi: str, record_url: str, 
 
 def sync_doi_to_hfh(*, zenodo_output_dir: Path, hfh_output_dir: Path) -> str:
     """Lee el DOI ya publicado en `zenodo_output_dir`/zenodo_record.json, y lo
-    refleja en el CITATION.cff de `hfh_output_dir` (el export ya preparado
-    para HuggingFace Hub) — regenerando también sus checksums. El paso
-    recomendado después es volver a subir con 'hfh upload'.
+    refleja en el CITATION.cff (y, en producción, la sección "## Citation"
+    de su README.md — ver common.patch_readme_citation_url) de
+    `hfh_output_dir` (el export ya preparado para HuggingFace Hub) —
+    regenerando también sus checksums. El paso recomendado después es
+    volver a subir con 'hfh upload'.
 
     Returns:
         El DOI sincronizado.
@@ -534,6 +536,10 @@ def sync_doi_to_hfh(*, zenodo_output_dir: Path, hfh_output_dir: Path) -> str:
         raise RuntimeError(f"{hfh_citation_path} not found — run 'hfh prepare' first.")
 
     _patch_citation_with_doi(hfh_citation_path, doi=doi, record_url=record["record_url"], environment=record["environment"])
+    if record["environment"] != "sandbox":
+        # Sandbox DOIs are never cited as primary (see _patch_citation_with_doi) —
+        # the README's own citation stays as-is (its own repo URL) either way.
+        common.patch_readme_citation_url(hfh_output_dir / README_FILENAME, record["record_url"])
     common.write_checksums(hfh_output_dir)
 
     console.print(f"[green]✔  DOI {doi} reflected in {hfh_citation_path}.[/green]")

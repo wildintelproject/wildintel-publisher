@@ -19,7 +19,7 @@ import typer
 from rich.console import Console
 
 from wildintel_publisher.commands.config_commands import build_section_config_app
-from wildintel_publisher.config import GBIFSettings, get_gbif_output_dir, get_trapper_output_dir, settings
+from wildintel_publisher.config import GBIFSettings, get_gbif_output_dir, get_hfh_output_dir, get_trapper_output_dir, settings
 from wildintel_publisher.services import gbif as gbif_service
 from wildintel_publisher.services import product
 
@@ -176,8 +176,42 @@ def register(
             description=metadata["description"],
             license_url=license_info.get("url") or "",
             registry_language=registry_language,
+            homepage=metadata.get("homepage"),
             dry_run=dry_run,
         )
     except Exception as exc:
         logging.error("Could not register the dataset on GBIF: %s", exc)
+        raise typer.Exit(1) from exc
+
+
+@app.command("sync-doi")
+def sync_doi(
+    gbif_output_dir: Optional[str] = typer.Option(
+        None, "--gbif-output-dir",
+        help=(
+            "Directory of the already-registered GBIF dataset (the same one from 'gbif register'). "
+            "Defaults to $HOME/Documents/wildintel-publisher/gbif."
+        ),
+    ),
+    hfh_output_dir: Optional[str] = typer.Option(
+        None, "--hfh-output-dir",
+        help=(
+            "Directory of the already-prepared HuggingFace Hub export (the same one from 'hfh prepare'). "
+            "Defaults to $HOME/Documents/wildintel-publisher/hfh."
+        ),
+    ),
+) -> None:
+    """Reads the DOI GBIF assigned to the dataset (if any — only organizations with their own
+    DataCite arrangement configured with GBIF get one automatically) and reflects it in the
+    CITATION.cff of the HuggingFace Hub export (regenerating its checksums). The recommended
+    next step is 'hfh upload'."""
+    resolved_gbif_output_dir = Path(gbif_output_dir) if gbif_output_dir else get_gbif_output_dir()
+    resolved_hfh_output_dir = Path(hfh_output_dir) if hfh_output_dir else get_hfh_output_dir()
+
+    try:
+        gbif_service.sync_doi_to_hfh(
+            gbif_output_dir=resolved_gbif_output_dir, hfh_output_dir=resolved_hfh_output_dir,
+        )
+    except Exception as exc:
+        logging.error("Could not sync the DOI with the HuggingFace Hub export: %s", exc)
         raise typer.Exit(1) from exc

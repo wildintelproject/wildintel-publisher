@@ -1,6 +1,7 @@
 """Integration tests for 'hfh prepare/upload/release' — image downloads and
 HuggingFace Hub API calls are mocked out (no real network)."""
 import csv
+import io
 import json
 import zipfile
 from unittest.mock import MagicMock, patch
@@ -214,6 +215,72 @@ def test_hfh_upload_rewrites_media_csv_and_calls_upload_folder(camtrapdp_dir, tm
     citation = yaml.safe_load((output_dir / "CITATION.cff").read_text(encoding="utf-8"))
     assert citation["url"] == "https://huggingface.co/datasets/someuser/somedataset"
     assert "repository-artifact" not in citation
+
+
+def test_hfh_upload_writes_a_gbif_archive_with_real_media_urls(camtrapdp_dir, tmp_path):
+    """camtrapdp-remote.zip (unlike camtrapdp-local.zip, whose media.csv uses
+    paths relative to a sibling images/ folder) must carry the real,
+    permanent Hugging Face Hub URLs — the whole point is that GBIF's
+    CAMTRAP_DP crawler can resolve every image after extracting it in
+    isolation, with nothing else needed alongside it."""
+    output_dir = _prepared_export(camtrapdp_dir, tmp_path)
+
+    fake_response = httpx.Response(404, request=httpx.Request("GET", "https://huggingface.co"))
+    fake_api = MagicMock()
+    fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)
+
+    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.services.hfh.create_repo"), \
+         patch("wildintel_publisher.services.hfh.upload_folder"):
+        result = runner.invoke(app, [
+            "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset",
+        ], env={"HF_TOKEN": "hf_faketoken"})
+
+    assert result.exit_code == 0, result.output
+    assert (output_dir / "camtrapdp-remote.zip").is_file()
+
+    with zipfile.ZipFile(output_dir / "camtrapdp-remote.zip") as zf:
+        names = set(zf.namelist())
+        # Nested inside a single top-level folder, not loose at the zip's own
+        # root — GBIF's own CAMTRAP_DP crawler requires exactly one root
+        # directory once it unpacks the archive (see write_remote_zip).
+        assert names == {
+            "camtrapdp-remote/datapackage.json", "camtrapdp-remote/deployments.csv",
+            "camtrapdp-remote/media.csv", "camtrapdp-remote/observations.csv",
+        }
+        with zf.open("camtrapdp-remote/media.csv") as f:
+            rows = list(csv.DictReader(io.TextIOWrapper(f, encoding="utf-8")))
+    assert rows[0]["filePath"] == "https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"
+
+    # camtrapdp-local.zip keeps its own, deliberately different, relative-path
+    # media.csv — the two archives serve different purposes (see docs/publishing-gbif.md).
+    with zipfile.ZipFile(output_dir / "camtrapdp-local.zip") as zf:
+        with zf.open("media.csv") as f:
+            local_rows = list(csv.DictReader(io.TextIOWrapper(f, encoding="utf-8")))
+    assert local_rows[0]["filePath"] == "images/m1.jpg"
+
+
+def test_hfh_upload_link_mode_writes_no_gbif_archive(camtrapdp_dir, tmp_path):
+    """Link mode never hosts media on this HFH repo (see
+    test_hfh_upload_link_mode_does_not_touch_media_csv) — there's no real
+    URL to package for GBIF, so camtrapdp-remote.zip isn't generated at all."""
+    output_dir = _prepared_export(camtrapdp_dir, tmp_path, link_images=True)
+
+    fake_response = httpx.Response(404, request=httpx.Request("GET", "https://huggingface.co"))
+    fake_api = MagicMock()
+    fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)
+
+    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.services.hfh.create_repo"), \
+         patch("wildintel_publisher.services.hfh.upload_folder"):
+        result = runner.invoke(app, [
+            "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset", "--link-images",
+        ], env={"HF_TOKEN": "hf_faketoken"})
+
+    assert result.exit_code == 0, result.output
+    assert not (output_dir / "camtrapdp-remote.zip").exists()
 
 
 def test_hfh_upload_link_mode_does_not_touch_media_csv(camtrapdp_dir, tmp_path):

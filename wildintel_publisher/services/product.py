@@ -37,6 +37,7 @@ METADATA_FILENAME = "metadata.json"
 
 CAMTRAPDP = "camtrapdp"
 YOLO = "yolo"
+SOFTWARE = "software"
 
 # Filenames every repo's prepare_*_export writes on top of a product's own
 # files — a generic zip bundler (see zip_directory) excludes these so it
@@ -215,6 +216,38 @@ def read_metadata_json(directory: Path) -> dict:
     return data
 
 
+def _preserve_foreign_metadata_json(directory: Path) -> None:
+    """If `directory` already has its own metadata.json that ISN'T one this
+    tool wrote — i.e. it doesn't validate as ProductMetadata — renames it
+    aside (SOURCE_metadata.json) before generate_metadata_json overwrites it
+    below, so an unrelated file that just happens to share the name isn't
+    silently destroyed. Most likely with a git-cloned software application
+    (see software_adapter.py), whose raw source is arbitrary and could
+    reasonably contain its own metadata.json for entirely unrelated reasons
+    — Trapper downloads/curated YOLO directories essentially never do.
+
+    A metadata.json that DOES validate is treated as ours (e.g. re-running
+    generate_metadata_json on an already-processed directory — see this
+    function's own idempotent contract) and is left alone, to be overwritten
+    in place as before."""
+    path = metadata_path(directory)
+    if not path.is_file():
+        return
+    try:
+        ProductMetadata.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, ValidationError):
+        pass
+    else:
+        return  # already ours — fine to overwrite in place
+
+    destination = directory / f"SOURCE_{METADATA_FILENAME}"
+    suffix = 1
+    while destination.exists():
+        destination = directory / f"SOURCE_{suffix}_{METADATA_FILENAME}"
+        suffix += 1
+    path.rename(destination)
+
+
 def generate_metadata_json(product_type: str, input_dir: Path) -> dict:
     """The "before the flow starts" step: validates the raw product, extracts
     whatever generic metadata it can from it, and writes metadata.json into
@@ -235,6 +268,7 @@ def generate_metadata_json(product_type: str, input_dir: Path) -> dict:
     """
     adapter = get_adapter(product_type)
     adapter.validate(input_dir)
+    _preserve_foreign_metadata_json(input_dir)
     metadata = adapter.extract_metadata(input_dir)
     data = {"product_type": product_type, **metadata, "publish_history": []}
     write_metadata_json(input_dir, data)

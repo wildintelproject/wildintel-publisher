@@ -6,6 +6,7 @@ points GBIF at an already-hosted --archive-url."""
 import json
 from unittest.mock import MagicMock, patch
 
+import yaml
 from typer.testing import CliRunner
 
 from wildintel_publisher.main import app
@@ -86,7 +87,7 @@ def test_gbif_register_creates_then_updates_dataset_and_replaces_endpoint(camtra
     input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
     output_dir = tmp_path / "gbif_out"
 
-    state = {"dataset_key": "new-dataset-key", "endpoints": []}
+    state = {"dataset_key": "new-dataset-key", "endpoints": [], "doi": None}
 
     def fake_post(url, **kwargs):
         if url.endswith("/v1/dataset"):
@@ -102,8 +103,11 @@ def test_gbif_register_creates_then_updates_dataset_and_replaces_endpoint(camtra
         return _fake_response(200, {})
 
     def fake_get(url, **kwargs):
-        assert url.endswith(f"/v1/dataset/{state['dataset_key']}/endpoint")
-        return _fake_response(200, state["endpoints"])
+        if url.endswith(f"/v1/dataset/{state['dataset_key']}/endpoint"):
+            return _fake_response(200, state["endpoints"])
+        if url.endswith(f"/v1/dataset/{state['dataset_key']}"):
+            return _fake_response(200, {"key": state["dataset_key"], "doi": state["doi"]})
+        raise AssertionError(f"unexpected GET {url}")
 
     def fake_delete(url, **kwargs):
         deleted_key = int(url.rsplit("/", 1)[-1])
@@ -117,6 +121,7 @@ def test_gbif_register_creates_then_updates_dataset_and_replaces_endpoint(camtra
 
         record = json.loads((output_dir / RECORD_FILENAME).read_text(encoding="utf-8"))
         assert record["dataset_key"] == "new-dataset-key"
+        assert record["doi"] is None
         assert len(state["endpoints"]) == 1
         assert state["endpoints"][0]["type"] == "CAMTRAP_DP"
         assert state["endpoints"][0]["url"] == ARCHIVE_URL
@@ -126,6 +131,40 @@ def test_gbif_register_creates_then_updates_dataset_and_replaces_endpoint(camtra
         second = runner.invoke(app, _register_args(output_dir, input_dir))
         assert second.exit_code == 0, second.output
         assert len(state["endpoints"]) == 1
+
+
+def test_gbif_register_captures_a_doi_when_gbif_auto_assigns_one(camtrapdp_dir, tmp_path, monkeypatch):
+    """Some organizations have their own DataCite arrangement configured
+    with GBIF, which makes it auto-mint a DOI on registration — entirely
+    GBIF/organization-side (see gbif.register_gbif_dataset). Not every
+    organization gets one, but when it's there, it must end up in the
+    local record so it can later be synced into HFH's CITATION.cff."""
+    monkeypatch.setenv("GBIF_USERNAME", "user")
+    monkeypatch.setenv("GBIF_PASSWORD", "pass")
+    input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
+    output_dir = tmp_path / "gbif_out"
+
+    state = {"dataset_key": "new-dataset-key", "endpoints": [], "doi": "10.21373/eet8jz"}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/dataset"):
+            return _fake_response(201, state["dataset_key"])
+        endpoint = {"key": 1, **kwargs["json"]}
+        state["endpoints"].append(endpoint)
+        return _fake_response(201, endpoint)
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/endpoint"):
+            return _fake_response(200, state["endpoints"])
+        return _fake_response(200, {"key": state["dataset_key"], "doi": state["doi"]})
+
+    with patch("httpx.post", side_effect=fake_post), patch("httpx.get", side_effect=fake_get), \
+         patch("httpx.delete", return_value=_fake_response(204, {})):
+        result = runner.invoke(app, _register_args(output_dir, input_dir))
+
+    assert result.exit_code == 0, result.output
+    record = json.loads((output_dir / RECORD_FILENAME).read_text(encoding="utf-8"))
+    assert record["doi"] == "10.21373/eet8jz"
 
 
 def test_gbif_register_dry_run_makes_no_http_calls(camtrapdp_dir, tmp_path, monkeypatch):
@@ -141,3 +180,48 @@ def test_gbif_register_dry_run_makes_no_http_calls(camtrapdp_dir, tmp_path, monk
     fake_post.assert_not_called()
     fake_put.assert_not_called()
     assert not (output_dir / RECORD_FILENAME).exists()
+
+
+def test_gbif_sync_doi_reflects_the_doi_into_hfh_citation(tmp_path):
+    gbif_dir = tmp_path / "gbif_out"
+    gbif_dir.mkdir()
+    (gbif_dir / RECORD_FILENAME).write_text(json.dumps({
+        "dataset_key": "key-1", "environment": "sandbox", "archive_url": ARCHIVE_URL,
+        "dataset_page_url": "https://registry.gbif-test.org/dataset/key-1",
+        "doi": "10.21373/eet8jz", "registered_at_utc": "2026-01-01T00:00:00+00:00",
+    }), encoding="utf-8")
+
+    hfh_dir = tmp_path / "hfh_out"
+    hfh_dir.mkdir()
+    (hfh_dir / "CITATION.cff").write_text(yaml.safe_dump({"cff-version": "1.2.0", "title": "T"}), encoding="utf-8")
+
+    result = runner.invoke(app, [
+        "gbif", "sync-doi", "--gbif-output-dir", str(gbif_dir), "--hfh-output-dir", str(hfh_dir),
+    ])
+
+    assert result.exit_code == 0, result.output
+    citation = yaml.safe_load((hfh_dir / "CITATION.cff").read_text(encoding="utf-8"))
+    assert citation["doi"] == "10.21373/eet8jz"
+    assert (hfh_dir / "checksums-sha256.txt").is_file()
+
+
+def test_gbif_sync_doi_fails_when_the_dataset_has_no_doi(tmp_path, caplog):
+    gbif_dir = tmp_path / "gbif_out"
+    gbif_dir.mkdir()
+    (gbif_dir / RECORD_FILENAME).write_text(json.dumps({
+        "dataset_key": "key-1", "environment": "sandbox", "archive_url": ARCHIVE_URL,
+        "dataset_page_url": "https://registry.gbif-test.org/dataset/key-1",
+        "doi": None, "registered_at_utc": "2026-01-01T00:00:00+00:00",
+    }), encoding="utf-8")
+    hfh_dir = tmp_path / "hfh_out"
+    hfh_dir.mkdir()
+    (hfh_dir / "CITATION.cff").write_text(yaml.safe_dump({"cff-version": "1.2.0"}), encoding="utf-8")
+
+    result = runner.invoke(app, [
+        "gbif", "sync-doi", "--gbif-output-dir", str(gbif_dir), "--hfh-output-dir", str(hfh_dir),
+    ])
+
+    assert result.exit_code == 1
+    # commands/gbif.py reports the failure via logging.error, not console.print/stdout —
+    # not visible in CliRunner's captured result.output, so check pytest's own log capture.
+    assert "no doi" in caplog.text.lower()

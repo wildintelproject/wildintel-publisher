@@ -88,6 +88,49 @@ def test_populate_gives_hfh_the_only_available_doi_as_primary_automatically(tmp_
     assert "identifiers" not in hfh_citation
 
 
+def test_populate_also_patches_hfh_readme_citation_url_with_the_primary_doi(tmp_path):
+    zenodo_dir, hfh_dir = tmp_path / "zenodo", tmp_path / "hfh"
+    zenodo_dir.mkdir()
+    hfh_dir.mkdir()
+    _write_record(zenodo_dir, "zenodo_record.json", {"doi": "10.5281/zenodo.1"})
+    _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1", "url": "https://doi.org/10.5281/zenodo.1"})
+    _write_citation(hfh_dir, {"cff-version": "1.2.0", "url": "https://huggingface.co/datasets/alice/dataset"})
+    (hfh_dir / "README.md").write_text(
+        "## Citation\n\n> A. Author (2026). *Ds* (Version 1.0) [Data set]. Hugging Face. "
+        "https://huggingface.co/datasets/alice/dataset\n",
+        encoding="utf-8",
+    )
+
+    changed = populate({"zenodo": zenodo_dir, "hfh": hfh_dir})
+
+    assert changed["hfh"] is True
+    readme_text = (hfh_dir / "README.md").read_text(encoding="utf-8")
+    assert "https://doi.org/10.5281/zenodo.1" in readme_text
+    assert "huggingface.co/datasets/alice/dataset" not in readme_text
+
+
+def test_populate_marks_hfh_changed_when_only_the_readme_needed_patching(tmp_path):
+    """CITATION.cff already has this exact DOI as primary (e.g. a second
+    populate() run after the README was regenerated some other way) — the
+    README patch alone must still be reflected in `changed`."""
+    zenodo_dir, hfh_dir = tmp_path / "zenodo", tmp_path / "hfh"
+    zenodo_dir.mkdir()
+    hfh_dir.mkdir()
+    _write_record(zenodo_dir, "zenodo_record.json", {"doi": "10.5281/zenodo.1"})
+    _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1", "url": "https://doi.org/10.5281/zenodo.1"})
+    _write_citation(hfh_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1", "url": "https://doi.org/10.5281/zenodo.1"})
+    (hfh_dir / "README.md").write_text(
+        "## Citation\n\n> A. Author (2026). *Ds* (Version 1.0) [Data set]. Hugging Face. "
+        "https://huggingface.co/datasets/alice/dataset\n",
+        encoding="utf-8",
+    )
+
+    changed = populate({"zenodo": zenodo_dir, "hfh": hfh_dir})
+
+    assert changed["hfh"] is True
+    assert "https://doi.org/10.5281/zenodo.1" in (hfh_dir / "README.md").read_text(encoding="utf-8")
+
+
 def test_populate_leaves_hfh_with_no_primary_when_two_candidates_and_none_chosen(tmp_path):
     zenodo_dir, b2share_dir, hfh_dir = tmp_path / "zenodo", tmp_path / "b2share", tmp_path / "hfh"
     for d in (zenodo_dir, b2share_dir, hfh_dir):

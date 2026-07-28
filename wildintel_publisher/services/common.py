@@ -8,6 +8,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +40,7 @@ TRUTHY_VALUES = {"true", "1", "yes"}
 
 IMAGES_DIRNAME = "images"
 LOCAL_ZIP_FILENAME = "camtrapdp-local.zip"
+REMOTE_ZIP_FILENAME = "camtrapdp-remote.zip"
 DEFAULT_IMAGE_TIMEOUT = 60
 
 # Los 4 ficheros que de verdad componen un camtrapdp (datapackage.json + sus
@@ -460,6 +462,49 @@ def patch_citation_with_identifier(
     return True
 
 
+def patch_readme_citation_url(readme_path: Path, url: str) -> bool:
+    """Replaces the URL at the end of the rendered README's '## Citation'
+    blockquote (the APA citation line — see format_apa_citation, which
+    always ends the line with '<publisher>. <url>', nothing after it) with
+    `url`, whatever was already there — the dataset's own repo URL (the
+    default every write_readme renders), an already cross-referenced DOI
+    from an earlier call, or nothing meaningful yet.
+
+    Unlike a one-shot placeholder swap (e.g. zenodo.py's own
+    PLACEHOLDER_CITATION_URL, resolved exactly once, always early — Zenodo/
+    B2SHARE reserve their own DOI right at upload time), a repo that never
+    provides its own DOI (HFH — see PROVIDES_DOI) may or may not ever get
+    one cross-referenced from another repo, and that can happen well after
+    its own README already shows its default (own-repo) citation URL — from
+    the SAME publish run's doi_populate.populate(), or a separate, later
+    'zenodo sync-doi'/'b2share sync-pid'/'gbif sync-doi' run entirely. This
+    finds and replaces whatever's currently there instead, so it works
+    correctly no matter when it's called — including more than once, if a
+    later run cross-references a different DOI still.
+
+    Returns:
+        True if the README was actually changed.
+    """
+    if not readme_path.is_file():
+        return False
+    text = readme_path.read_text(encoding="utf-8")
+    heading_idx = text.find("## Citation")
+    if heading_idx == -1:
+        return False
+    match = re.search(r"^> (?:.*\S)?$", text[heading_idx:], flags=re.MULTILINE)
+    if not match:
+        return False
+    line = match.group(0)
+    new_line = re.sub(r"\S+$", url, line)
+    if new_line == line:
+        return False
+    start = heading_idx + match.start()
+    end = heading_idx + match.end()
+    new_text = text[:start] + new_line + text[end:]
+    readme_path.write_text(new_text, encoding="utf-8")
+    return True
+
+
 def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dirname: str = IMAGES_DIRNAME) -> int:
     """Rewrites filePath in media.csv to the predictable HuggingFace Hub URL
     for each file (https://huggingface.co/datasets/{repo_id}/resolve/main/
@@ -506,13 +551,19 @@ def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dir
 
 
 def download_public_images(
-    output_dir: Path, *, images_dirname: str = IMAGES_DIRNAME, timeout: int = DEFAULT_IMAGE_TIMEOUT,
+    output_dir: Path, *, input_dir: Path, images_dirname: str = IMAGES_DIRNAME, timeout: int = DEFAULT_IMAGE_TIMEOUT,
 ) -> None:
-    """Descarga a `output_dir`/<images_dirname>/ cada fichero referenciado en
-    media.csv (ya filtrado a solo público) — su columna filePath es una URL
-    absoluta con token de un solo uso, se descarga directamente sin
-    autenticación adicional. Ya descargados (mismo nombre ya presente) se
-    saltan; los fallos de un fichero concreto no abortan el resto."""
+    """Trae a `output_dir`/<images_dirname>/ cada fichero referenciado en
+    media.csv (ya filtrado a solo público) — su columna filePath admite las
+    dos formas que reconoce el propio estándar Camtrap DP: una URL absoluta
+    (como la entrega Trapper, con token de un solo uso, o un Camtrap DP ya
+    publicado obtenido vía Public URL) se descarga por red sin autenticación
+    adicional; cualquier otra cosa se trata como una ruta relativa a
+    `input_dir` — el paquete ya trae sus propias imágenes localmente (p.ej.
+    un directorio local ya autocontenido, con el mismo convenio que genera
+    write_local_zip) — y simplemente se copia de ahí. Ya presentes en
+    destino (mismo nombre) se saltan; los fallos de un fichero concreto no
+    abortan el resto."""
     media_csv = output_dir / MEDIA_CSV_FILENAME
     fieldnames, rows = read_csv(media_csv)
     if FILE_PATH_COLUMN not in fieldnames:
@@ -526,10 +577,10 @@ def download_public_images(
         console.print("  No public images to download.")
         return
 
-    console.print(f"Downloading {len(rows)} public image(s) to {images_dir} ...")
-    downloaded = skipped = failed = 0
+    console.print(f"Fetching {len(rows)} public image(s) into {images_dir} ...")
+    downloaded = copied = skipped = failed = 0
     with httpx.Client(timeout=timeout) as client:
-        for row in track(rows, description="Downloading images"):
+        for row in track(rows, description="Fetching images"):
             file_path = row.get(FILE_PATH_COLUMN)
             file_name = row.get(FILE_NAME_COLUMN) or row.get(MEDIA_ID_COLUMN)
             if not file_path or not file_name:
@@ -541,18 +592,29 @@ def download_public_images(
                 skipped += 1
                 continue
 
-            try:
-                response = client.get(file_path)
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                console.print(f"  [red]✘  Could not download {file_name}: {exc}[/red]")
-                failed += 1
-                continue
+            if file_path.startswith("http://") or file_path.startswith("https://"):
+                try:
+                    response = client.get(file_path)
+                    response.raise_for_status()
+                except httpx.HTTPError as exc:
+                    console.print(f"  [red]✘  Could not download {file_name}: {exc}[/red]")
+                    failed += 1
+                    continue
+                destination.write_bytes(response.content)
+                downloaded += 1
+            else:
+                source = input_dir / file_path
+                if not source.is_file():
+                    console.print(f"  [red]✘  {file_name}: local file not found at {source}[/red]")
+                    failed += 1
+                    continue
+                shutil.copy2(source, destination)
+                copied += 1
 
-            destination.write_bytes(response.content)
-            downloaded += 1
-
-    console.print(f"[green]✔  Images: {downloaded} downloaded, {skipped} already existed, {failed} failed.[/green]")
+    console.print(
+        f"[green]✔  Images: {downloaded} downloaded, {copied} copied locally, "
+        f"{skipped} already existed, {failed} failed.[/green]"
+    )
 
 
 def write_local_zip(
@@ -605,6 +667,98 @@ def write_local_zip(
     note = " (images embedded)" if embed_images else ""
     console.print(f"  {zip_filename}: created with filePath relative to {images_dirname}/{note}.")
     return zip_path
+
+
+def _detect_observation_level(output_dir: Path) -> Optional[str]:
+    """Reads observations.csv's own observationLevel column — "event" (one
+    row per detection event/sequence) or "media" (one row per individual
+    image/video, no event-level grouping) are the two values the Camtrap DP
+    standard itself defines. Returns None if the column is missing, empty,
+    or (unexpectedly) mixes both values within the same package — in any of
+    those cases, write_remote_zip leaves gbifIngestion unset rather than
+    guess wrong."""
+    fieldnames, rows = read_csv(output_dir / OBSERVATIONS_CSV_FILENAME)
+    if "observationLevel" not in fieldnames:
+        return None
+    levels = {row.get("observationLevel") for row in rows if row.get("observationLevel")}
+    return levels.pop() if len(levels) == 1 else None
+
+
+def write_remote_zip(output_dir: Path, *, zip_filename: str = REMOTE_ZIP_FILENAME) -> Path:
+    """Packs the four core Camtrap DP files (datapackage.json/deployments.csv/
+    media.csv/observations.csv), AS-IS, into a zip — meant to be registered
+    as GBIF's --archive-url (see services.gbif). GBIF's CAMTRAP_DP crawler
+    downloads that URL and decompresses it, so it must be a real zip archive
+    — unlike write_local_zip's own zip, whose media.csv is deliberately
+    rewritten to local-relative images/ paths (meaningful only alongside a
+    sibling images/ folder downloaded/uploaded together, not once extracted
+    in isolation by an external crawler). "Remote" as opposed to "local":
+    media.csv here keeps whatever REMOTE URLs it already had, unmodified.
+
+    Must be called AFTER a mirror-mode upload_to_huggingface has already
+    rewritten media.csv's filePath to real, permanent Hugging Face Hub URLs
+    for each image (see product.ProductAdapter.link_media_to_hfh) — those
+    URLs travel with the package completely unmodified, so GBIF can resolve
+    every image directly without needing them embedded in the zip too.
+
+    The four files are nested inside a single top-level folder (named after
+    the zip itself) rather than sitting at the zip's own root — GBIF's own
+    CAMTRAP_DP crawler unpacks the archive and requires exactly one root
+    directory in the result (org.gbif.utils.file.CompressionUtil errors with
+    "More than one root directory" otherwise, treating the whole dataset as
+    empty — no records, no error visible anywhere in this project — since
+    four loose files at the zip's root unpack into four separate "roots").
+
+    The zipped copy of datapackage.json also gets a `gbifIngestion.
+    observationLevel` field injected — GBIF's own Camtrap DP -> Darwin Core
+    conversion (the "camtrapdp"/"camtraptor" R packages) only keeps
+    observations whose own observationLevel matches this value, DEFAULTING TO
+    "event" when it's absent (see inbo/camtrapdp's write_dwc.R) — silently
+    producing zero occurrences for a package like Trapper's own, which is
+    always media-level, with no error visible anywhere either. This field is
+    a GBIF-specific vendor extension (not part of the Camtrap DP standard
+    itself), so it's only added to THIS zip, not to the on-disk
+    datapackage.json every other repo also copies as-is."""
+    zip_path = output_dir / zip_filename
+    root_dirname = zip_path.stem
+    observation_level = _detect_observation_level(output_dir)
+    with ZipFile(zip_path, "w") as zf:
+        for filename in CORE_CAMTRAPDP_FILES:
+            source = output_dir / filename
+            if not source.is_file():
+                continue
+            if filename == DATAPACKAGE_FILENAME and observation_level:
+                datapackage = json.loads(source.read_text(encoding="utf-8"))
+                datapackage.setdefault("gbifIngestion", {})["observationLevel"] = observation_level
+                zf.writestr(f"{root_dirname}/{filename}", json.dumps(datapackage, indent=2))
+            else:
+                zf.write(source, f"{root_dirname}/{filename}")
+    console.print(f"  {zip_filename}: created for GBIF registration (media.csv already points to Hugging Face Hub).")
+    return zip_path
+
+
+def find_camtrap_dp_root(extract_dir: Path) -> Path:
+    """Locates the directory that actually holds datapackage.json right
+    after extracting a Camtrap DP zip archive — it may sit directly at
+    `extract_dir`'s own root, or nested one level inside a single top-level
+    folder (see write_remote_zip — recent archives are always built this
+    way, since GBIF's own CAMTRAP_DP crawler requires exactly one root
+    directory when it unpacks one). Used by gbif.validate_camtrap_dp_archive/
+    camtrapdp_source.fetch_camtrap_dp_archive right after zf.extractall().
+
+    Raises:
+        RuntimeError: if datapackage.json isn't at either of those two
+        places.
+    """
+    if (extract_dir / DATAPACKAGE_FILENAME).is_file():
+        return extract_dir
+    subdirs = [p for p in extract_dir.iterdir() if p.is_dir()]
+    if len(subdirs) == 1 and (subdirs[0] / DATAPACKAGE_FILENAME).is_file():
+        return subdirs[0]
+    raise RuntimeError(
+        f"Could not find {DATAPACKAGE_FILENAME} directly in the archive, nor inside a single "
+        "top-level folder within it."
+    )
 
 
 def cleanup_self_contained_sources(

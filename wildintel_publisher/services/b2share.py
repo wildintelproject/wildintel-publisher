@@ -675,6 +675,9 @@ def sync_pid_to_hfh(*, b2share_output_dir: Path, hfh_output_dir: Path) -> Option
         raise RuntimeError(f"{hfh_citation_path} not found — run 'hfh prepare' first.")
 
     _patch_citation_with_pid(hfh_citation_path, pid=pid, pid_kind=pid_kind, record_url=record.get("record_url"))
+    pid_url = build_pid_url(pid, pid_kind) or record.get("record_url")
+    if pid_url:
+        common.patch_readme_citation_url(hfh_output_dir / README_FILENAME, pid_url)
     common.write_checksums(hfh_output_dir)
 
     console.print(f"[green]✔  PID/DOI {pid} reflected in {hfh_citation_path}.[/green]")

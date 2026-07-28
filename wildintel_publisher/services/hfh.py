@@ -297,6 +297,13 @@ def upload_to_huggingface(
         rewritten = adapter.link_media_to_hfh(output_dir, repo_id)
         console.print(f"  {rewritten} media reference(s) now pointing to HuggingFace Hub.")
         product.write_homepage(output_dir, f"https://huggingface.co/datasets/{repo_id}")
+        if adapter.product_type == product.CAMTRAPDP:
+            # A separate archive from camtrapdp-local.zip's own (see
+            # prepare_hfh_export) — this one is built only NOW, after
+            # link_media_to_hfh has already rewritten media.csv's filePath
+            # to real HFH URLs, so it's meant for GBIF's --archive-url (see
+            # common.write_remote_zip/services.gbif), not local/offline use.
+            common.write_remote_zip(output_dir)
 
     common.write_checksums(output_dir)
 

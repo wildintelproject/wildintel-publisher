@@ -54,7 +54,7 @@ class CamtrapDPAdapter:
         public_media_ids = common.keep_only_public_media(output_dir)
         common.drop_observations_of_removed_media(output_dir, public_media_ids)
         if mirror:
-            common.download_public_images(output_dir, timeout=image_timeout)
+            common.download_public_images(output_dir, input_dir=input_dir, timeout=image_timeout)
 
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
