@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import B2SharePublishForm, { SyncPidSection } from '../components/B2SharePublishForm'
 import type { B2SharePublishConfig } from '../components/B2SharePublishForm'
+import CamtrapDPArchiveForm from '../components/CamtrapDPArchiveForm'
 import CompleteMetadataForm from '../components/CompleteMetadataForm'
-import GBIFPublishForm from '../components/GBIFPublishForm'
+import GBIFPublishForm, { GBIFSyncDoiSection } from '../components/GBIFPublishForm'
 import type { GBIFPublishConfig } from '../components/GBIFPublishForm'
+import GitCloneForm from '../components/GitCloneForm'
 import HFHPublishForm from '../components/HFHPublishForm'
 import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
@@ -16,7 +18,7 @@ import type { DatapackageSummary, TrapperDownloadSelection } from '../types'
 
 const STEP_LABELS = ['Product Type', 'Source', 'Download', 'Publish']
 
-type ProductType = 'camtrapdp' | 'yolo' | 'ai_model' | 'ebv' | 'image_gallery'
+type ProductType = 'camtrapdp' | 'yolo' | 'software' | 'ai_model' | 'ebv' | 'image_gallery'
 
 interface ProductOption {
   value: ProductType
@@ -26,15 +28,19 @@ interface ProductOption {
   available: boolean
 }
 
+// AI Model/EBV/Image Gallery have no adapter (or wizard/backend wiring) of
+// their own yet — flip to true once one exists (see developer-guide.md's
+// "Adding a new product type").
 const PRODUCT_OPTIONS: ProductOption[] = [
   { value: 'camtrapdp', emoji: '📦', title: 'Camtrap DP', description: 'A camera-trap data package fetched from Trapper.', available: true },
   { value: 'yolo', emoji: '🗂️', title: 'YOLO Dataset', description: 'An image dataset in YOLO training format (images/train, val, test + data.yaml).', available: true },
+  { value: 'software', emoji: '💻', title: 'Software Application', description: 'A software application published from its own git repository.', available: true },
   { value: 'ai_model', emoji: '🤖', title: 'AI Model', description: 'A trained AI model artifact.', available: false },
   { value: 'ebv', emoji: '🌍', title: 'EBV', description: 'Essential Biodiversity Variables derived from the project data.', available: false },
   { value: 'image_gallery', emoji: '🖼️', title: 'Image Gallery', description: 'A curated gallery of camera-trap images.', available: false },
 ]
 
-type SourceType = 'local' | 'trapper'
+type SourceType = 'local' | 'trapper' | 'git' | 'archive'
 
 interface SourceOption {
   value: SourceType
@@ -52,9 +58,13 @@ const SOURCE_OPTIONS_BY_PRODUCT_TYPE: Record<ProductType, SourceOption[]> = {
   camtrapdp: [
     { value: 'local', emoji: '📁', title: 'Local Directory', description: 'Use a Camtrap DP package already available on this machine.', available: true },
     { value: 'trapper', emoji: '🌐', title: 'Trapper Instance', description: 'Fetch a Camtrap DP package from a Trapper classification project.', available: true },
+    { value: 'archive', emoji: '🔗', title: 'Public URL', description: 'Fetch an already-published Camtrap DP zip archive from a public URL.', available: true },
   ],
   yolo: [
     { value: 'local', emoji: '📁', title: 'Local Directory', description: 'Use a YOLO dataset already available on this machine.', available: true },
+  ],
+  software: [
+    { value: 'git', emoji: '🔗', title: 'Git Repository', description: 'Clone a software application from a git repository URL.', available: true },
   ],
   ai_model: [],
   ebv: [],
@@ -71,6 +81,9 @@ interface RepoOption {
   implemented: boolean
 }
 
+// Zenodo and B2SHARE are fully implemented — Camtrap DP still only offers
+// Hugging Face Hub + GBIF through this wizard (see REPOS_BY_PRODUCT_TYPE's
+// own comment), but Software Application genuinely uses both.
 const REPO_OPTIONS: RepoOption[] = [
   { value: 'hfh', emoji: '🤗', title: 'Hugging Face Hub', description: 'Publish as a dataset repository on Hugging Face Hub.', implemented: true },
   { value: 'zenodo', emoji: '📚', title: 'Zenodo', description: 'Archive the package with a DOI on Zenodo.', implemented: true },
@@ -80,14 +93,31 @@ const REPO_OPTIONS: RepoOption[] = [
 
 // Which repositories accept which product type. GBIF only ever accepts
 // Camtrap DP (biodiversity occurrence data) — YOLO training datasets/models
-// aren't a fit (see docs/publishing-gbif.md). The other product types aren't
-// selectable yet, so they have no supported repositories of their own for now.
+// aren't a fit (see docs/publishing-gbif.md). Camtrap DP itself is
+// deliberately narrowed to Hugging Face Hub + GBIF only through this wizard
+// (Zenodo/B2SHARE stay available for it via the CLI). A software
+// application has no biodiversity/media content to speak of, so HFH and
+// GBIF aren't a fit for it either — it only ever goes to Zenodo/B2SHARE
+// (see MANDATORY_REPOS_BY_PRODUCT_TYPE: Zenodo is required for it, since
+// its DOI is always the one that ends up citing the software). The other
+// product types aren't selectable yet, so they have no supported
+// repositories of their own for now.
 const REPOS_BY_PRODUCT_TYPE: Record<ProductType, RepoId[]> = {
-  camtrapdp: ['hfh', 'zenodo', 'b2share', 'gbif'],
+  camtrapdp: ['hfh', 'gbif'],
   yolo: ['hfh', 'zenodo', 'b2share'],
+  software: ['zenodo', 'b2share'],
   ai_model: [],
   ebv: [],
   image_gallery: [],
+}
+
+// Repos that, once their product type is picked, are pre-selected and
+// can't be deselected — for Software Application, Zenodo is always
+// published (its DOI is the one used to cite the software; see the
+// "Required" badge in the repo-selection grid, and toggleRepo's own guard
+// below). Every other product type has none.
+const MANDATORY_REPOS_BY_PRODUCT_TYPE: Partial<Record<ProductType, RepoId[]>> = {
+  software: ['zenodo'],
 }
 
 const btnOutline = 'px-4 py-2 text-sm border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50'
@@ -135,9 +165,12 @@ interface RepoProgress {
   repoUrl: string | null
   doi: string | null
   pid: string | null
+  doiSyncedToHfh: boolean | null
 }
 
-const IDLE_PROGRESS: RepoProgress = { status: 'pending', stage: '', error: null, repoUrl: null, doi: null, pid: null }
+const IDLE_PROGRESS: RepoProgress = {
+  status: 'pending', stage: '', error: null, repoUrl: null, doi: null, pid: null, doiSyncedToHfh: null,
+}
 
 interface RepoConfigs {
   hfh?: HfhPublishConfig
@@ -152,6 +185,13 @@ export default function WizardPage() {
   const [sourceType, setSourceType] = useState<SourceType | null>(null)
   const [trapperSelection, setTrapperSelection] = useState<TrapperDownloadSelection | null>(null)
   const [localPath, setLocalPath] = useState<string | null>(null)
+  const [gitUrl, setGitUrl] = useState<string | null>(null)
+  // The URL used to fetch a Camtrap DP directly (sourceType === 'archive')
+  // — kept around (not just used to fetch) so it can be suggested straight
+  // back as GBIF's own archive_url later, when GBIF publishes standalone:
+  // it's already confirmed public and a valid Camtrap DP by the same fetch
+  // (see WizardPage's suggestedArchiveUrl for the GBIF form).
+  const [archiveSourceUrl, setArchiveSourceUrl] = useState<string | null>(null)
   const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, error: null })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
@@ -189,7 +229,7 @@ export default function WizardPage() {
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [progress, setProgress] = useState<Partial<Record<RepoId, RepoProgress>>>({})
 
-  const canProceed = (sourceType === 'trapper' && trapperSelection !== null) || (sourceType === 'local' && localPath !== null)
+  const canProceed = (sourceType === 'trapper' && trapperSelection !== null) || (sourceType === 'local' && localPath !== null) || (sourceType === 'git' && gitUrl !== null) || (sourceType === 'archive' && archiveSourceUrl !== null)
   const isDownloading = download.status === 'running'
   const supportedRepos = productType ? REPOS_BY_PRODUCT_TYPE[productType] : []
   const sourceOptions = productType ? SOURCE_OPTIONS_BY_PRODUCT_TYPE[productType] : []
@@ -197,15 +237,42 @@ export default function WizardPage() {
   const allConfigured = publishStarted && configureIndex >= publishOrder.length
   const needsPrimaryDoiChoice = publishOrder.includes('hfh') && publishOrder.includes('zenodo') && publishOrder.includes('b2share')
   const readyToConfirm = allConfigured && (!needsPrimaryDoiChoice || primaryDoiSource !== null)
+  // HFH+GBIF is the only pair Camtrap DP ever offers (see REPOS_BY_PRODUCT_TYPE)
+  // and toggleRepo already forces HFH first whenever both are selected — so
+  // there's genuinely nothing to reorder for this specific pair.
+  const hfhGbifOrderLocked = publishOrder.length === 2 && publishOrder.includes('hfh') && publishOrder.includes('gbif')
+  // Rendered by each PublishForm itself, next to its own Continue button —
+  // spread as-is (empty object for the first repository in the order,
+  // which has nothing to go back to) rather than a separate button placed
+  // above the form, so Back and Continue end up in the same row instead of
+  // at very different heights on the page.
+  const backProps = configureIndex > 0
+    ? {
+        onBack: () => setConfigureIndex((i) => i - 1),
+        backLabel: `← Back to ${REPO_OPTIONS.find((o) => o.value === publishOrder[configureIndex - 1])?.title}`,
+      }
+    : {}
 
   function toggleRepo(repo: RepoId) {
+    if (productType && MANDATORY_REPOS_BY_PRODUCT_TYPE[productType]?.includes(repo)) return
     setSelectedRepos((prev) => {
       const next = new Set(prev)
       if (next.has(repo)) next.delete(repo)
       else next.add(repo)
       return next
     })
-    setPublishOrder((prev) => (prev.includes(repo) ? prev.filter((r) => r !== repo) : [...prev, repo]))
+    setPublishOrder((prev) => {
+      const next = prev.includes(repo) ? prev.filter((r) => r !== repo) : [...prev, repo]
+      // GBIF's archive URL is deterministically derived from HFH's own
+      // repo_id once HFH has published in this same run — there's no valid
+      // order other than HFH first, so it's enforced here rather than left
+      // to manual reordering (see the "Publish order" section below, which
+      // hides its reorder controls for exactly this pair).
+      if (next.includes('hfh') && next.includes('gbif')) {
+        return ['hfh' as const, ...next.filter((r) => r !== 'hfh')]
+      }
+      return next
+    })
   }
 
   function moveInOrder(repo: RepoId, delta: number) {
@@ -239,6 +306,8 @@ export default function WizardPage() {
     setSourceType(null)
     setTrapperSelection(null)
     setLocalPath(null)
+    setGitUrl(null)
+    setArchiveSourceUrl(null)
     setDownload({ status: 'idle', path: null, error: null })
     setSummary(null)
     setFolderError(null)
@@ -293,21 +362,25 @@ export default function WizardPage() {
     }
   }
 
-  // Publishes every selected repository in one backend call: upload phase
-  // for all of them, then a cross-repo DOI populate pass, then release/
-  // lock for all of them (see services.publish_orchestrator) — polls a
-  // single task_id for a per-repo progress dict, no client-side
-  // sequencing anymore.
-  async function runPublishSequence() {
+  // Publishes `repos` (a subset of, or the full, publishOrder) in one
+  // backend call: upload phase for all of them, then a cross-repo DOI
+  // populate pass, then release/lock for all of them (see
+  // services.publish_orchestrator) — polls a single task_id for a per-repo
+  // progress dict. Only touches `progress`/`outputDirs` entries for the
+  // repos actually being (re)run here, so a retry of just the failed ones
+  // (see retryFailedRepos) doesn't clobber what earlier repos already
+  // reported — e.g. Hugging Face Hub's "✓ Done" and its repo_url stay
+  // exactly as they were while GBIF alone retries.
+  async function publish(repos: RepoId[], inputDir: string) {
     setExecuting(true)
     setExecutionError(null)
-    setProgress(Object.fromEntries(publishOrder.map((repo) => [repo, IDLE_PROGRESS])))
+    setProgress((p) => ({ ...p, ...Object.fromEntries(repos.map((repo) => [repo, IDLE_PROGRESS])) }))
     try {
       const { task_id } = await api.publishAllStart({
-        inputDir: download.path ?? '',
+        inputDir,
         version: summary?.version,
         timeout: IMAGE_TIMEOUT,
-        repos: publishOrder.map(buildRepoPayload),
+        repos: repos.map(buildRepoPayload),
         primaryDoiSource: primaryDoiSource ?? undefined,
         dryRun,
       })
@@ -315,28 +388,37 @@ export default function WizardPage() {
       while (true) {
         await sleep(2000)
         const status = await api.publishAllStatus(task_id)
-        setProgress((p) => {
-          const next = { ...p }
-          for (const repo of publishOrder) {
-            const r = status.repos[repo]
-            if (!r) continue
-            next[repo] = {
-              status: r.status, stage: r.stage, error: r.error,
-              repoUrl: r.repo_url, doi: r.doi, pid: r.pid,
-            }
+
+        // progressRef captures what THIS poll makes the full picture look
+        // like (untouched repos keep their prior — already-rendered —
+        // state, since `progress` here closes over the value from whenever
+        // `publish` was called) — used below to decide whether every
+        // repository in publishOrder is now actually done, not just the
+        // subset this particular call covered.
+        const progressAfterThisPoll = { ...progress }
+        for (const repo of repos) {
+          const r = status.repos[repo]
+          if (!r) continue
+          progressAfterThisPoll[repo] = {
+            status: r.status, stage: r.stage, error: r.error,
+            repoUrl: r.repo_url, doi: r.doi, pid: r.pid,
+            doiSyncedToHfh: r.doi_synced_to_hfh ?? null,
+          }
+        }
+        setProgress((p) => ({ ...p, ...progressAfterThisPoll }))
+        setOutputDirs((o) => {
+          const next = { ...o }
+          for (const repo of repos) {
+            const outputDir = status.repos[repo]?.output_dir
+            if (outputDir) next[repo] = outputDir
           }
           return next
         })
+
         if (status.status === 'done') {
-          setOutputDirs((o) => {
-            const next = { ...o }
-            for (const repo of publishOrder) {
-              const outputDir = status.repos[repo]?.output_dir
-              if (outputDir) next[repo] = outputDir
-            }
-            return next
-          })
-          setExecutionDone(true)
+          const allDone = publishOrder.every((repo) => progressAfterThisPoll[repo]?.status === 'done')
+          setExecutionDone(allDone)
+          if (!allDone) setExecuting(false)
           return
         }
         if (status.status === 'error') {
@@ -347,6 +429,28 @@ export default function WizardPage() {
     } catch (e) {
       setExecutionError(e instanceof Error ? e.message : 'Could not start publishing.')
     }
+  }
+
+  function runPublishSequence() {
+    return publish(publishOrder, download.path ?? '')
+  }
+
+  // Retries only the repositories that haven't succeeded yet — everything
+  // in publishOrder from the first non-"done" one onward (a failed one,
+  // plus any still-pending ones after it in the order). Re-running
+  // everything, including an already fully-published Hugging Face Hub,
+  // isn't just wasteful: HFH's own upload rejects re-publishing a version
+  // that's already been tagged/released, so it would actively fail the
+  // retry for no reason. Reuses the last already-done repo's own
+  // (finalized) output_dir as input, same chaining the first run used.
+  function retryFailedRepos() {
+    const firstNotDoneIndex = publishOrder.findIndex((repo) => progress[repo]?.status !== 'done')
+    if (firstNotDoneIndex === -1) return
+    const reposToRetry = publishOrder.slice(firstNotDoneIndex)
+    const inputDir = firstNotDoneIndex === 0
+      ? (download.path ?? '')
+      : (outputDirs[publishOrder[firstNotDoneIndex - 1]] ?? download.path ?? '')
+    return publish(reposToRetry, inputDir)
   }
 
   useEffect(() => {
@@ -372,6 +476,54 @@ export default function WizardPage() {
       if (!localPath) return
       setDownload({ status: 'done', path: localPath, error: null })
       setStep(2)
+      return
+    }
+    if (sourceType === 'git') {
+      if (!gitUrl) return
+      setDownload({ status: 'running', path: null, error: null })
+      try {
+        const { task_id } = await api.softwareCloneStart(gitUrl)
+        // Poll until the background task finishes
+        while (true) {
+          await sleep(2000)
+          const status = await api.softwareCloneStatus(task_id)
+          if (status.status === 'done') {
+            setDownload({ status: 'done', path: status.path, error: null })
+            setStep(2)
+            break
+          }
+          if (status.status === 'error') {
+            setDownload({ status: 'error', path: null, error: status.error ?? 'The clone failed.' })
+            break
+          }
+        }
+      } catch (e) {
+        setDownload({ status: 'error', path: null, error: e instanceof Error ? e.message : 'Could not start the clone.' })
+      }
+      return
+    }
+    if (sourceType === 'archive') {
+      if (!archiveSourceUrl) return
+      setDownload({ status: 'running', path: null, error: null })
+      try {
+        const { task_id } = await api.camtrapdpFetchArchiveStart(archiveSourceUrl)
+        // Poll until the background task finishes
+        while (true) {
+          await sleep(2000)
+          const status = await api.camtrapdpFetchArchiveStatus(task_id)
+          if (status.status === 'done') {
+            setDownload({ status: 'done', path: status.path, error: null })
+            setStep(2)
+            break
+          }
+          if (status.status === 'error') {
+            setDownload({ status: 'error', path: null, error: status.error ?? 'The fetch failed.' })
+            break
+          }
+        }
+      } catch (e) {
+        setDownload({ status: 'error', path: null, error: e instanceof Error ? e.message : 'Could not start the fetch.' })
+      }
       return
     }
     if (!trapperSelection) return
@@ -444,7 +596,18 @@ export default function WizardPage() {
                 key={option.value}
                 type="button"
                 disabled={!option.available}
-                onClick={() => { setProductType(option.value); setStep(1) }}
+                onClick={() => {
+                  setProductType(option.value)
+                  // Reset repo selection for the newly-chosen product type
+                  // rather than carrying over whatever was picked for a
+                  // previous one (e.g. going Back from Software's own
+                  // mandatory Zenodo to pick Camtrap DP instead) — seeded
+                  // with that type's own mandatory repos, if any.
+                  const mandatory = MANDATORY_REPOS_BY_PRODUCT_TYPE[option.value] ?? []
+                  setSelectedRepos(new Set(mandatory))
+                  setPublishOrder(mandatory)
+                  setStep(1)
+                }}
                 className={[
                   'relative flex flex-col items-center gap-3 p-6 rounded-xl border-2 text-center transition-colors',
                   !option.available
@@ -474,7 +637,7 @@ export default function WizardPage() {
           <h4 className="text-lg font-semibold mb-1">Where is it located?</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">Choose where to fetch the package from.</p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={`grid grid-cols-1 gap-4 ${sourceOptions.length >= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             {sourceOptions.map((option) => (
               <button
                 key={option.value}
@@ -508,6 +671,20 @@ export default function WizardPage() {
             <div className="mt-8">
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
               <LocalDirectoryForm productType={productType} onSelectionChange={setLocalPath} />
+            </div>
+          )}
+
+          {sourceType === 'git' && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <GitCloneForm onSelectionChange={setGitUrl} />
+            </div>
+          )}
+
+          {sourceType === 'archive' && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <CamtrapDPArchiveForm onSelectionChange={setArchiveSourceUrl} />
             </div>
           )}
         </div>
@@ -606,26 +783,31 @@ export default function WizardPage() {
             {REPO_OPTIONS.map((option) => {
               const available = option.implemented && supportedRepos.includes(option.value)
               const selected = selectedRepos.has(option.value)
+              const mandatory = productType ? (MANDATORY_REPOS_BY_PRODUCT_TYPE[productType] ?? []).includes(option.value) : false
               return (
                 <button
                   key={option.value}
                   type="button"
-                  disabled={!available}
+                  disabled={!available || mandatory}
                   onClick={() => toggleRepo(option.value)}
                   className={[
                     'relative flex flex-col items-center gap-3 p-6 rounded-xl border-2 text-center transition-colors',
                     !available
                       ? 'border-zinc-200 dark:border-zinc-800 opacity-50 cursor-not-allowed'
                       : selected
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 cursor-pointer'
+                      ? `border-blue-500 bg-blue-50 dark:bg-blue-950/30 ${mandatory ? 'cursor-default' : 'cursor-pointer'}`
                       : 'border-zinc-300 dark:border-zinc-700 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer',
                   ].join(' ')}
                 >
-                  {!option.implemented && (
+                  {!option.implemented ? (
                     <span className="absolute top-2 right-2 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400">
                       Coming soon
                     </span>
-                  )}
+                  ) : mandatory ? (
+                    <span className="absolute top-2 right-2 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                      Required
+                    </span>
+                  ) : null}
                   {selected && (
                     <span className="absolute top-2 left-2 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center">
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -641,7 +823,18 @@ export default function WizardPage() {
             })}
           </div>
 
-          {publishOrder.length > 1 && (
+          {hfhGbifOrderLocked && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <h5 className="text-base font-semibold mb-1 text-zinc-700 dark:text-zinc-300">Publish order</h5>
+              <p className="text-zinc-500 dark:text-zinc-400 text-sm">
+                Hugging Face Hub always publishes first, then GBIF — its archive URL is derived from
+                where Hugging Face Hub ends up, so there's nothing to reorder here.
+              </p>
+            </div>
+          )}
+
+          {publishOrder.length > 1 && !hfhGbifOrderLocked && (
             <div className="mt-8">
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
               <h5 className="text-base font-semibold mb-1 text-zinc-700 dark:text-zinc-300">Publish order</h5>
@@ -712,13 +905,6 @@ export default function WizardPage() {
             </div>
           )}
 
-          {selectedRepos.size > 0 && (
-            <div className="flex justify-end mt-8">
-              <button type="button" className={btnPrimary} onClick={startConfiguring}>
-                Start publishing{dryRun ? ' (dry run)' : ''}
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -729,18 +915,34 @@ export default function WizardPage() {
             {publishOrder.map((repoId, i) => {
               const option = REPO_OPTIONS.find((o) => o.value === repoId)
               if (!option) return null
-              return (
-                <div
-                  key={repoId}
-                  className={`flex items-center gap-1.5 text-sm ${
-                    i === configureIndex
-                      ? 'text-zinc-900 dark:text-zinc-100 font-semibold'
-                      : i < configureIndex
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-zinc-400 dark:text-zinc-600'
-                  }`}
-                >
+              const label = (
+                <>
                   <span>{i < configureIndex ? '✓' : `${i + 1}.`}</span> {option.emoji} {option.title}
+                </>
+              )
+              // Already-configured steps (and the current one) jump back
+              // directly, same as the current step's own "Back to X"
+              // button — steps not reached yet aren't clickable, since
+              // there's nothing configured there to jump to.
+              if (i <= configureIndex) {
+                return (
+                  <button
+                    key={repoId}
+                    type="button"
+                    onClick={() => setConfigureIndex(i)}
+                    className={`flex items-center gap-1.5 text-sm hover:underline ${
+                      i === configureIndex
+                        ? 'text-zinc-900 dark:text-zinc-100 font-semibold'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              }
+              return (
+                <div key={repoId} className="flex items-center gap-1.5 text-sm text-zinc-400 dark:text-zinc-600">
+                  {label}
                 </div>
               )
             })}
@@ -760,6 +962,8 @@ export default function WizardPage() {
               productVersion={summary?.version}
               dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, hfh: dir }))}
+              initialConfig={repoConfigs.hfh}
+              {...backProps}
               onConfigured={(config) => handleConfigured('hfh', config)}
             />
           )}
@@ -767,6 +971,8 @@ export default function WizardPage() {
             <ZenodoPublishForm
               dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, zenodo: dir }))}
+              initialConfig={repoConfigs.zenodo}
+              {...backProps}
               onConfigured={(config) => handleConfigured('zenodo', config)}
             />
           )}
@@ -774,17 +980,38 @@ export default function WizardPage() {
             <B2SharePublishForm
               dryRun={dryRun}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
+              initialConfig={repoConfigs.b2share}
+              {...backProps}
               onConfigured={(config) => handleConfigured('b2share', config)}
             />
           )}
           {publishOrder[configureIndex] === 'gbif' && (
             <GBIFPublishForm
               dryRun={dryRun}
+              {...backProps}
               suggestedArchiveUrl={
                 repoConfigs.hfh?.repoId
-                  ? `https://huggingface.co/datasets/${repoConfigs.hfh.repoId}/resolve/main/datapackage.json`
-                  : undefined
+                  ? `https://huggingface.co/datasets/${repoConfigs.hfh.repoId}/resolve/main/camtrapdp-remote.zip`
+                  // No HFH in this run — if the source itself was a public
+                  // archive URL (see CamtrapDPArchiveForm), that URL is
+                  // already confirmed public and a valid Camtrap DP (the
+                  // fetch step validates it the same way GBIF itself would
+                  // need it to be), so it's directly reusable here as-is.
+                  : sourceType === 'archive' && archiveSourceUrl
+                    ? archiveSourceUrl
+                    : undefined
               }
+              // toggleRepo always forces HFH before GBIF whenever both are
+              // selected, so "HFH is also in this run" and "HFH precedes
+              // GBIF" are the same condition now — one flag covers both the
+              // locked-field and not-published-yet cases.
+              archiveUrlLocked={publishOrder.includes('hfh')}
+              archiveNotPublishedYet={publishOrder.includes('hfh')}
+              // The "this isn't the local copy" note only makes sense for a
+              // local/Trapper source — a Public URL source IS already the
+              // real archive, nothing to clarify.
+              standaloneRegistration={!publishOrder.includes('hfh') && sourceType !== 'archive'}
+              initialConfig={repoConfigs.gbif}
               onConfigured={(config) => handleConfigured('gbif', config)}
             />
           )}
@@ -858,7 +1085,7 @@ export default function WizardPage() {
               if (!option) return null
               const repoProgress = progress[repoId] ?? IDLE_PROGRESS
               return (
-                <li key={repoId} className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm">
+                <li key={repoId} className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm flex-wrap">
                   <span>{option.emoji}</span>
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200">{option.title}</span>
                   <span className="flex-1" />
@@ -868,7 +1095,19 @@ export default function WizardPage() {
                       <SmallSpinner /> {STAGE_LABELS[repoProgress.stage] ?? 'Publishing…'}
                     </span>
                   )}
-                  {repoProgress.status === 'done' && <span className="text-emerald-600 dark:text-emerald-400">✓ Done</span>}
+                  {repoProgress.status === 'done' && (
+                    <span className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                      ✓ Done
+                      {repoProgress.repoUrl && (
+                        <a
+                          href={repoProgress.repoUrl} target="_blank" rel="noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline break-all font-normal"
+                        >
+                          {repoProgress.repoUrl}
+                        </a>
+                      )}
+                    </span>
+                  )}
                   {repoProgress.status === 'error' && <span className="text-red-600 dark:text-red-400">✘ {repoProgress.error}</span>}
                 </li>
               )
@@ -877,9 +1116,12 @@ export default function WizardPage() {
           {executionError && (
             <div className="mt-6">
               <p className="text-sm text-red-600 dark:text-red-400 mb-3">{executionError}</p>
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-3">
                 <button type="button" className={btnOutline} onClick={() => setExecuting(false)}>
                   Back
+                </button>
+                <button type="button" className={btnPrimary} onClick={retryFailedRepos}>
+                  Retry failed repositories
                 </button>
               </div>
             </div>
@@ -904,6 +1146,37 @@ export default function WizardPage() {
             </span>
           </div>
 
+          {!dryRun && (
+            <ul className="flex flex-col gap-2 mt-4">
+              {publishOrder.map((repoId) => {
+                const option = REPO_OPTIONS.find((o) => o.value === repoId)
+                const repoUrl = progress[repoId]?.repoUrl
+                if (!option || !repoUrl) return null
+                return (
+                  <li key={repoId} className="flex flex-col gap-1 text-sm">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>{option.emoji}</span>
+                      <span className="font-semibold text-zinc-800 dark:text-zinc-200">{option.title}:</span>
+                      <a
+                        href={repoUrl} target="_blank" rel="noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+                      >
+                        {repoUrl}
+                      </a>
+                    </div>
+                    {repoId === 'gbif' && (
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 pl-6">
+                        GBIF crawls new/updated endpoints within a few hours, not instantly — the dataset page
+                        above is live now, but the images/occurrences themselves will only show up there once
+                        that crawl finishes.
+                      </p>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+
           {dryRun ? (
             <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
               DOI/PID sync isn't available for a dry run (it would perform a real Hugging Face Hub
@@ -913,6 +1186,21 @@ export default function WizardPage() {
             <>
               {publishOrder.includes('zenodo') && <SyncDoiSection zenodoOutputDir={outputDirs.zenodo ?? ''} />}
               {publishOrder.includes('b2share') && <SyncPidSection b2shareOutputDir={outputDirs.b2share ?? ''} />}
+              {/* Unlike Zenodo/B2SHARE, GBIF doesn't always have a DOI to
+                  sync — most organizations don't get one automatically (see
+                  gbif.register_gbif_dataset) — so this only shows up when
+                  this run's registration actually came back with one. When
+                  Hugging Face Hub published in the same run, the backend
+                  already synced it automatically (see publish_orchestrator's
+                  own post-lock step) — this then just confirms it happened
+                  instead of asking again for directory/repo/token already
+                  known from this same run. */}
+              {publishOrder.includes('gbif') && progress.gbif?.doi && (
+                <GBIFSyncDoiSection
+                  gbifOutputDir={outputDirs.gbif ?? ''}
+                  alreadySyncedRepoUrl={progress.gbif.doiSyncedToHfh ? progress.hfh?.repoUrl : null}
+                />
+              )}
             </>
           )}
 
@@ -953,6 +1241,12 @@ export default function WizardPage() {
           {step === 2 && download.status === 'done' && (
             <button type="button" className={btnPrimary} disabled={!metadataComplete} onClick={() => setStep(3)}>
               Next
+            </button>
+          )}
+
+          {step === 3 && !publishStarted && selectedRepos.size > 0 && (
+            <button type="button" className={btnPrimary} onClick={startConfiguring}>
+              Start publishing{dryRun ? ' (dry run)' : ''}
             </button>
           )}
         </div>

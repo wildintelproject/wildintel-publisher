@@ -43,14 +43,14 @@ describe('HFHPublishForm', () => {
     await renderAndWaitForConfig()
   })
 
-  it('disables Test token and Continue until both repository fields are given', async () => {
+  it('disables Test connection and Continue until both repository fields are given', async () => {
     await renderAndWaitForConfig()
 
-    expect(screen.getByRole('button', { name: /test token/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /test connection/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
     await userEvent.type(screen.getByLabelText('User or organization'), 'alice')
-    expect(screen.getByRole('button', { name: /test token/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /test connection/i })).toBeDisabled()
   })
 
   it('shows the combined repository identifier once both fields are filled', async () => {
@@ -71,7 +71,7 @@ describe('HFHPublishForm', () => {
 
     await fillRepo('alice', 'dataset')
     await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-    await userEvent.click(screen.getByRole('button', { name: /test token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
     expect(await screen.findByText('Connected as alice.')).toBeInTheDocument()
     expect(mockedApi.hfhTestToken).toHaveBeenCalledWith('alice/dataset', 'hf_x', undefined)
@@ -84,7 +84,7 @@ describe('HFHPublishForm', () => {
 
     await fillRepo('alice', 'dataset')
     await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-    await userEvent.click(screen.getByRole('button', { name: /test token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
     expect(await screen.findByText(/already been published/i)).toBeInTheDocument()
     expect(mockedApi.hfhTestToken).toHaveBeenCalledWith('alice/dataset', 'hf_x', '1.0')
@@ -98,12 +98,12 @@ describe('HFHPublishForm', () => {
 
     await fillRepo('alice', 'dataset')
     await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_bad')
-    await userEvent.click(screen.getByRole('button', { name: /test token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
     expect(await screen.findByText('Incorrect or expired HuggingFace Hub token.')).toBeInTheDocument()
   })
 
-  it('enables Test token and Continue with a blank token when one is already saved', async () => {
+  it('enables Test connection and Continue with a blank token when one is already saved', async () => {
     mockedApi.hfhGetConfig.mockResolvedValue({
       username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
     })
@@ -112,9 +112,46 @@ describe('HFHPublishForm', () => {
     await waitFor(() => expect(screen.getByLabelText('User or organization')).toHaveValue('alice'))
     await waitFor(() => expect(screen.getByLabelText('Repository name')).toHaveValue('dataset'))
 
-    expect(screen.getByRole('button', { name: /test token/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /test connection/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
     expect(screen.getByText('Already saved — leave blank to reuse it.')).toBeInTheDocument()
+  })
+
+  it('still enables Continue with a blank token when going Back to an already-configured step', async () => {
+    // Regression test: going Back (initialConfig given) used to skip
+    // fetching has_token entirely, so a config that relied on an
+    // already-saved token (blank token field) came back with Continue
+    // stuck disabled — with no way to re-enable it short of typing a token
+    // that was never needed the first time around.
+    mockedApi.hfhGetConfig.mockResolvedValue({
+      username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
+    })
+    render(
+      <HFHPublishForm
+        onConfigured={vi.fn()}
+        initialConfig={{
+          repoId: 'alice/dataset', token: '', priv: false, mirrorImages: true,
+          outputMode: 'passthrough', outputDir: '/hfh/output',
+        }}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: /^continue$/i })).toBeEnabled()
+  })
+
+  it('renders a Back button next to Continue when onBack is given, and calls it', async () => {
+    const onBack = vi.fn()
+    render(<HFHPublishForm onConfigured={vi.fn()} onBack={onBack} backLabel="← Back to Product" />)
+
+    const backButton = await screen.findByRole('button', { name: '← Back to Product' })
+    await userEvent.click(backButton)
+    expect(onBack).toHaveBeenCalled()
+  })
+
+  it('does not render a Back button when onBack is not given', async () => {
+    await renderAndWaitForConfig()
+
+    expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
   })
 
   it('prefills the repository name from the product title, lowercased and without spaces', async () => {
@@ -157,7 +194,7 @@ describe('HFHPublishForm', () => {
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     expect(onConfigured).toHaveBeenCalledWith({
-      repoId: 'alice/dataset', token: 'hf_x', priv: true, mirrorImages: false,
+      repoId: 'alice/dataset', token: 'hf_x', priv: false, mirrorImages: false,
       outputMode: 'passthrough', outputDir: '/hfh/output',
     })
   })

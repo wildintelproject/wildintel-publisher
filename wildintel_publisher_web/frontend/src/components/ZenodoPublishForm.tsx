@@ -51,6 +51,17 @@ interface Props {
   /** Reports this form's current output directory whenever it changes, so a
    * later step in the publish order can use it as its own inputDir. */
   onOutputDirChange?: (dir: string) => void
+  /** A previously-collected config for this same repository — given when
+   * the user goes Back to re-visit a step they already configured (see
+   * WizardPage's Back button in the "configuring one repository at a time"
+   * screen). Seeds every field from it instead of settings.toml/blank, so
+   * going back doesn't throw away what was already typed. */
+  initialConfig?: ZenodoPublishConfig
+  /** Renders a "Back to X" button next to Continue, at the same height,
+   * instead of Continue alone — omitted for the first repository in the
+   * publish order (see WizardPage), which has nothing to go back to. */
+  onBack?: () => void
+  backLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
@@ -59,12 +70,13 @@ interface Props {
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
-export default function ZenodoPublishForm({ dryRun, onOutputDirChange, onConfigured }: Props) {
-  const [form, setForm] = useState({
-    outputDir: '', token: '', environment: 'sandbox', communities: '',
-  })
-  const [mirrorImages, setMirrorImages] = useState(true)
-  const [outputMode, setOutputMode] = useState<OutputMode>('prepared')
+export default function ZenodoPublishForm({ dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+  const [form, setForm] = useState(() => ({
+    outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
+    environment: initialConfig?.environment ?? 'sandbox', communities: initialConfig?.communities ?? '',
+  }))
+  const [mirrorImages, setMirrorImages] = useState(initialConfig?.mirrorImages ?? true)
+  const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'prepared')
   const [hasSavedToken, setHasSavedToken] = useState(false)
 
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
@@ -73,20 +85,29 @@ export default function ZenodoPublishForm({ dryRun, onOutputDirChange, onConfigu
 
   // Prefill from settings.toml — the same file 'zenodo config' reads/writes
   // on the CLI. The token itself is never sent to the frontend; leaving it
-  // blank later reuses whatever is already saved.
+  // blank later reuses whatever is already saved. Form fields are left
+  // alone when initialConfig is given (going Back) — those values are
+  // already known-good, no need to re-fetch them. hasSavedToken is fetched
+  // regardless, though: it isn't a form field the user could have typed
+  // over, and going Back with an initialConfig whose own token was left
+  // blank (relying on the saved one) would otherwise leave canContinue
+  // permanently false — the Continue button stuck disabled with no way to
+  // re-enable it short of typing a token that was never needed in the
+  // first place.
   useEffect(() => {
     api.zenodoGetConfig()
       .then((config) => {
+        setHasSavedToken(config.has_token)
+        if (initialConfig) return
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
           environment: config.environment,
           communities: config.communities ?? f.communities,
         }))
-        setHasSavedToken(config.has_token)
       })
       .catch(() => {})
-  }, [])
+  }, [initialConfig])
 
   // Deliberately depends only on form.outputDir, not onOutputDirChange: the
   // parent passes a fresh inline function on every render, so including it
@@ -185,7 +206,7 @@ export default function ZenodoPublishForm({ dryRun, onOutputDirChange, onConfigu
             <div className="flex justify-end mt-2">
               <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
                 {isTesting && <SmallSpinner />}
-                {isTesting ? 'Testing…' : 'Test token'}
+                {isTesting ? 'Testing…' : 'Test connection'}
               </button>
             </div>
             {test.status === 'ok' && (
@@ -268,7 +289,12 @@ export default function ZenodoPublishForm({ dryRun, onOutputDirChange, onConfigu
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-end'}>
+        {onBack && (
+          <button type="button" className={btnOutline} onClick={onBack}>
+            {backLabel ?? '← Back'}
+          </button>
+        )}
         <button type="button" className={btnPrimary} disabled={!canContinue} onClick={handleContinue}>
           Continue
         </button>

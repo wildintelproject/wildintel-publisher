@@ -13,6 +13,10 @@ vi.mock('../api', () => ({
     trapperDeployments: vi.fn(),
     trapperStartDownload: vi.fn(),
     trapperDownloadStatus: vi.fn(),
+    softwareCloneStart: vi.fn(),
+    softwareCloneStatus: vi.fn(),
+    camtrapdpFetchArchiveStart: vi.fn(),
+    camtrapdpFetchArchiveStatus: vi.fn(),
     generateProductMetadata: vi.fn(),
     completeProductMetadata: vi.fn(),
     datapackageSummary: vi.fn(),
@@ -29,6 +33,8 @@ vi.mock('../api', () => ({
     b2shareSyncPid: vi.fn(),
     gbifGetConfig: vi.fn(),
     gbifTestCredentials: vi.fn(),
+    gbifValidateArchive: vi.fn(),
+    gbifSyncDoi: vi.fn(),
     publishAllStart: vi.fn(),
     publishAllStatus: vi.fn(),
   },
@@ -67,11 +73,14 @@ describe('WizardPage', () => {
     expect(screen.getByText('Download')).toBeInTheDocument()
   })
 
-  it('shows the five product type options, Camtrap DP and YOLO enabled', () => {
+  it('shows the six product type options, with Camtrap DP, YOLO Dataset and Software Application enabled', () => {
+    // AI Model/EBV/Image Gallery have no adapter of their own yet (see
+    // WizardPage's PRODUCT_OPTIONS comment).
     render(<WizardPage />)
 
     expect(screen.getByRole('button', { name: /camtrap dp/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /yolo dataset/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /software application/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /ai model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /ebv/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /image gallery/i })).toBeDisabled()
@@ -85,6 +94,7 @@ describe('WizardPage', () => {
     expect(screen.getByText('Where is it located?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /local directory/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /trapper instance/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /public url/i })).toBeEnabled()
   })
 
   it('lets the user go back from the source step to the product type step', async () => {
@@ -271,6 +281,139 @@ async function reachPublishStep() {
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
 
+// Camtrap DP is now restricted to HFH+GBIF only (see REPOS_BY_PRODUCT_TYPE)
+// — tests that need Zenodo/B2SHARE available reach the publish step via a
+// YOLO dataset instead, which still supports all three of HFH/Zenodo/
+// B2SHARE. Only the repo mechanics (config forms, ordering, DOI-primary
+// choice) are under test in those cases, not anything Camtrap DP-specific.
+async function reachPublishStepYolo() {
+  mockedApi.generateProductMetadata.mockResolvedValue({
+    title: 'My YOLO Dataset', description: 'A local dataset.', version: '1.0',
+    license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+    authors: [{ name: 'Alice', affiliation: '' }],
+  })
+
+  await userEvent.click(screen.getByRole('button', { name: /yolo dataset/i }))
+  await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+  await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
+  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+}
+
+describe('WizardPage Camtrap DP archive flow', () => {
+  it('fetches the archive and shows the resulting path', async () => {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /public url/i }))
+    await userEvent.type(
+      screen.getByLabelText(/camtrap dp archive url/i),
+      'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip',
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+    mockedApi.camtrapdpFetchArchiveStart.mockResolvedValue({ task_id: 'fetch-task-1' })
+    mockedApi.camtrapdpFetchArchiveStatus.mockResolvedValue({
+      status: 'done', path: '/home/user/Documents/wildintel-publisher/camtrapdp-archive/camtrapdp-remote', error: null,
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByText('Package downloaded')).toBeInTheDocument())
+    expect(screen.getByText('/home/user/Documents/wildintel-publisher/camtrapdp-archive/camtrapdp-remote')).toBeInTheDocument()
+    expect(mockedApi.camtrapdpFetchArchiveStart).toHaveBeenCalledWith(
+      'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip',
+    )
+  })
+
+  it('shows an error and stays on the source step if the fetch fails', async () => {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /public url/i }))
+    await userEvent.type(screen.getByLabelText(/camtrap dp archive url/i), 'https://example.org/datapackage.json')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+    mockedApi.camtrapdpFetchArchiveStart.mockResolvedValue({ task_id: 'fetch-task-2' })
+    mockedApi.camtrapdpFetchArchiveStatus.mockResolvedValue({
+      status: 'error', path: null, error: 'https://example.org/datapackage.json is not a valid zip archive.',
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    expect(await screen.findByText(/is not a valid zip archive/i)).toBeInTheDocument()
+    expect(screen.getByText('Where is it located?')).toBeInTheDocument()
+  })
+
+  it('reuses the fetched archive URL as GBIF\'s own, without the standalone-copy note, when GBIF publishes alone', async () => {
+    const fetchedUrl = 'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip'
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A remote package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+    mockedApi.camtrapdpFetchArchiveStart.mockResolvedValue({ task_id: 'fetch-task-3' })
+    mockedApi.camtrapdpFetchArchiveStatus.mockResolvedValue({
+      status: 'done', path: '/home/user/Documents/wildintel-publisher/camtrapdp-archive/camtrapdp-remote', error: null,
+    })
+
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /public url/i }))
+    await userEvent.type(screen.getByLabelText(/camtrap dp archive url/i), fetchedUrl)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await screen.findByRole('heading', { name: /configure gbif/i })
+    await act(async () => {})
+    expect(screen.getByLabelText('Archive URL')).toHaveValue(fetchedUrl)
+    expect(screen.getByLabelText('Archive URL')).not.toHaveAttribute('readonly')
+    expect(screen.queryByText(/the local copy you just fetched/i)).not.toBeInTheDocument()
+  })
+})
+
+async function reachPublishStepSoftware() {
+  mockedApi.generateProductMetadata.mockResolvedValue({
+    title: 'My Software', description: 'A software application.', version: '1.0',
+    license: { id: 'MIT', name: 'MIT', url: '' },
+    authors: [{ name: 'Alice', affiliation: '' }],
+  })
+  mockedApi.softwareCloneStart.mockResolvedValue({ task_id: 'clone-task-1' })
+  mockedApi.softwareCloneStatus.mockResolvedValue({
+    status: 'done', path: '/home/user/Documents/wildintel-publisher/software/repo', error: null,
+  })
+
+  await userEvent.click(screen.getByRole('button', { name: /software application/i }))
+  await userEvent.click(screen.getByRole('button', { name: /git repository/i }))
+  await userEvent.type(screen.getByLabelText(/git repository url/i), 'https://github.com/user/repo.git')
+  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+  vi.useFakeTimers()
+  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  await vi.advanceTimersByTimeAsync(2000)
+  vi.useRealTimers()
+
+  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+}
+
 describe('WizardPage publish step', () => {
   it('advances from the download result to the publish step', async () => {
     render(<WizardPage />)
@@ -279,14 +422,39 @@ describe('WizardPage publish step', () => {
     expect(screen.getByText('Where do you want to publish it?')).toBeInTheDocument()
   })
 
-  it('shows Hugging Face Hub, Zenodo, B2SHARE and GBIF all enabled for Camtrap DP', async () => {
+  it('shows only Hugging Face Hub and GBIF enabled for Camtrap DP', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     expect(screen.getByRole('button', { name: /hugging face hub/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /zenodo/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /b2share/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /gbif/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /zenodo/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /b2share/i })).toBeDisabled()
+  })
+
+  it('shows Zenodo and B2SHARE available for a Software Application, with Zenodo pre-selected as required', async () => {
+    render(<WizardPage />)
+    await reachPublishStepSoftware()
+
+    // Zenodo's DOI is always what ends up citing the software — it's
+    // mandatory, pre-selected, and (unlike every other repo button) its
+    // own button stays disabled on purpose: there's nothing to toggle.
+    expect(screen.getByRole('button', { name: /zenodo/i })).toBeDisabled()
+    expect(screen.getByText('Required')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /b2share/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /hugging face hub/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /gbif/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+  })
+
+  it('does not let the user deselect Zenodo for a Software Application', async () => {
+    render(<WizardPage />)
+    await reachPublishStepSoftware()
+
+    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
+
+    // Still there — toggling a mandatory repo is a no-op.
+    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
   })
 
   it('does not show any publish form while still choosing repositories', async () => {
@@ -315,11 +483,10 @@ describe('WizardPage publish step', () => {
     expect(screen.getByText('Step 1 of 1.', { exact: false })).toBeInTheDocument()
   })
 
-  it('shows the Zenodo configuration form after starting publishing with only Zenodo selected', async () => {
+  it('shows the Zenodo configuration form after starting publishing a Software Application (Zenodo alone, the mandatory default)', async () => {
     render(<WizardPage />)
-    await reachPublishStep()
+    await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     // metadata.json already has a version (the wizard required it to be
@@ -328,21 +495,26 @@ describe('WizardPage publish step', () => {
     await act(async () => {})
     expect(screen.getByRole('heading', { name: /configure zenodo/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 1.', { exact: false })).toBeInTheDocument()
   })
 
-  it('shows the B2SHARE configuration form after starting publishing with only B2SHARE selected', async () => {
+  it('shows the B2SHARE configuration form after Zenodo, when publishing a Software Application with both selected', async () => {
     render(<WizardPage />)
-    await reachPublishStep()
+    await reachPublishStepSoftware()
 
     await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
-    // metadata.json already has a version (the wizard required it to be
-    // filled in before Step 3) — this just flushes the sub-form's own
-    // settings.toml config-load effect before interacting with it further.
+    await act(async () => {})
+    expect(screen.getByRole('heading', { name: /configure zenodo/i })).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 2.', { exact: false })).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
     await act(async () => {})
     expect(screen.getByRole('heading', { name: /configure b2share/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+    expect(screen.getByText('Step 2 of 2.', { exact: false })).toBeInTheDocument()
   })
 
   it('shows the GBIF configuration form after starting publishing with only GBIF selected', async () => {
@@ -378,6 +550,20 @@ async function configureHfhAndContinue() {
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 }
 
+// Fills in everything GBIF needs beyond the archive URL (already prefilled
+// from an earlier Hugging Face Hub step in the same order — see WizardPage's
+// suggestedArchiveUrl) — used as the "second repo" in multi-repo mechanics
+// tests (ordering, back-navigation, retry...) now that Zenodo/B2SHARE are
+// temporarily unavailable in the wizard (see REPO_OPTIONS's own comment).
+async function configureGbifAndContinue() {
+  await act(async () => {})
+  await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+  await userEvent.type(screen.getByLabelText('Installation UUID'), 'inst-1')
+  await userEvent.type(screen.getByLabelText('GBIF username'), 'alice')
+  await userEvent.type(screen.getByLabelText('GBIF password'), 's3cret')
+  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+}
+
 async function runHfhPublishToDone() {
   mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
   mockedApi.publishAllStatus.mockResolvedValue({
@@ -405,34 +591,21 @@ describe('WizardPage publish order', () => {
     expect(screen.queryByText('Publish order')).not.toBeInTheDocument()
   })
 
-  it('shows a reorderable list, in selection order, once more than one repo is selected', async () => {
+  it('always puts Hugging Face Hub first when both HFH and GBIF are selected, with no reordering', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
+    // Selected in the opposite order — HFH still ends up first, since
+    // there's no other valid order once GBIF's archive URL depends on it
+    // (see WizardPage's toggleRepo).
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
 
     expect(await screen.findByText('Publish order')).toBeInTheDocument()
-    const items = screen.getAllByRole('listitem')
-    expect(items[0]).toHaveTextContent('1.')
-    expect(items[0]).toHaveTextContent('Hugging Face Hub')
-    expect(items[1]).toHaveTextContent('2.')
-    expect(items[1]).toHaveTextContent('Zenodo')
-  })
-
-  it('lets the user move a repository up in the publish order', async () => {
-    render(<WizardPage />)
-    await reachPublishStep()
-
-    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
-    await screen.findByText('Publish order')
-
-    await userEvent.click(screen.getByRole('button', { name: /move zenodo up/i }))
-
-    const items = screen.getAllByRole('listitem')
-    expect(items[0]).toHaveTextContent('Zenodo')
-    expect(items[1]).toHaveTextContent('Hugging Face Hub')
+    expect(screen.getByText(/Hugging Face Hub always publishes first/i)).toBeInTheDocument()
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /move .* up/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /move .* down/i })).not.toBeInTheDocument()
   })
 
   it('collects configuration for each repository one screen at a time, then confirms before publishing', async () => {
@@ -440,7 +613,7 @@ describe('WizardPage publish order', () => {
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     // Step 1 of 2: configure Hugging Face Hub — nothing published yet.
@@ -449,17 +622,58 @@ describe('WizardPage publish order', () => {
     await configureHfhAndContinue()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
 
-    // Step 2 of 2: configure Zenodo — still nothing published.
+    // Step 2 of 2: configure GBIF — still nothing published.
     expect(await screen.findByText('Step 2 of 2.', { exact: false })).toBeInTheDocument()
-    await act(async () => {})
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await configureGbifAndContinue()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
 
     // Both configured — confirmation screen, still nothing published.
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
-    expect(screen.getByText(/Hugging Face Hub, Zenodo/)).toBeInTheDocument()
+    expect(screen.getByText(/Hugging Face Hub, GBIF/)).toBeInTheDocument()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
+  })
+
+  it('lets the user go back to a previous repository without losing what was typed', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+    expect(screen.queryByRole('button', { name: /back to hugging face hub/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /back to hugging face hub/i }))
+
+    await screen.findByText('Step 1 of 2.', { exact: false })
+    // No "Back" button on the very first configured repository.
+    expect(screen.queryByRole('button', { name: /^back to/i })).not.toBeInTheDocument()
+    await act(async () => {})
+    expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
+    expect(screen.getByLabelText('Repository name')).toHaveValue('dataset')
+    expect(screen.getByLabelText('HuggingFace Hub token')).toHaveValue('hf_x')
+  })
+
+  it('lets the user jump back to a previous repository by clicking its step in the breadcrumb', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+
+    // The already-configured first step shows a checkmark and is clickable,
+    // same effect as the current step's own "Back to X" button.
+    await userEvent.click(screen.getByRole('button', { name: /✓.*hugging face hub/i }))
+
+    await screen.findByText('Step 1 of 2.', { exact: false })
+    await act(async () => {})
+    expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
   })
 
   it('prefills the GBIF archive URL from an earlier Hugging Face Hub step in the same order', async () => {
@@ -475,13 +689,13 @@ describe('WizardPage publish order', () => {
     await screen.findByRole('heading', { name: /configure gbif/i })
     await act(async () => {})
     expect(screen.getByLabelText('Archive URL')).toHaveValue(
-      'https://huggingface.co/datasets/alice/dataset/resolve/main/datapackage.json',
+      'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip',
     )
   })
 
   it('asks which DOI is primary for HFH only when hfh + zenodo + b2share are all selected, then passes the choice along', async () => {
     render(<WizardPage />)
-    await reachPublishStep()
+    await reachPublishStepYolo()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
@@ -530,14 +744,12 @@ describe('WizardPage publish order', () => {
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     await configureHfhAndContinue()
     await screen.findByText('Step 2 of 2.', { exact: false })
-    await act(async () => {})
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await configureGbifAndContinue()
 
     await screen.findByText('Ready to publish')
 
@@ -549,9 +761,9 @@ describe('WizardPage publish order', () => {
           status: 'done', stage: 'done', error: null,
           repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
         },
-        zenodo: {
+        gbif: {
           status: 'done', stage: 'done', error: null,
-          repo_url: 'https://zenodo.org/records/123', doi: '10.5281/zenodo.123', pid: null, output_dir: '/zenodo/output',
+          repo_url: 'https://registry.gbif-test.org/dataset/123', doi: null, pid: null, output_dir: '/gbif/output',
         },
       },
     })
@@ -564,10 +776,127 @@ describe('WizardPage publish order', () => {
     expect(mockedApi.publishAllStart).toHaveBeenCalledWith(expect.objectContaining({
       repos: [
         expect.objectContaining({ repo: 'hfh', repoId: 'alice/dataset' }),
-        expect.objectContaining({ repo: 'zenodo', token: 'zen_x' }),
+        expect.objectContaining({ repo: 'gbif', publishingOrganizationKey: 'org-1' }),
       ],
     }))
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+  })
+
+  it('shows the GBIF Sync DOI section only when this run\'s registration actually returned a DOI', async () => {
+    mockedApi.hfhGetConfig.mockResolvedValue({
+      username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
+    })
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+    await configureGbifAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishAllStatus.mockResolvedValue({
+      status: 'done', error: null, dry_run: false,
+      repos: {
+        hfh: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
+        },
+        gbif: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://registry.gbif-test.org/dataset/123', doi: '10.21373/eet8jz', pid: null, output_dir: '/gbif/output',
+        },
+      },
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+    expect(screen.getByText('Sync DOI to Hugging Face Hub')).toBeInTheDocument()
+  })
+
+  it('shows an automatic-sync confirmation instead of the manual form when the backend already synced the DOI', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+    await configureGbifAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishAllStatus.mockResolvedValue({
+      status: 'done', error: null, dry_run: false,
+      repos: {
+        hfh: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
+        },
+        gbif: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://registry.gbif-test.org/dataset/123', doi: '10.21373/eet8jz', pid: null,
+          output_dir: '/gbif/output', doi_synced_to_hfh: true,
+        },
+      },
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+    expect(screen.queryByText('Sync DOI to Hugging Face Hub')).not.toBeInTheDocument()
+    expect(screen.getByText(/automatically synced/i)).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'https://huggingface.co/datasets/alice/dataset' }).length).toBe(2)
+  })
+
+  it('does not show the GBIF Sync DOI section when this run\'s registration got no DOI', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+    await configureGbifAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishAllStatus.mockResolvedValue({
+      status: 'done', error: null, dry_run: false,
+      repos: {
+        hfh: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
+        },
+        gbif: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://registry.gbif-test.org/dataset/123', doi: null, pid: null, output_dir: '/gbif/output',
+        },
+      },
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+    expect(screen.queryByText('Sync DOI to Hugging Face Hub')).not.toBeInTheDocument()
   })
 
   it('stops the sequence and shows the error if a repository fails to publish', async () => {
@@ -575,14 +904,12 @@ describe('WizardPage publish order', () => {
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     await configureHfhAndContinue()
     await screen.findByText('Step 2 of 2.', { exact: false })
-    await act(async () => {})
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
@@ -593,7 +920,7 @@ describe('WizardPage publish order', () => {
           status: 'error', stage: 'uploading', error: 'Invalid or unauthorized HuggingFace Hub token.',
           repo_url: null, doi: null, pid: null, output_dir: null,
         },
-        zenodo: { status: 'pending', stage: '', error: null, repo_url: null, doi: null, pid: null, output_dir: null },
+        gbif: { status: 'pending', stage: '', error: null, repo_url: null, doi: null, pid: null, output_dir: null },
       },
     })
 
@@ -604,6 +931,72 @@ describe('WizardPage publish order', () => {
 
     expect((await screen.findAllByText(/Invalid or unauthorized HuggingFace Hub token\./)).length).toBeGreaterThan(0)
     expect(screen.queryByText('All done!')).not.toBeInTheDocument()
+  })
+
+  it('shows the repo URL and retries only the failed repository, keeping the already-done one untouched', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await configureHfhAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+    await configureGbifAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValueOnce({ task_id: 'publish-task-1' })
+    mockedApi.publishAllStatus.mockResolvedValueOnce({
+      status: 'error', error: 'Missing GBIF publishing organization/installation.', dry_run: false,
+      repos: {
+        hfh: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
+        },
+        gbif: {
+          status: 'error', stage: 'releasing', error: 'Missing GBIF publishing organization/installation.',
+          repo_url: null, doi: null, pid: null, output_dir: null,
+        },
+      },
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    // Hugging Face Hub already succeeded — its "Done" status and repo URL
+    // must stay visible even though the overall task ended in error.
+    expect(await screen.findByText('https://huggingface.co/datasets/alice/dataset')).toBeInTheDocument()
+    expect(screen.getByText('Missing GBIF publishing organization/installation.')).toBeInTheDocument()
+
+    mockedApi.publishAllStart.mockResolvedValueOnce({ task_id: 'publish-task-2' })
+    mockedApi.publishAllStatus.mockResolvedValueOnce({
+      status: 'done', error: null, dry_run: false,
+      repos: {
+        gbif: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://registry.gbif-test.org/dataset/123', doi: null, pid: null, output_dir: '/gbif/output',
+        },
+      },
+    })
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /retry failed repositories/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    // Only the failed repo is retried — Hugging Face Hub is never
+    // re-published, and the retry chains from HFH's own finalized output.
+    expect(mockedApi.publishAllStart).toHaveBeenLastCalledWith(expect.objectContaining({
+      inputDir: '/hfh/output',
+      repos: [expect.objectContaining({ repo: 'gbif' })],
+    }))
+
+    await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+    expect(screen.getByText('https://huggingface.co/datasets/alice/dataset')).toBeInTheDocument()
+    expect(screen.getByText('https://registry.gbif-test.org/dataset/123')).toBeInTheDocument()
   })
 
   it('shows an "All done!" screen once the only selected repository finishes publishing', async () => {

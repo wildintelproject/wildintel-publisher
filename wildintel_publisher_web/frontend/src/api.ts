@@ -63,6 +63,22 @@ export const api = {
       `/api/trapper/download/${taskId}`,
     ),
 
+  softwareCloneStart: (url: string, clearCache = false) =>
+    post<{ task_id: string }>('/api/software/clone', { url, clear_cache: clearCache }),
+
+  softwareCloneStatus: (taskId: string) =>
+    req<{ status: 'running' | 'done' | 'error'; path: string | null; error: string | null }>(
+      `/api/software/clone/${taskId}`,
+    ),
+
+  camtrapdpFetchArchiveStart: (url: string, clearCache = false) =>
+    post<{ task_id: string }>('/api/camtrapdp/fetch-archive', { url, clear_cache: clearCache }),
+
+  camtrapdpFetchArchiveStatus: (taskId: string) =>
+    req<{ status: 'running' | 'done' | 'error'; path: string | null; error: string | null }>(
+      `/api/camtrapdp/fetch-archive/${taskId}`,
+    ),
+
   generateProductMetadata: (inputDir: string, productType: string) =>
     post<DatapackageSummary>('/api/camtrapdp/generate-metadata', { input_dir: inputDir, product_type: productType }),
 
@@ -251,6 +267,17 @@ export const api = {
   gbifTestCredentials: (username: string, password: string, environment: string) =>
     post<{ ok: boolean }>('/api/gbif/test-credentials', { username, password, environment }),
 
+  gbifValidateArchive: (archiveUrl: string) =>
+    post<{ ok: boolean }>('/api/gbif/validate-archive', { archive_url: archiveUrl }),
+
+  gbifSyncDoi: (params: { gbifOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
+    post<{ doi: string; repo_url: string }>('/api/gbif/sync-doi', {
+      gbif_output_dir: params.gbifOutputDir,
+      hfh_output_dir: params.hfhOutputDir,
+      hfh_repo_id: params.hfhRepoId,
+      hfh_token: params.hfhToken,
+    }),
+
   // Publishes every selected repo in one go: upload phase for all of them,
   // then a cross-repo DOI populate pass, then release/lock for all of them
   // (see the backend's services.publish_orchestrator/doi_populate) — the
@@ -324,6 +351,7 @@ export const api = {
         doi: string | null
         pid: string | null
         output_dir: string | null
+        doi_synced_to_hfh?: boolean | null
       }>
     }>(`/api/publish/${taskId}`),
 }

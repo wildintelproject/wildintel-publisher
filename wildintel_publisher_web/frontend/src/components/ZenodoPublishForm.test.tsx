@@ -73,7 +73,7 @@ describe('ZenodoPublishForm', () => {
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
 
     await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /test token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
     expect(await screen.findByText('Token verified.')).toBeInTheDocument()
     expect(mockedApi.zenodoTestToken).toHaveBeenCalledWith('zen_x', 'sandbox')

@@ -82,7 +82,7 @@ describe('B2SharePublishForm', () => {
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.click(screen.getByRole('button', { name: /test token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
     expect(await screen.findByText('Token verified.')).toBeInTheDocument()
     expect(mockedApi.b2shareTestToken).toHaveBeenCalledWith('b2_x', 'sandbox')

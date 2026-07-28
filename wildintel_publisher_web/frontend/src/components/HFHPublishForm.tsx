@@ -43,6 +43,17 @@ interface Props {
   /** Reports this form's current output directory whenever it changes, so a
    * later step in the publish order can use it as its own inputDir. */
   onOutputDirChange?: (dir: string) => void
+  /** A previously-collected config for this same repository — given when
+   * the user goes Back to re-visit a step they already configured (see
+   * WizardPage's Back button in the "configuring one repository at a time"
+   * screen). Seeds every field from it instead of settings.toml/blank, so
+   * going back doesn't throw away what was already typed. */
+  initialConfig?: HfhPublishConfig
+  /** Renders a "Back to X" button next to Continue, at the same height,
+   * instead of Continue alone — omitted for the first repository in the
+   * publish order (see WizardPage), which has nothing to go back to. */
+  onBack?: () => void
+  backLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
@@ -55,11 +66,15 @@ function slugifyRepoName(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '')
 }
 
-export default function HFHPublishForm({ productTitle, productVersion, dryRun, onOutputDirChange, onConfigured }: Props) {
-  const [form, setForm] = useState({ outputDir: '', hfUser: '', repoName: '', token: '' })
-  const [mirrorImages, setMirrorImages] = useState(true)
-  const [outputMode, setOutputMode] = useState<OutputMode>('prepared')
-  const [priv, setPriv] = useState(true)
+export default function HFHPublishForm({ productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+  const [form, setForm] = useState(() => {
+    if (!initialConfig) return { outputDir: '', hfUser: '', repoName: '', token: '' }
+    const [hfUser, repoName] = initialConfig.repoId.split('/')
+    return { outputDir: initialConfig.outputDir, hfUser: hfUser ?? '', repoName: repoName ?? '', token: initialConfig.token }
+  })
+  const [mirrorImages, setMirrorImages] = useState(initialConfig?.mirrorImages ?? true)
+  const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'passthrough')
+  const [priv, setPriv] = useState(initialConfig?.priv ?? false)
   const [hasSavedToken, setHasSavedToken] = useState(false)
 
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
@@ -72,19 +87,27 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
   // name itself comes from the product's own title (see the effect below),
   // not from whatever was last used. The token itself is never sent to the
   // frontend; leaving the token field blank later reuses whatever is
-  // already saved.
+  // already saved. Form fields are left alone when initialConfig is given
+  // (going Back) — those values are already known-good, no need to
+  // re-fetch them. hasSavedToken is fetched regardless, though: it isn't a
+  // form field the user could have typed over, and going Back with an
+  // initialConfig whose own token was left blank (relying on the saved
+  // one) would otherwise leave canContinue permanently false — the
+  // Continue button stuck disabled with no way to re-enable it short of
+  // typing a token that was never needed in the first place.
   useEffect(() => {
     api.hfhGetConfig()
       .then((config) => {
+        setHasSavedToken(config.has_token)
+        if (initialConfig) return
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
           hfUser: config.username || f.hfUser,
         }))
-        setHasSavedToken(config.has_token)
       })
       .catch(() => {})
-  }, [])
+  }, [initialConfig])
 
   // Prefill the repository name from the product's own title — only if the
   // user hasn't already typed something in that field.
@@ -198,7 +221,7 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
           <div className="flex justify-end mt-2">
             <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
               {isTesting && <SmallSpinner />}
-              {isTesting ? 'Testing…' : 'Test token'}
+              {isTesting ? 'Testing…' : 'Test connection'}
             </button>
           </div>
         )}
@@ -257,8 +280,8 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
             />
             <span><strong>Prepared package</strong> - just the Camtrap DP files (datapackage.json,
               deployments.csv, media.csv, observations.csv) with the changes made while preparing
-              and uploading, plus CITATION.cff/checksums (needed to sync a DOI/PID here later) — no
-              README, LICENSE, images or the local zip.</span>
+              and uploading, plus CITATION.cff/README.md/checksums (needed to sync a DOI/PID here
+              later) — no LICENSE, images or the local zip.</span>
           </label>
           <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
             <input
@@ -284,7 +307,12 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-end'}>
+        {onBack && (
+          <button type="button" className={btnOutline} onClick={onBack}>
+            {backLabel ?? '← Back'}
+          </button>
+        )}
         <button type="button" className={btnPrimary} disabled={!canContinue} onClick={handleContinue}>
           Continue
         </button>
