@@ -496,6 +496,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#coordinate-anonymization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coordinate anonymization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#filepath-a-one-shot-token-url-or-already-local" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1663,6 +1674,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#coordinate-anonymization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coordinate anonymization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#filepath-a-one-shot-token-url-or-already-local" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1762,6 +1784,28 @@ people, and Trapper's own privacy rules decide whether a given file counts as pu
 The publishing process filters <code>media.csv</code> down to public rows only, and drops any
 observation that referenced a now-removed media file — private media never leaves your
 machine.</p>
+<h3 id="coordinate-anonymization">Coordinate anonymization</h3>
+<p><code>deployments.csv</code>'s <code>latitude</code>/<code>longitude</code> are exact GPS coordinates by default — fine
+for most datasets, but a real concern for sensitive sites (poaching risk, protected
+species, private land). An optional <strong>anonymize coordinates</strong> setting rounds every
+deployment's coordinates to a fixed number of decimal places (2 by default, ≈ 1.1 km
+at the equator) — deliberately deterministic rather than a random offset, so the same
+deployment ends up with identical rounded coordinates on every repository it's
+published to.</p>
+<p>This is a <strong>product-level preprocessing step</strong>, applied once — as part of
+<a href="../publishing-guide/">generating <code>metadata.json</code></a>, right after the raw package is
+obtained, in <code>--input-dir</code> itself — rather than something each repository's own
+prepare step decides independently. Every repository that later prepares its own
+export from that same <code>--input-dir</code> (directly, or chained from another repository's
+own already-prepared output) inherits the already-anonymized coordinates
+automatically, with nothing extra to pass at that point. In the web app's wizard, the
+option appears once a Camtrap DP source is picked (Step 1); on the CLI, it's
+<code>--anonymize-coordinates</code>/<code>--coordinate-decimals</code> on <code>product generate-metadata</code>. It's
+off by default — coordinates are published exactly as provided unless explicitly
+enabled.</p>
+<p>Because it mutates <code>--input-dir</code> in place, enabling it against a <strong>Local Directory</strong>
+source rounds the coordinates in that directory's own <code>deployments.csv</code> directly —
+there's no separate "raw" copy kept anywhere with the original precision.</p>
 <h3 id="filepath-a-one-shot-token-url-or-already-local"><code>filePath</code> — a one-shot token URL, or already local</h3>
 <p><code>media.csv</code>'s <code>filePath</code>, as delivered by Trapper, is a temporary, one-time-use signed
 URL — it resolves once (or for a limited time) and then expires. This is why the
