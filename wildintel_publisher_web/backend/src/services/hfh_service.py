@@ -107,13 +107,18 @@ def test_token(token: str, repo_id: str | None = None, version: str | None = Non
 
 
 # Copied into the user's configured output_dir in addition to the product's
-# own core files: CITATION.cff/checksums-sha256.txt aren't part of any
-# product's own format, but sync_doi_to_hfh/sync_pid_to_hfh (the "Sync
-# DOI/PID to Hugging Face Hub" feature on the Zenodo/B2SHARE forms) needs
-# CITATION.cff to exist here to patch the DOI/PID into it later — dropping it
-# would silently break that feature after publish. README.md/LICENSE/
-# images/camtrapdp-local.zip have no such dependency, so they stay out.
-KEPT_EXTRA_FILES = ["CITATION.cff", camtrapdp_common.CHECKSUM_FILENAME]
+# own core files: CITATION.cff/checksums-sha256.txt/README.md aren't part of
+# any product's own format, but sync_doi_to_hfh/sync_pid_to_hfh (the "Sync
+# DOI/PID to Hugging Face Hub" feature on the Zenodo/B2SHARE/GBIF forms)
+# needs all three to exist here — CITATION.cff and README.md's own
+# "## Citation" section both get the DOI/PID patched into them (see
+# common.patch_citation_with_identifier/patch_readme_citation_url), and
+# checksums need regenerating afterwards — dropping any of them would
+# silently break that feature after publish (the CITATION.cff half would
+# still work, README.md's own citation would just silently never update,
+# with no error anywhere — this used to be the case). LICENSE/images/
+# camtrapdp-local.zip have no such dependency, so they stay out.
+KEPT_EXTRA_FILES = ["CITATION.cff", camtrapdp_common.CHECKSUM_FILENAME, "README.md"]
 
 
 def copy_prepared_output_files(*, output_dir: Path, target_dir: Path) -> Path:
@@ -123,9 +128,9 @@ def copy_prepared_output_files(*, output_dir: Path, target_dir: Path) -> Path:
     user's configured output directory just the product's own files (with
     prepare_hfh_export/upload_to_huggingface's modifications applied:
     private media filtered out, media.csv rewritten to HF URLs in mirror
-    mode) and CITATION.cff, without the rest of the HFH-specific extras
-    (README.md, LICENSE, images/, camtrapdp-local.zip) — those only ever
-    exist in the temporary build directory used to stage the upload (see
+    mode), CITATION.cff and README.md, without the rest of the HFH-specific
+    extras (LICENSE, images/, camtrapdp-local.zip) — those only ever exist
+    in the temporary build directory used to stage the upload (see
     start_publish_task)."""
     target_dir.mkdir(parents=True, exist_ok=True)
     product_meta = product.read_metadata_json(output_dir)

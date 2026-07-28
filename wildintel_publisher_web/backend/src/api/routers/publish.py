@@ -114,7 +114,7 @@ async def start(req: PublishAllRequest) -> dict:
 def status(task_id: str) -> dict:
     """Poll the status of a multi-repo publish task — {"status", "repos":
     {repo: {"status", "stage", "error", "repo_url", "doi", "pid",
-    "output_dir"}}, "error"}."""
+    "output_dir", "doi_synced_to_hfh"}}, "error"}."""
     result = publish_orchestrator.get_publish_task_status(task_id)
     if result is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")

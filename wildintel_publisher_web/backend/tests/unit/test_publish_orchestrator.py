@@ -448,6 +448,141 @@ def test_publish_all_single_gbif_repo_registers_dataset(tmp_path):
     assert mock_register.call_args.args[1] == _tmp(tmp_path, "gbif")
     assert mock_register.call_args.kwargs["title"] == "T"
     assert mock_register.call_args.kwargs["publishing_organization_key"] == "org-1"
+    assert body["repos"]["gbif"]["doi"] is None  # most organizations don't get one automatically
+
+
+def test_publish_all_gbif_surfaces_a_doi_when_gbif_returns_one(tmp_path):
+    """Some organizations have their own DataCite arrangement configured
+    with GBIF, which makes it auto-mint a DOI on registration (see
+    gbif.register_gbif_dataset) — when present, it must reach the frontend
+    so it can offer to sync it into HFH's own CITATION.cff."""
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with patch(
+        "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+        return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/abc-123", "doi": "10.21373/eet8jz"},
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [{
+                    "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
+                    "archive_url": "https://example.org/datapackage.json",
+                    "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                    "username": "alice", "password": "s3cret", "environment": "sandbox",
+                }],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["repos"]["gbif"]["doi"] == "10.21373/eet8jz"
+    # No HFH in this run to auto-sync into — the manual "Sync DOI" section
+    # is the only way, same as before this field existed.
+    assert body["repos"]["gbif"]["doi_synced_to_hfh"] is None
+
+
+def test_publish_all_hfh_then_gbif_auto_syncs_doi_into_hfh_citation(tmp_path):
+    """Unlike Zenodo/B2SHARE (cross-referenced automatically by the populate
+    phase, before HFH ever gets tagged), GBIF only learns its own DOI during
+    its own lock call, which always runs after HFH's — so the orchestrator
+    syncs it in as one extra best-effort step once every repo's lock phase
+    has run (see publish_orchestrator's own docstring)."""
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_hfh(output_dir, **kwargs):
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+    hfh_output_dir = _tmp(tmp_path, "hfh")
+    gbif_output_dir = _tmp(tmp_path, "gbif")
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", return_value=None),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch(
+            "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+            return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/xyz", "doi": "10.21373/eet8jz"},
+        ),
+        patch(
+            "services.publish_orchestrator.gbif_service.sync_doi_to_hfh",
+            return_value={"doi": "10.21373/eet8jz", "repo_url": "https://huggingface.co/datasets/alice/dataset"},
+        ) as mock_sync,
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(hfh_output_dir), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {
+                        "repo": "gbif", "output_dir": str(gbif_output_dir),
+                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip",
+                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                        "username": "alice", "password": "s3cret", "environment": "sandbox",
+                    },
+                ],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert body["repos"]["gbif"]["doi"] == "10.21373/eet8jz"
+    assert body["repos"]["gbif"]["doi_synced_to_hfh"] is True
+    mock_sync.assert_called_once_with(
+        gbif_output_dir=gbif_output_dir, hfh_output_dir=hfh_output_dir,
+        hfh_repo_id="alice/dataset", hfh_token="hf_x",
+    )
+
+
+def test_publish_all_hfh_then_gbif_auto_sync_failure_does_not_fail_the_whole_run(tmp_path):
+    """Best-effort: if the auto-sync itself errors (e.g. the HFH upload
+    fails), the overall publish still finishes 'done' — the wizard's manual
+    'Sync DOI' section stays available for the user to retry by hand."""
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_hfh(output_dir, **kwargs):
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", return_value=None),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch(
+            "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+            return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/xyz", "doi": "10.21373/eet8jz"},
+        ),
+        patch(
+            "services.publish_orchestrator.gbif_service.sync_doi_to_hfh",
+            side_effect=RuntimeError("Hugging Face Hub upload failed"),
+        ),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {
+                        "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
+                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip",
+                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                        "username": "alice", "password": "s3cret", "environment": "sandbox",
+                    },
+                ],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert body["repos"]["gbif"]["doi_synced_to_hfh"] is False
 
 
 def test_publish_all_gbif_dry_run_fakes_a_dataset_url_without_network(tmp_path):

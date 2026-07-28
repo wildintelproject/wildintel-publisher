@@ -352,6 +352,7 @@ def test_sync_pid_uploads_the_changed_files_when_present(tmp_path):
     hfh_output_dir = tmp_path / "hfh"
     hfh_output_dir.mkdir()
     (hfh_output_dir / "CITATION.cff").write_text("cff", encoding="utf-8")
+    (hfh_output_dir / "README.md").write_text("readme", encoding="utf-8")
     (hfh_output_dir / "checksums-sha256.txt").write_text("sums", encoding="utf-8")
 
     with (
@@ -366,9 +367,9 @@ def test_sync_pid_uploads_the_changed_files_when_present(tmp_path):
         })
 
     assert response.status_code == 200
-    assert mock_upload_file.call_count == 2
+    assert mock_upload_file.call_count == 3
     uploaded_names = {call.kwargs["path_in_repo"] for call in mock_upload_file.call_args_list}
-    assert uploaded_names == {"CITATION.cff", "checksums-sha256.txt"}
+    assert uploaded_names == {"CITATION.cff", "README.md", "checksums-sha256.txt"}
 
 
 def test_sync_pid_returns_none_pid_when_pending_moderator_approval(tmp_path):

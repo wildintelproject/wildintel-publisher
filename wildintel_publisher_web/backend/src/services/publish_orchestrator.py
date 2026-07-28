@@ -39,6 +39,19 @@ network call happens — directly against its user-configured output_dir
 (there's nothing to stage in a temporary build_dir first, unlike the other
 three).
 
+Unlike Zenodo/B2SHARE (whose DOI/PID is already known before HFH ever gets
+tagged, so the populate phase cross-references it into HFH's CITATION.cff
+for free, within phase 2), GBIF only learns its own DOI (if any — most
+organizations don't get one auto-minted, see gbif.register_gbif_dataset)
+during its own phase-3 lock call, which always runs after HFH's — so once
+every repo's phase 3 has run, if HFH was part of this same run and GBIF's
+came back with a DOI, it's synced into HFH's already-published CITATION.cff
+as one extra best-effort step (same gbif_service.sync_doi_to_hfh the
+wizard's manual "Sync DOI" section calls) — no separate user action needed
+for the common case. That manual section stays as a fallback for whenever
+this can't happen automatically (GBIF published standalone, without HFH in
+the same run) or if the automatic attempt itself failed.
+
 Dry run (dry_run=True on start_publish_all_task): every step above still
 runs, EXCEPT the actual network upload/release calls to Zenodo/B2SHARE/HFH,
 which are replaced by the _dry_run_* helpers below — a synthetic record
@@ -65,9 +78,30 @@ from wildintel_publisher.services import hfh as hfh_cli
 from wildintel_publisher.services import product
 from wildintel_publisher.services import zenodo as zenodo_cli
 
-from services import b2share_service, camtrapdp_service, hfh_service, zenodo_service
+from services import b2share_service, camtrapdp_service, gbif_service, hfh_service, zenodo_service
 
 DEFAULT_TIMEOUT = 60
+
+# Hard, product-type-inherent repo restrictions enforced here regardless of
+# caller (defense in depth on top of the wizard's own REPOS_BY_PRODUCT_TYPE
+# gating in WizardPage.tsx) — a product type absent from this dict is left
+# fully unrestricted at this layer (same as Camtrap DP/YOLO today, which stay
+# generic across all four repos here; the CLI's own hfh/zenodo/b2share/gbif
+# commands are equally unrestricted, see docs/developer-guide.md). A software
+# application has no biodiversity/media content to speak of, so HFH and GBIF
+# are never a fit for it, in the wizard or otherwise — only Zenodo/B2SHARE.
+ALLOWED_REPOS_BY_PRODUCT_TYPE: dict[str, set[str]] = {
+    product.SOFTWARE: {"zenodo", "b2share"},
+}
+
+
+def _require_repo_allowed(product_type: str, repo: str) -> None:
+    allowed = ALLOWED_REPOS_BY_PRODUCT_TYPE.get(product_type)
+    if allowed is not None and repo not in allowed:
+        raise RuntimeError(
+            f"{repo!r} does not accept {product_type!r} products — allowed repositories for "
+            f"{product_type!r} are: {', '.join(sorted(allowed))}."
+        )
 
 # Unmistakably fake — never a real DOI registrant prefix — so a dry-run
 # record can never be confused with (or accidentally look up) a real DOI.
@@ -120,6 +154,10 @@ def _initial_repo_status() -> dict:
     return {
         "status": "pending", "stage": "", "error": None,
         "repo_url": None, "doi": None, "pid": None, "output_dir": None,
+        # gbif only: None until its own lock phase runs; then True/False once
+        # an auto-sync into HFH's CITATION.cff was actually attempted (see
+        # the sync step after the main per-repo loop in start_publish_all_task).
+        "doi_synced_to_hfh": None,
     }
 
 
@@ -153,6 +191,18 @@ async def _upload_one(
     repo = cfg["repo"]
     version = cfg.get("version")
     timeout = cfg.get("timeout") or DEFAULT_TIMEOUT
+
+    # Best-effort: input_dir always carries a real metadata.json in
+    # production (the wizard's earlier generate-metadata step guarantees
+    # it) — skip the check rather than fail outright if it's ever missing/
+    # unreadable, same graceful-degradation _detect_hfh_repo_id uses above
+    # for a similar best-effort read.
+    try:
+        meta = await asyncio.to_thread(product.read_metadata_json, input_dir)
+    except Exception:
+        meta = None
+    if meta is not None:
+        _require_repo_allowed(meta["product_type"], repo)
 
     if repo == "hfh":
         repo_status["stage"] = "preparing"
@@ -320,8 +370,14 @@ async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status:
             title=meta["title"], description=meta["description"],
             license_url=license_info.get("url") or "",
             registry_language=cfg.get("registry_language") or "eng",
+            homepage=meta.get("homepage"),
         )
         repo_status["repo_url"] = record.get("dataset_page_url")
+        # Only some organizations have their own DataCite arrangement
+        # configured with GBIF, which makes it auto-mint one — see
+        # gbif.register_gbif_dataset. None otherwise, same as HFH's own
+        # doi field, which the frontend already treats as "nothing to sync".
+        repo_status["doi"] = record.get("doi")
 
 
 async def _extract_chain_input(build_dir: Path) -> Path:
@@ -457,6 +513,24 @@ def start_publish_all_task(
                 repo_status["status"] = "done"
                 repo_status["stage"] = "done"
                 previous_output_dir = final_output_dir
+
+            if not dry_run:
+                gbif_status = _publish_tasks[task_id]["repos"].get("gbif")
+                hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
+                if gbif_status and gbif_status.get("doi") and hfh_cfg is not None:
+                    gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
+                    try:
+                        await asyncio.to_thread(
+                            gbif_service.sync_doi_to_hfh,
+                            gbif_output_dir=Path(gbif_cfg["output_dir"]),
+                            hfh_output_dir=Path(hfh_cfg["output_dir"]),
+                            hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
+                        )
+                        gbif_status["doi_synced_to_hfh"] = True
+                    except Exception:
+                        # Best-effort — the manual "Sync DOI" section is
+                        # still there for the user to retry by hand.
+                        gbif_status["doi_synced_to_hfh"] = False
 
             _publish_tasks[task_id]["status"] = "done"
         except Exception as exc:

@@ -15,10 +15,14 @@ module's docstring)."""
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import httpx
 from dynaconf import loaders
+from huggingface_hub import upload_file
 from wildintel_publisher.config import DEFAULT_CONFIG_FILE, get_gbif_output_dir, load_settings
+from wildintel_publisher.services import gbif as gbif_cli
+from wildintel_publisher.services.gbif import validate_camtrap_dp_archive
 
 GBIF_USERNAME_ENV_VAR = "GBIF_USERNAME"
 GBIF_PASSWORD_ENV_VAR = "GBIF_PASSWORD"
@@ -119,3 +123,63 @@ def test_credentials(username: str, password: str, environment: str) -> dict:
     if response.status_code != 200:
         raise RuntimeError(f"GBIF returned an unexpected error (HTTP {response.status_code}).")
     return {"ok": True}
+
+
+def validate_archive(archive_url: str) -> dict:
+    """Thin wrapper around wildintel_publisher.services.gbif.
+    validate_camtrap_dp_archive — downloads archive_url, checks it's a real
+    zip, and validates the extracted Camtrap DP against the official
+    schema. Blocking (network + local file I/O), same as every other
+    function in this module — the router runs it in FastAPI's own
+    threadpool (plain `def` route, not `async def`), matching how
+    test_credentials/get_config already do.
+
+    Returns:
+        {"ok": True}
+
+    Raises:
+        RuntimeError: if the URL can't be downloaded, isn't a real zip
+        archive, or the extracted content fails Camtrap DP validation.
+    """
+    validate_camtrap_dp_archive(archive_url)
+    return {"ok": True}
+
+
+def sync_doi_to_hfh(
+    *, gbif_output_dir: Path, hfh_output_dir: Path, hfh_repo_id: str, hfh_token: str,
+) -> dict:
+    """Reflects the DOI GBIF assigned to the dataset (if any — see
+    gbif.register_gbif_dataset) in the HFH export's CITATION.cff/README.md/
+    checksums (reusing wildintel_publisher.services.gbif.sync_doi_to_hfh —
+    which also patches README.md's own "## Citation" section, see
+    common.patch_readme_citation_url), and re-uploads just those changed
+    files to the given HuggingFace Hub repo — the CLI's own 'gbif sync-doi'
+    stops at the local edit and tells the user to re-run 'hfh upload'
+    themselves; a web UI has no such "now go run this yourself" affordance,
+    same as zenodo_service/b2share_service's own sync_doi_to_hfh/
+    sync_pid_to_hfh.
+
+    Returns:
+        {"doi": "...", "repo_url": "https://huggingface.co/datasets/..."}
+
+    Raises:
+        RuntimeError: if the GBIF dataset has no DOI, or the HFH export
+        hasn't been prepared (see gbif.sync_doi_to_hfh), or if the
+        HuggingFace Hub upload fails.
+    """
+    doi = gbif_cli.sync_doi_to_hfh(gbif_output_dir=gbif_output_dir, hfh_output_dir=hfh_output_dir)
+
+    for filename in ("CITATION.cff", "README.md", "checksums-sha256.txt"):
+        file_path = hfh_output_dir / filename
+        if not file_path.is_file():
+            continue
+        upload_file(
+            path_or_fileobj=str(file_path),
+            path_in_repo=filename,
+            repo_id=hfh_repo_id,
+            repo_type="dataset",
+            token=hfh_token,
+            commit_message=f"Sync GBIF DOI ({doi}) via wildintel-publisher",
+        )
+
+    return {"doi": doi, "repo_url": f"https://huggingface.co/datasets/{hfh_repo_id}"}

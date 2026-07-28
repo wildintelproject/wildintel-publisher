@@ -44,6 +44,24 @@ class OpenFolderRequest(BaseModel):
     path: str
 
 
+class SoftwareCloneRequest(BaseModel):
+    url: str
+    # If true, discards any previously cloned copy at the derived
+    # destination and re-clones from scratch (see services.git_source.
+    # clone_repository) — same "clear_cache" contract DownloadRequest's own
+    # flag has for Trapper.
+    clear_cache: bool = False
+
+
+class CamtrapDPArchiveFetchRequest(BaseModel):
+    url: str
+    # If true, discards any previously fetched extraction at the derived
+    # destination and re-fetches from scratch (see services.camtrapdp_source.
+    # fetch_camtrap_dp_archive) — same "clear_cache" contract as Trapper's/
+    # software's own source-fetching requests.
+    clear_cache: bool = False
+
+
 class GenerateMetadataRequest(BaseModel):
     # Which services.product.ProductAdapter to validate/extract metadata
     # with — "camtrapdp" or "yolo" today (see services.product.get_adapter).
@@ -160,6 +178,21 @@ class GBIFTestCredentialsRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     environment: Optional[str] = None
+
+
+class GBIFValidateArchiveRequest(BaseModel):
+    # See services.gbif.validate_camtrap_dp_archive — downloads this URL,
+    # checks it's a zip, and validates the extracted Camtrap DP against the
+    # official schema, catching upfront the exact failure GBIF's own
+    # CAMTRAP_DP crawler otherwise hits silently (ABORT, nothing indexed).
+    archive_url: str
+
+
+class GBIFSyncDoiRequest(BaseModel):
+    gbif_output_dir: str
+    hfh_output_dir: str
+    hfh_repo_id: str
+    hfh_token: Optional[str] = None
 
 
 class RepoPublishConfig(BaseModel):

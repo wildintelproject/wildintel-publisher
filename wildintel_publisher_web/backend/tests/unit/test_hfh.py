@@ -162,10 +162,13 @@ def test_publish_requires_repo_id():
 def test_publish_start_and_poll_until_done(tmp_path):
     """Default output_mode='prepared': prepare/upload/release must run
     against a throwaway temporary directory, and the user's configured
-    output_dir must end up with only the core Camtrap DP files (with
-    prepare/upload's modifications applied) — none of the full local export's
-    extras (README.md/LICENSE/CITATION.cff/checksums-sha256.txt/images/zip),
-    which only ever exist in the temporary directory."""
+    output_dir must end up with the core Camtrap DP files (with
+    prepare/upload's modifications applied) plus README.md — kept, along
+    with CITATION.cff/checksums-sha256.txt (not written by this test's fake
+    prepare, so absent from the assertion below), so a later Sync DOI/PID
+    can patch its own "## Citation" section (see hfh_service.
+    KEPT_EXTRA_FILES) — LICENSE/images/the local zip are the only real
+    exclusions, which only ever exist in the temporary directory."""
     from main import app
     fake_output_dir = tmp_path / "hfh"
 
@@ -197,7 +200,7 @@ def test_publish_start_and_poll_until_done(tmp_path):
         "status": "done", "stage": "done", "repo_url": "https://huggingface.co/datasets/alice/dataset",
         "output_dir": str(fake_output_dir), "error": None,
     }
-    assert {p.name for p in fake_output_dir.iterdir()} == {"datapackage.json", "media.csv", "metadata.json"}
+    assert {p.name for p in fake_output_dir.iterdir()} == {"datapackage.json", "media.csv", "metadata.json", "README.md"}
     mock_prepare.assert_called_once()
     mock_upload.assert_called_once()
     mock_tag.assert_called_once()
@@ -328,3 +331,28 @@ def test_publish_falls_back_to_saved_token_when_blank(tmp_path):
             _poll_publish(client, task_id)
 
     assert mock_upload.call_args.kwargs["token"] == "hf_saved"
+
+
+def test_copy_prepared_output_files_keeps_readme_alongside_citation_and_checksums(tmp_path):
+    """Regression test: KEPT_EXTRA_FILES used to only list CITATION.cff and
+    checksums-sha256.txt — README.md was dropped, so a later Sync DOI/PID
+    could patch its own "## Citation" section (see common.
+    patch_readme_citation_url) on a local copy, but there was nothing to
+    re-upload: the file simply didn't exist in the user's configured
+    output_dir, so it silently never changed on Hugging Face Hub either."""
+    from services.hfh_service import copy_prepared_output_files
+
+    build_dir = tmp_path / "build"
+    _write_fake_metadata_json(build_dir)
+    (build_dir / "datapackage.json").write_text("{}", encoding="utf-8")
+    (build_dir / "CITATION.cff").write_text("cff", encoding="utf-8")
+    (build_dir / "checksums-sha256.txt").write_text("sums", encoding="utf-8")
+    (build_dir / "README.md").write_text("# hi", encoding="utf-8")
+    (build_dir / "LICENSE").write_text("license", encoding="utf-8")
+
+    target_dir = tmp_path / "output"
+    copy_prepared_output_files(output_dir=build_dir, target_dir=target_dir)
+
+    names = {p.name for p in target_dir.iterdir()}
+    assert {"CITATION.cff", "checksums-sha256.txt", "README.md"} <= names
+    assert "LICENSE" not in names

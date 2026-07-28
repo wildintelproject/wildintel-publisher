@@ -272,10 +272,12 @@ def sync_doi_to_hfh(
     *, zenodo_output_dir: Path, hfh_output_dir: Path, hfh_repo_id: str, hfh_token: str,
 ) -> dict:
     """Reflects the already-published Zenodo DOI in the HFH export's
-    CITATION.cff/checksums (reusing wildintel_publisher.services.
-    zenodo.sync_doi_to_hfh), and re-uploads just those two changed files to
-    the given HuggingFace Hub repo — the CLI's own 'zenodo sync-doi' stops
-    at the local edit and tells the user to re-run 'hfh upload' themselves.
+    CITATION.cff/README.md/checksums (reusing wildintel_publisher.services.
+    zenodo.sync_doi_to_hfh — which also patches README.md's own "## Citation"
+    section, see common.patch_readme_citation_url), and re-uploads just
+    those changed files to the given HuggingFace Hub repo — the CLI's own
+    'zenodo sync-doi' stops at the local edit and tells the user to re-run
+    'hfh upload' themselves.
 
     Returns:
         {"doi": "...", "repo_url": "https://huggingface.co/datasets/..."}
@@ -287,7 +289,7 @@ def sync_doi_to_hfh(
     """
     doi = zenodo_service.sync_doi_to_hfh(zenodo_output_dir=zenodo_output_dir, hfh_output_dir=hfh_output_dir)
 
-    for filename in ("CITATION.cff", "checksums-sha256.txt"):
+    for filename in ("CITATION.cff", "README.md", "checksums-sha256.txt"):
         file_path = hfh_output_dir / filename
         if not file_path.is_file():
             continue
