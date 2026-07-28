@@ -192,6 +192,13 @@ export default function WizardPage() {
   // it's already confirmed public and a valid Camtrap DP by the same fetch
   // (see WizardPage's suggestedArchiveUrl for the GBIF form).
   const [archiveSourceUrl, setArchiveSourceUrl] = useState<string | null>(null)
+  // Camtrap DP only — rounds deployments.csv's latitude/longitude, once, as
+  // part of generateProductMetadata (a product-level preprocessing step —
+  // see the useEffect below), so every repo that later prepares its own
+  // export from this same download.path inherits the same already-
+  // anonymized coordinates automatically, with no flag of its own.
+  const [anonymizeCoordinates, setAnonymizeCoordinates] = useState(false)
+  const [coordinateDecimals, setCoordinateDecimals] = useState(2)
   const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, error: null })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
@@ -308,6 +315,8 @@ export default function WizardPage() {
     setLocalPath(null)
     setGitUrl(null)
     setArchiveSourceUrl(null)
+    setAnonymizeCoordinates(false)
+    setCoordinateDecimals(2)
     setDownload({ status: 'idle', path: null, error: null })
     setSummary(null)
     setFolderError(null)
@@ -458,8 +467,13 @@ export default function WizardPage() {
     setSummary(null)
     // Idempotent: (re)writes metadata.json from the product's own files, so
     // this works whether or not LocalDirectoryForm already generated it.
-    api.generateProductMetadata(download.path, productType).then(setSummary).catch(() => setSummary(null))
-  }, [download.status, download.path, productType])
+    // anonymizeCoordinates/coordinateDecimals only matter the first time
+    // this runs for a given download.path — rounding already-rounded
+    // coordinates again is a no-op, so a later re-run (e.g. after "Back")
+    // can't un-anonymize them.
+    api.generateProductMetadata(download.path, productType, anonymizeCoordinates, coordinateDecimals)
+      .then(setSummary).catch(() => setSummary(null))
+  }, [download.status, download.path, productType, anonymizeCoordinates, coordinateDecimals])
 
   async function handleOpenFolder() {
     if (!download.path) return
@@ -678,6 +692,47 @@ export default function WizardPage() {
             <div className="mt-8">
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
               <GitCloneForm onSelectionChange={setGitUrl} />
+            </div>
+          )}
+
+          {productType === 'camtrapdp' && sourceType !== null && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={anonymizeCoordinates}
+                  onChange={(e) => setAnonymizeCoordinates(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">Anonymize deployment coordinates</span>
+                  <span className="block text-zinc-500 dark:text-zinc-400">
+                    Rounds every deployment's latitude/longitude before publishing, instead of
+                    publishing the exact camera-trap location — useful for sensitive sites (poaching
+                    risk, protected species, private land). The same rounding is applied wherever
+                    this package is published, so every repository ends up with identical
+                    coordinates.
+                  </span>
+                </span>
+              </label>
+              {anonymizeCoordinates && (
+                <div className="mt-3 ml-7 flex items-center gap-2">
+                  <label htmlFor="coordinate-decimals" className="text-sm text-zinc-600 dark:text-zinc-400">
+                    Decimal places:
+                  </label>
+                  <input
+                    id="coordinate-decimals"
+                    type="number"
+                    min={0}
+                    max={6}
+                    value={coordinateDecimals}
+                    onChange={(e) => setCoordinateDecimals(Number(e.target.value))}
+                    className="w-16 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1 text-sm"
+                  />
+                  <span className="text-sm text-zinc-500 dark:text-zinc-400">(2 ≈ 1.1 km, 1 ≈ 11 km)</span>
+                </div>
+              )}
             </div>
           )}
 

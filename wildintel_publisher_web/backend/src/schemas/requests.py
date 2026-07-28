@@ -67,6 +67,15 @@ class GenerateMetadataRequest(BaseModel):
     # with — "camtrapdp" or "yolo" today (see services.product.get_adapter).
     input_dir: str
     product_type: str
+    # Camtrap DP only — rounds deployments.csv's latitude/longitude to
+    # coordinate_decimals places, in input_dir itself, before metadata is
+    # extracted. A privacy option for sensitive camera-trap locations,
+    # applied once here (a product-level preprocessing step) so every repo
+    # that later prepares its own export from this same input_dir inherits
+    # the same already-anonymized coordinates automatically. See
+    # wildintel_publisher.services.common.anonymize_deployment_coordinates.
+    anonymize_coordinates: bool = False
+    coordinate_decimals: int = 2
 
 
 class UpdateMetadataRequest(BaseModel):

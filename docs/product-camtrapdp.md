@@ -53,6 +53,32 @@ The publishing process filters `media.csv` down to public rows only, and drops a
 observation that referenced a now-removed media file — private media never leaves your
 machine.
 
+### Coordinate anonymization
+
+`deployments.csv`'s `latitude`/`longitude` are exact GPS coordinates by default — fine
+for most datasets, but a real concern for sensitive sites (poaching risk, protected
+species, private land). An optional **anonymize coordinates** setting rounds every
+deployment's coordinates to a fixed number of decimal places (2 by default, ≈ 1.1 km
+at the equator) — deliberately deterministic rather than a random offset, so the same
+deployment ends up with identical rounded coordinates on every repository it's
+published to.
+
+This is a **product-level preprocessing step**, applied once — as part of
+[generating `metadata.json`](publishing-guide.md), right after the raw package is
+obtained, in `--input-dir` itself — rather than something each repository's own
+prepare step decides independently. Every repository that later prepares its own
+export from that same `--input-dir` (directly, or chained from another repository's
+own already-prepared output) inherits the already-anonymized coordinates
+automatically, with nothing extra to pass at that point. In the web app's wizard, the
+option appears once a Camtrap DP source is picked (Step 1); on the CLI, it's
+`--anonymize-coordinates`/`--coordinate-decimals` on `product generate-metadata`. It's
+off by default — coordinates are published exactly as provided unless explicitly
+enabled.
+
+Because it mutates `--input-dir` in place, enabling it against a **Local Directory**
+source rounds the coordinates in that directory's own `deployments.csv` directly —
+there's no separate "raw" copy kept anywhere with the original precision.
+
 ### `filePath` — a one-shot token URL, or already local
 
 `media.csv`'s `filePath`, as delivered by Trapper, is a temporary, one-time-use signed

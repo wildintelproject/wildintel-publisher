@@ -1,7 +1,11 @@
 """Unit tests for services.camtrapdp_adapter.CamtrapDPAdapter's README
-template hook — the rest of the adapter is already exercised end to end by
-the CLI integration tests (test_hfh_cli.py/test_zenodo_cli.py/
-test_b2share_cli.py), which assert on the rendered README's own content."""
+template hook and its anonymize_coordinates method — the rest of the
+adapter is already exercised end to end by the CLI integration tests
+(test_hfh_cli.py/test_zenodo_cli.py/test_b2share_cli.py), which assert on
+the rendered README's own content."""
+import csv
+from pathlib import Path
+
 from wildintel_publisher.services.camtrapdp_adapter import CamtrapDPAdapter
 
 
@@ -9,3 +13,23 @@ def test_readme_context_has_nothing_extra(tmp_path):
     # Camtrap DP's README fragments (templates/*/_readme-format-camtrapdp.md.j2)
     # need nothing beyond the generic context every product type gets.
     assert CamtrapDPAdapter().readme_context(tmp_path) == {}
+
+
+def _write_deployments_csv(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "deployments.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["deploymentID", "latitude", "longitude"])
+        writer.writeheader()
+        writer.writerow({"deploymentID": "d1", "latitude": "41.123456", "longitude": "-3.987654"})
+    return root
+
+
+def test_anonymize_coordinates_rounds_deployments_csv_in_place(tmp_path):
+    input_dir = _write_deployments_csv(tmp_path)
+
+    CamtrapDPAdapter().anonymize_coordinates(input_dir, decimals=2)
+
+    with (input_dir / "deployments.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["latitude"] == "41.12"
+    assert rows[0]["longitude"] == "-3.99"

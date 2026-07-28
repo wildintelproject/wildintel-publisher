@@ -76,6 +76,17 @@ class ProductAdapter(Protocol):
         be prepare_hfh_export's file-copy/media-filter/image-mirror section."""
         ...
 
+    def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
+        """Mutates `input_dir` in place, rounding whatever GPS coordinates
+        this product type has to `decimals` places — a privacy option for
+        sensitive locations, applied once (see generate_metadata_json) as a
+        product-level preprocessing step, before any repo-specific prepare
+        even runs. Only means anything to CamtrapDPAdapter (rounds
+        deployments.csv's latitude/longitude — see
+        common.anonymize_deployment_coordinates); other product types accept
+        and ignore it, having no coordinates of their own."""
+        ...
+
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         """Copies just this product type's own files out of an
         already-prepared output_dir (which also has repo-specific extras —
@@ -248,12 +259,23 @@ def _preserve_foreign_metadata_json(directory: Path) -> None:
     path.rename(destination)
 
 
-def generate_metadata_json(product_type: str, input_dir: Path) -> dict:
+def generate_metadata_json(
+    product_type: str, input_dir: Path, *,
+    anonymize_coordinates: bool = False, coordinate_decimals: int = 2,
+) -> dict:
     """The "before the flow starts" step: validates the raw product, extracts
     whatever generic metadata it can from it, and writes metadata.json into
     input_dir — from here on, every publish step in the pipeline reads/
     carries this file forward instead of re-deriving anything from the
     underlying format.
+
+    If `anonymize_coordinates` is True, also mutates input_dir in place
+    (see ProductAdapter.anonymize_coordinates) before extracting metadata —
+    a product-level preprocessing step, applied exactly once here, so every
+    repo that later prepares its own export from this same input_dir (or
+    from another repo's already-prepared output, chained forward) inherits
+    the same already-anonymized coordinates automatically, with no
+    per-repository flag of its own.
 
     extract_metadata is best-effort: a field it couldn't determine from the
     product comes back as None/[] rather than raising, so the caller should
@@ -269,6 +291,8 @@ def generate_metadata_json(product_type: str, input_dir: Path) -> dict:
     adapter = get_adapter(product_type)
     adapter.validate(input_dir)
     _preserve_foreign_metadata_json(input_dir)
+    if anonymize_coordinates:
+        adapter.anonymize_coordinates(input_dir, decimals=coordinate_decimals)
     metadata = adapter.extract_metadata(input_dir)
     data = {"product_type": product_type, **metadata, "publish_history": []}
     write_metadata_json(input_dir, data)

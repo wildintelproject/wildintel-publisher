@@ -52,6 +52,18 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   — the "All done!" screen's "Sync DOI" section now only shows up as a manual fallback, for
   whenever GBIF was registered standalone (without Hugging Face Hub in the same run) or the
   automatic attempt itself failed.
+- CLI/Web: an opt-in **anonymize coordinates** option for Camtrap DP rounds
+  `deployments.csv`'s `latitude`/`longitude` to a fixed number of decimal places
+  (2 by default, ≈ 1.1 km) — a privacy option for sensitive camera-trap
+  locations (poaching risk, protected species, private land). Deterministic
+  (not a random offset), so the same deployment gets identical rounded
+  coordinates on every repository it's published to. Applied once, as a
+  product-level preprocessing step when `metadata.json` is first generated
+  (`product generate-metadata --anonymize-coordinates --coordinate-decimals`
+  on the CLI; the option appears once a Camtrap DP source is picked, Step 1,
+  in the web wizard) — every repository that later prepares its own export
+  from that same input inherits the already-anonymized coordinates
+  automatically, with nothing extra to configure per repository.
 - CLI/Web: a DOI/PID cross-referenced into a Hugging Face Hub export — whether from the
   same run's `doi_populate` step, or a later `zenodo sync-doi`/`b2share sync-pid`/
   `gbif sync-doi` — now also updates its `README.md`'s own "## Citation" section (which

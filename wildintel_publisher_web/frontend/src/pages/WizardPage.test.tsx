@@ -303,6 +303,60 @@ async function reachPublishStepYolo() {
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
 
+describe('WizardPage coordinate anonymization', () => {
+  it('shows the anonymize-coordinates option once a Camtrap DP source is picked', async () => {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+
+    expect(screen.getByText('Anonymize deployment coordinates')).toBeInTheDocument()
+  })
+
+  it('does not show the anonymize-coordinates option for a YOLO Dataset', async () => {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /yolo dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+
+    expect(screen.queryByText('Anonymize deployment coordinates')).not.toBeInTheDocument()
+  })
+
+  it('does not show the decimal places field until the checkbox is checked', async () => {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+
+    expect(screen.queryByLabelText(/decimal places/i)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('checkbox'))
+
+    expect(screen.getByLabelText(/decimal places/i)).toBeInTheDocument()
+  })
+
+  it('sends the chosen anonymize-coordinates setting to generateProductMetadata, once, as preprocessing', async () => {
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+    await userEvent.click(screen.getByRole('checkbox'))
+    const decimalsInput = screen.getByLabelText(/decimal places/i)
+    await userEvent.clear(decimalsInput)
+    await userEvent.type(decimalsInput, '1')
+
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalledWith(
+      '/data/camtrapdp', 'camtrapdp', true, 1,
+    ))
+  })
+})
+
 describe('WizardPage Camtrap DP archive flow', () => {
   it('fetches the archive and shows the resulting path', async () => {
     render(<WizardPage />)

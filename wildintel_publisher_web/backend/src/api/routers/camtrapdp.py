@@ -24,7 +24,10 @@ def generate_metadata(req: GenerateMetadataRequest) -> dict:
     product is obtained (download finishes, or a local directory is picked),
     before any publish step or /summary call can use it."""
     try:
-        return camtrapdp_service.generate_metadata(req.product_type, Path(req.input_dir))
+        return camtrapdp_service.generate_metadata(
+            req.product_type, Path(req.input_dir),
+            anonymize_coordinates=req.anonymize_coordinates, coordinate_decimals=req.coordinate_decimals,
+        )
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
 

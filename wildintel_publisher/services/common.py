@@ -36,7 +36,13 @@ FILE_PUBLIC_COLUMN = "filePublic"
 MEDIA_ID_COLUMN = "mediaID"
 FILE_PATH_COLUMN = "filePath"
 FILE_NAME_COLUMN = "fileName"
+LATITUDE_COLUMN = "latitude"
+LONGITUDE_COLUMN = "longitude"
 TRUTHY_VALUES = {"true", "1", "yes"}
+
+# ~1.1 km at the equator — coarse enough to obscure the exact deployment
+# point, still regionally useful. See anonymize_deployment_coordinates.
+DEFAULT_COORDINATE_DECIMALS = 2
 
 IMAGES_DIRNAME = "images"
 LOCAL_ZIP_FILENAME = "camtrapdp-local.zip"
@@ -326,6 +332,46 @@ def drop_observations_of_removed_media(output_dir: Path, public_media_ids: set) 
     if removed:
         write_csv(observations_csv, fieldnames, kept_rows)
         console.print(f"  {OBSERVATIONS_CSV_FILENAME}: {removed} non-public media row(s) removed, {len(kept_rows)} remain.")
+
+
+def anonymize_deployment_coordinates(output_dir: Path, *, decimals: int = DEFAULT_COORDINATE_DECIMALS) -> int:
+    """Redondea latitude/longitude en deployments.csv a `decimals`
+    decimales — un difuminado determinista (la misma coordenada da siempre
+    el mismo resultado, a diferencia de un desplazamiento aleatorio), para
+    que Zenodo/B2SHARE/HFH publiquen exactamente las mismas coordenadas
+    difuminadas para un mismo deployment sin importar cuántas veces (o en
+    qué combinación de repos) se prepare.
+
+    No-op si deployments.csv no existe o no tiene esas columnas — nunca
+    lanza, y las filas con latitude/longitude vacías o no numéricas se
+    dejan tal cual.
+
+    Returns:
+        Cuántas filas se han redondeado.
+    """
+    deployments_csv = output_dir / DEPLOYMENTS_CSV_FILENAME
+    if not deployments_csv.is_file():
+        return 0
+
+    fieldnames, rows = read_csv(deployments_csv)
+    if LATITUDE_COLUMN not in fieldnames or LONGITUDE_COLUMN not in fieldnames:
+        return 0
+
+    rounded = 0
+    for row in rows:
+        try:
+            latitude = float(row[LATITUDE_COLUMN])
+            longitude = float(row[LONGITUDE_COLUMN])
+        except (KeyError, TypeError, ValueError):
+            continue
+        row[LATITUDE_COLUMN] = str(round(latitude, decimals))
+        row[LONGITUDE_COLUMN] = str(round(longitude, decimals))
+        rounded += 1
+
+    if rounded:
+        write_csv(deployments_csv, fieldnames, rows)
+        console.print(f"  {DEPLOYMENTS_CSV_FILENAME}: {rounded} deployment(s) coordinates rounded to {decimals} decimal(s).")
+    return rounded
 
 
 def format_apa_author(author: dict) -> str:

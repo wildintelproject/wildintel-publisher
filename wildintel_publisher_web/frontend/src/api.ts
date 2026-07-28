@@ -79,8 +79,14 @@ export const api = {
       `/api/camtrapdp/fetch-archive/${taskId}`,
     ),
 
-  generateProductMetadata: (inputDir: string, productType: string) =>
-    post<DatapackageSummary>('/api/camtrapdp/generate-metadata', { input_dir: inputDir, product_type: productType }),
+  // anonymizeCoordinates/coordinateDecimals (Camtrap DP only) round
+  // deployments.csv's latitude/longitude in inputDir itself, once, here —
+  // see WizardPage's anonymizeCoordinates/coordinateDecimals state.
+  generateProductMetadata: (inputDir: string, productType: string, anonymizeCoordinates = false, coordinateDecimals = 2) =>
+    post<DatapackageSummary>('/api/camtrapdp/generate-metadata', {
+      input_dir: inputDir, product_type: productType,
+      anonymize_coordinates: anonymizeCoordinates, coordinate_decimals: coordinateDecimals,
+    }),
 
   completeProductMetadata: (inputDir: string, updates: Partial<Omit<DatapackageSummary, 'product_type' | 'hfh_repo_id'>>) =>
     post<DatapackageSummary>('/api/camtrapdp/complete-metadata', { input_dir: inputDir, ...updates }),

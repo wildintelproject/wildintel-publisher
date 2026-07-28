@@ -27,11 +27,19 @@ def datapackage_path(output_dir: Path) -> Path:
     return output_dir / DATAPACKAGE_FILENAME
 
 
-def generate_metadata(product_type: str, input_dir: Path) -> dict:
+def generate_metadata(
+    product_type: str, input_dir: Path, *,
+    anonymize_coordinates: bool = False, coordinate_decimals: int = 2,
+) -> dict:
     """The "before the flow starts" step (see product.generate_metadata_json)
     — validates the raw product and best-effort extracts its metadata into
     metadata.json, so every publish step from here on can read it instead of
     re-deriving anything from the underlying format.
+
+    anonymize_coordinates/coordinate_decimals (Camtrap DP only) round
+    deployments.csv's latitude/longitude in input_dir itself, once, here —
+    a product-level preprocessing step every later repo-specific prepare
+    step inherits automatically, with no flag of its own.
 
     The caller should check product.missing_required_fields() on the
     result — if it's non-empty, the product itself didn't provide
@@ -42,7 +50,10 @@ def generate_metadata(product_type: str, input_dir: Path) -> dict:
         RuntimeError: if the product itself doesn't validate (see
         ProductAdapter.validate) — unrelated to individual fields missing.
     """
-    return product.generate_metadata_json(product_type, input_dir)
+    return product.generate_metadata_json(
+        product_type, input_dir,
+        anonymize_coordinates=anonymize_coordinates, coordinate_decimals=coordinate_decimals,
+    )
 
 
 def update_metadata(input_dir: Path, updates: dict) -> dict:

@@ -37,3 +37,32 @@ def test_generate_metadata_does_not_crash_when_license_is_missing(tmp_path):
     assert "license" in result.output
     assert "title" in result.output
     assert "authors" in result.output
+
+
+def test_generate_metadata_anonymizes_coordinates_when_requested(camtrapdp_dir):
+    input_dir = camtrapdp_dir("trapper_out")
+    with (input_dir / "deployments.csv").open("w", newline="", encoding="utf-8") as f:
+        f.write("deploymentID,latitude,longitude\nd1,41.123456,-3.987654\n")
+
+    result = runner.invoke(app, [
+        "product", "generate-metadata", "--input-dir", str(input_dir), "--product-type", "camtrapdp",
+        "--anonymize-coordinates", "--coordinate-decimals", "1",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert (input_dir / "deployments.csv").read_text(encoding="utf-8") == (
+        "deploymentID,latitude,longitude\nd1,41.1,-4.0\n"
+    )
+
+
+def test_generate_metadata_leaves_coordinates_untouched_by_default(camtrapdp_dir):
+    input_dir = camtrapdp_dir("trapper_out")
+    with (input_dir / "deployments.csv").open("w", newline="", encoding="utf-8") as f:
+        f.write("deploymentID,latitude,longitude\nd1,41.123456,-3.987654\n")
+
+    result = runner.invoke(app, [
+        "product", "generate-metadata", "--input-dir", str(input_dir), "--product-type", "camtrapdp",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert "41.123456" in (input_dir / "deployments.csv").read_text(encoding="utf-8")

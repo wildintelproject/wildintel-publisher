@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from wildintel_publisher.services import common
 from wildintel_publisher.services import product as product_service
 
 console = Console()
@@ -23,12 +24,29 @@ def generate_metadata(
         ..., "--product-type",
         help=f"One of: {', '.join(product_service.registered_product_types())}.",
     ),
+    anonymize_coordinates: bool = typer.Option(
+        False, "--anonymize-coordinates/--no-anonymize-coordinates",
+        help=(
+            "Rounds deployments.csv's latitude/longitude to --coordinate-decimals places, in "
+            "--input-dir itself (Camtrap DP only) — a privacy option for sensitive camera-trap "
+            "locations. Applied once here, so every repo that later prepares its own export from "
+            "this same --input-dir (directly, or chained from another repo's own output) inherits "
+            "the same already-anonymized coordinates automatically."
+        ),
+    ),
+    coordinate_decimals: int = typer.Option(
+        common.DEFAULT_COORDINATE_DECIMALS, "--coordinate-decimals",
+        help="Decimal places to round to when --anonymize-coordinates is set (2 ≈ 1.1 km).",
+    ),
 ) -> None:
     """Validates the product and writes metadata.json into --input-dir —
     required once, before 'hfh prepare'/'zenodo prepare'/'b2share prepare'
     can use --input-dir."""
     try:
-        metadata = product_service.generate_metadata_json(product_type, Path(input_dir))
+        metadata = product_service.generate_metadata_json(
+            product_type, Path(input_dir),
+            anonymize_coordinates=anonymize_coordinates, coordinate_decimals=coordinate_decimals,
+        )
     except Exception as exc:
         logging.error("Could not generate metadata.json: %s", exc)
         raise typer.Exit(1) from exc

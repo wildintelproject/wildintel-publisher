@@ -56,6 +56,9 @@ class CamtrapDPAdapter:
         if mirror:
             common.download_public_images(output_dir, input_dir=input_dir, timeout=image_timeout)
 
+    def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
+        common.anonymize_deployment_coordinates(input_dir, decimals=decimals)
+
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
         if (output_dir / common.DATAPACKAGE_FILENAME).is_file():

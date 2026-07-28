@@ -47,6 +47,49 @@ def test_generate_metadata_writes_the_file(tmp_path):
     assert (tmp_path / "metadata.json").is_file()
 
 
+def test_generate_metadata_anonymizes_coordinates_when_requested(tmp_path):
+    _write_datapackage(
+        tmp_path,
+        title="My Camtrap DP", description="A test package.", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+    (tmp_path / "deployments.csv").write_text(
+        "deploymentID,latitude,longitude\nd1,41.123456,-3.987654\n", encoding="utf-8",
+    )
+
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        response = _client().post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp",
+            "anonymize_coordinates": True, "coordinate_decimals": 1,
+        })
+
+    assert response.status_code == 200
+    assert (tmp_path / "deployments.csv").read_text(encoding="utf-8") == (
+        "deploymentID,latitude,longitude\nd1,41.1,-4.0\n"
+    )
+
+
+def test_generate_metadata_leaves_coordinates_untouched_by_default(tmp_path):
+    _write_datapackage(
+        tmp_path,
+        title="My Camtrap DP", description="A test package.", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+    (tmp_path / "deployments.csv").write_text(
+        "deploymentID,latitude,longitude\nd1,41.123456,-3.987654\n", encoding="utf-8",
+    )
+
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        response = _client().post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp",
+        })
+
+    assert response.status_code == 200
+    assert "41.123456" in (tmp_path / "deployments.csv").read_text(encoding="utf-8")
+
+
 def test_generate_metadata_reports_400_when_validation_fails(tmp_path):
     tmp_path.mkdir(parents=True, exist_ok=True)  # no datapackage.json at all
     response = _client().post("/api/camtrapdp/generate-metadata", json={

@@ -166,6 +166,9 @@ class YoloAdapter:
         else:
             _load_data_yaml(output_dir)  # at least confirm the copy is valid YAML
 
+    def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
+        pass  # a YOLO dataset has no GPS coordinates of its own
+
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
         data_yaml_source = _data_yaml_path(output_dir)
