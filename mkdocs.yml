@@ -133,16 +133,17 @@ nav:
       - GBIF: publishing-gbif.md
   - Features: features.md
   - Developer Guide: developer-guide.md
-  - CLI User Guide: guide-cli.md
-  - Web App User Guide:
-      - Overview: guide-web.md
-      - Products:
-          - Camtrap DP: guide-web-camtrapdp.md
-          - YOLO Dataset: guide-web-yolo.md
-          - Software Application: guide-web-software.md
-      - Config:
-          - Hugging Face Hub: guide-web-hfh.md
-          - Zenodo: guide-web-zenodo.md
-          - B2SHARE: guide-web-b2share.md
-          - GBIF: guide-web-gbif.md
+  - User Guide:
+      - CLI Guide: guide-cli.md
+      - Web Guide:
+          - Overview: guide-web.md
+          - Products:
+              - Camtrap DP: guide-web-camtrapdp.md
+              - YOLO Dataset: guide-web-yolo.md
+              - Software Application: guide-web-software.md
+          - Config:
+              - Hugging Face Hub: guide-web-hfh.md
+              - Zenodo: guide-web-zenodo.md
+              - B2SHARE: guide-web-b2share.md
+              - GBIF: guide-web-gbif.md
   - About: about.md

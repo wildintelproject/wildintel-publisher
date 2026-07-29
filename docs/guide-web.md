@@ -1,10 +1,11 @@
 # Web App User Guide
 
-A step-by-step walkthrough of publishing each product type to every repository using the
-web app's wizard — screen by screen, with no commands involved. See the [Publishing
-Guide](publishing-guide.md) for the concepts referenced along the way (media modes,
-locking, the generic pipeline), and each repository's own "What can I publish here?" page
-for exactly what ends up stored.
+`wildintel-publisher` provides a web app that installs on your computer to make the
+publishing process easier — a step-by-step wizard that walks through publishing each
+product type to every repository, screen by screen, with no commands involved. See the
+[Publishing Guide](publishing-guide.md) for the concepts referenced along the way (media
+modes, locking, the generic pipeline), and each repository's own "What can I publish
+here?" page for exactly what ends up stored.
 
 For the same walkthrough using the command line instead, see the
 [CLI User Guide](guide-cli.md).
