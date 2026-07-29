@@ -836,11 +836,18 @@ def write_remote_zip(output_dir: Path, *, zip_filename: str = REMOTE_ZIP_FILENAM
     in isolation by an external crawler). "Remote" as opposed to "local":
     media.csv here keeps whatever REMOTE URLs it already had, unmodified.
 
-    Must be called AFTER a mirror-mode upload_to_huggingface has already
-    rewritten media.csv's filePath to real, permanent Hugging Face Hub URLs
-    for each image (see product.ProductAdapter.link_media_to_hfh) — those
-    URLs travel with the package completely unmodified, so GBIF can resolve
-    every image directly without needing them embedded in the zip too.
+    Called by hfh.upload_to_huggingface for every Camtrap DP publish,
+    mirror or link mode alike. In mirror mode it runs AFTER media.csv's own
+    filePath has already been rewritten to real, permanent Hugging Face Hub
+    URLs (see product.ProductAdapter.link_media_to_hfh) — those URLs travel
+    with the package completely unmodified, so GBIF can resolve every image
+    directly without needing them embedded in the zip too. In link mode,
+    filePath is left exactly as prepare_hfh_export produced it (whatever the
+    original source gave it), since no rewrite ever happens there — the zip
+    itself (the file GBIF's --archive-url points at) is equally permanent
+    either way, once uploaded to Hugging Face Hub; only whether each
+    individual filePath entry stays resolvable afterwards depends on mode/
+    source, a separate, lesser concern from the archive itself existing.
 
     The four files are nested inside a single top-level folder (named after
     the zip itself) rather than sitting at the zip's own root — GBIF's own

@@ -264,10 +264,13 @@ def test_hfh_upload_writes_a_gbif_archive_with_real_media_urls(camtrapdp_dir, tm
     assert local_rows[0]["filePath"] == "images/m1.jpg"
 
 
-def test_hfh_upload_link_mode_writes_no_gbif_archive(camtrapdp_dir, tmp_path):
+def test_hfh_upload_link_mode_still_writes_gbif_archive_with_original_filepath(camtrapdp_dir, tmp_path):
     """Link mode never hosts media on this HFH repo (see
-    test_hfh_upload_link_mode_does_not_touch_media_csv) — there's no real
-    URL to package for GBIF, so camtrapdp-remote.zip isn't generated at all."""
+    test_hfh_upload_link_mode_does_not_touch_media_csv), but the zip itself —
+    the file GBIF's --archive-url points at — is just as permanent on HFH in
+    link mode as in mirror mode, so it's generated either way; only its
+    internal filePath entries differ (left untouched here, instead of
+    rewritten to real HFH URLs)."""
     output_dir = _prepared_export(camtrapdp_dir, tmp_path, link_images=True)
 
     fake_response = httpx.Response(404, request=httpx.Request("GET", "https://huggingface.co"))
@@ -283,7 +286,12 @@ def test_hfh_upload_link_mode_writes_no_gbif_archive(camtrapdp_dir, tmp_path):
         ], env={"HF_TOKEN": "hf_faketoken"})
 
     assert result.exit_code == 0, result.output
-    assert not (output_dir / "camtrapdp-remote.zip").exists()
+    assert (output_dir / "camtrapdp-remote.zip").is_file()
+
+    with zipfile.ZipFile(output_dir / "camtrapdp-remote.zip") as zf:
+        with zf.open("camtrapdp-remote/media.csv") as f:
+            rows = list(csv.DictReader(io.TextIOWrapper(f, encoding="utf-8")))
+    assert rows[0]["filePath"] == "https://trapper.example/m1.jpg?rt=tok1"  # untouched, same as media.csv itself
 
 
 def test_hfh_upload_link_mode_does_not_touch_media_csv(camtrapdp_dir, tmp_path):

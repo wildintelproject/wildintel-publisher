@@ -24,14 +24,26 @@ official schema on the way in — the same URL is then reusable as-is for
 
 ![Choosing where the package comes from](img/web/source-selection.png)
 
+Once a source is picked, two optional preprocessing settings appear below it — both off
+by default, applied once (right as the package's common description is generated), and
+safe to leave unchecked if neither concern applies to your dataset:
+
+- **Anonymize deployment coordinates** — rounds every deployment's latitude/longitude
+  before publishing, useful for sensitive sites (poaching risk, protected species,
+  private land).
+- **Randomize media IDs** — replaces every `mediaID` that isn't already a UUID with a
+  freshly generated one, keeping `media.csv`/`observations.csv` in sync — guards against
+  leaking the original export's own numbering convention, and keeps ids collision-free if
+  this data is later merged elsewhere.
+
+![Anonymize coordinates and randomize media IDs](img/web/camtrapdp-privacy-options.png)
+
 ## 3. Confirm the package and its description
 
 Once the package is ready (downloaded, or already local), the wizard shows where it
 lives. If its common description is missing something required (title, description,
 version, license, authors), a form prompts for exactly what's missing; once complete, a
 summary card shows the title, version, license, authors, and homepage.
-
-![Confirming the package's description](img/web/confirm-package.png)
 
 ![Confirming the package's description](img/web/confirm-package.png)
 
@@ -45,11 +57,12 @@ Face Hub is optional alongside it.
 If both are selected, Hugging Face Hub always publishes first — this isn't a choice you
 make (there's no manual reordering for this pair): GBIF's own configuration form depends
 on knowing what Hugging Face Hub already did. Its **Archive URL** field auto-fills and
-locks to Hugging Face Hub's own `camtrapdp-remote.zip`, but only when Hugging Face Hub is
-configured to publish in **Mirror** mode — that file is never generated in **Link** mode,
-so in that case (or when GBIF is the only one selected) the field is left unlocked
-instead, with a note that you need to provide a separate, already-public archive URL by
-hand (see [GBIF](guide-web-gbif.md)).
+locks to Hugging Face Hub's own `camtrapdp-remote.zip` — generated regardless of whether
+Hugging Face Hub publishes in **Mirror** or **Link** mode (see
+[Publishing to Hugging Face Hub](publishing-hfh-camtrapdp.md)). Only when GBIF is the
+only one selected is the field left unlocked instead, with a note that you need to
+provide a separate, already-public archive URL by hand (see
+[GBIF](guide-web-gbif.md)).
 
 ![Choosing repositories and publish order](img/web/repo-selection.png)
 
@@ -57,42 +70,33 @@ hand (see [GBIF](guide-web-gbif.md)).
 
 The wizard walks through your selected repositories one at a time, each with its own
 configuration form — see that repository's own page for the full form, field-by-field,
-with a screenshot: [Hugging Face Hub](guide-web-hfh.md), [Zenodo](guide-web-zenodo.md),
-[B2SHARE](guide-web-b2share.md), [GBIF](guide-web-gbif.md).
+with a screenshot: [Hugging Face Hub](guide-web-hfh.md), [GBIF](guide-web-gbif.md).
 
-## 6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)
+## 6. Confirm and publish
 
-If Hugging Face Hub, Zenodo, and B2SHARE are all selected together, you're asked which
-of Zenodo's or B2SHARE's DOI should be treated as *primary* in Hugging Face Hub's own
-citation file — Hugging Face Hub never has a DOI of its own, so this only comes up when
-there's more than one candidate to choose from.
+Once every selected repository is configured, a final summary screen appears, confirming
+nothing has actually been published yet. If you checked **Dry run** back in step 4,
+that's called out here too — the button reads **Start dry run now** instead of
+**Publish**, and simulates the whole flow without uploading or creating anything on
+Hugging Face Hub or GBIF (no token/credentials needed in this mode).
 
-![Choosing the primary DOI](img/web/primary-doi-choice.png)
+![Ready to publish](img/web/ready-to-publish.png)
 
-## 7. Confirm and publish
+**Publish** runs the whole sequence on its own: uploading
+to Hugging Face Hub (if selected) and registering the package with GBIF, syncing GBIF's
+DOI (if one was minted) into Hugging Face Hub's citation file, then locking Hugging Face
+Hub — with a single live progress view showing every repository's status as it goes.
+GBIF has no upload/lock of its own to speak of — it's registered with a single Registry
+API call during this same automated sequence, using the archive URL entered in step 5
+(see [Publishing to GBIF](publishing-gbif.md#2-main-characteristics)).
 
-After a final summary screen, **Publish** runs the whole sequence on its own: uploading
-to every selected repository, cross-referencing whatever DOIs Zenodo/B2SHARE obtained
-into each other's (and Hugging Face Hub's) citation file, then locking each repository —
-with a single live progress view showing every repository's status as it goes. GBIF has
-no upload/lock of its own to speak of — it's registered with a single Registry API call
-during this same automated sequence, using the archive URL from step 5 (see [Publishing
-to GBIF](publishing-gbif.md#2-main-characteristics)).
-
-## 8. When it's done
+## 7. When it's done
 
 ![All repositories published](img/web/all-done.png)
 
 The wizard confirms which repositories were published, but doesn't print each one's
-resulting URL/DOI/PID directly on this screen — check the repository itself, or the
-record file its own output directory holds (`zenodo_record.json`,
-`b2share_record.json`, `gbif_linked_dataset_record.json`). If Zenodo and/or B2SHARE were
-published, you can also use the **Sync DOI**/**Sync PID** sections shown here — besides
-reflecting the DOI/PID into an already-published Hugging Face Hub export, they confirm
-success with a direct link back to it (see [Zenodo](guide-web-zenodo.md#sync-doi-to-hugging-face-hub)/
-[B2SHARE](guide-web-b2share.md#sync-piddoi-to-hugging-face-hub)). If B2SHARE is still
-pending moderator review, that's shown too — its final PID/DOI won't be known until a
-moderator approves the submission, which happens outside this wizard run.
+resulting URL/DOI directly on this screen — check the repository itself, or the record
+file its own output directory holds (`gbif_linked_dataset_record.json`).
 
 If GBIF was published alongside Hugging Face Hub in the same run and came back with a
 DOI, it's already synced into Hugging Face Hub's `CITATION.cff` automatically — this

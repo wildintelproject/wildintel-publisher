@@ -22,18 +22,21 @@ you to fill in the following fields:
   `datapackage.json` downloads fine but then fails to decompress, silently, with nothing
   ever crawled; `camtrapdp-local.zip` *is* a real zip, but its `media.csv` uses paths
   relative to a sibling `images/` folder, meaningless once GBIF extracts it in isolation.
-  `camtrapdp-remote.zip` is built specifically for this — its `media.csv` already points at
-  real Hugging Face Hub URLs, but it's only ever generated when Hugging Face Hub publishes
-  in **Mirror** mode (never in Link mode). Two cases:
-    - **Hugging Face Hub is also selected, publishing in Mirror mode**: this field is
-      pre-filled *and locked* (read-only) to
+  `camtrapdp-remote.zip` is built specifically for this, and generated regardless of
+  whether Hugging Face Hub publishes in **Mirror** or **Link** mode — its `media.csv`
+  points at real Hugging Face Hub URLs in Mirror mode, or whatever the original source
+  gave it in Link mode (see [Publishing to Hugging Face
+  Hub](publishing-hfh-camtrapdp.md)); either way, the zip itself lives at a permanent
+  Hugging Face Hub URL. Two cases:
+    - **Hugging Face Hub is also selected**: this field is pre-filled *and locked*
+      (read-only) to
       `https://huggingface.co/datasets/<repo>/resolve/main/camtrapdp-remote.zip`, derived
       from what you typed into the Hugging Face Hub form — there's no other valid value
       once both are selected together, so it can't be edited.
-    - **Otherwise** (no Hugging Face Hub in this run, or it's publishing in Link mode):
-      the field is empty and editable — type in the URL of a separate, already-public
-      Camtrap DP archive yourself (e.g. hosted outside this tool, or from an earlier
-      publish). Use **Validate archive** to check upfront that the URL really is a zip
+    - **Otherwise** (no Hugging Face Hub in this run at all): the field is empty and
+      editable — type in the URL of a separate, already-public Camtrap DP archive
+      yourself (e.g. hosted outside this tool, or from an earlier publish). Use
+      **Validate archive** to check upfront that the URL really is a zip
       containing a valid Camtrap DP, before registering it with GBIF.
 - **Environment** — **Sandbox** (`gbif-test.org`, testing — its own separate account) or
   **Production** (`gbif.org`).
@@ -55,11 +58,14 @@ you to fill in the following fields:
 
 GBIF has no separate locking step — every registration (create or update) is immediately
 live, so re-running it later (e.g. after publishing a new version elsewhere) is always
-safe; it replaces the dataset's endpoint in place rather than creating a duplicate. There
-is no "Sync" section for GBIF — `wildintel-publisher` never requests a DOI/PID from it,
-and doesn't cross-reference one back into HFH's citation the way it does for Zenodo/
-B2SHARE. (Some organizations have their own DataCite arrangement with GBIF that makes it
-auto-assign a DOI on registration anyway — that's entirely GBIF/organization-side, not
-something this tool controls or can predict.) See step 8 of the
-[walkthrough](guide-web-camtrapdp.md#8-when-its-done) for where its registration shows up
-once publishing finishes.
+safe; it replaces the dataset's endpoint in place rather than creating a duplicate.
+
+GBIF never *requests* a DOI on your behalf, but some organizations have their own
+DataCite arrangement with GBIF that makes it auto-assign one on registration anyway
+(entirely GBIF/organization-side, not something this tool controls or can predict). When
+that happens, and Hugging Face Hub was published in the same run, its DOI is
+automatically synced into Hugging Face Hub's `CITATION.cff` — no extra step needed. A
+**Sync DOI** section only appears as a manual fallback for whenever GBIF was registered
+standalone (without Hugging Face Hub in the same run). See the "When it's done" step of
+the [walkthrough](guide-web-camtrapdp.md#7-when-its-done) for where this shows up once
+publishing finishes.

@@ -88,6 +88,18 @@ username/password (`GBIF_USERNAME`/`GBIF_PASSWORD`).
     only repository in this project where re-publishing a corrected URL later is
     completely safe by design.
 
+!!! note "DOI — only if your organization has its own DataCite arrangement"
+    GBIF never *requests* a DOI on your behalf — but some organizations have their own
+    DataCite arrangement configured with GBIF, which makes it auto-mint one on
+    registration anyway (entirely GBIF/organization-side, not something this tool
+    controls or can predict). `gbif register` fetches and stores it locally
+    (`gbif_linked_dataset_record.json`) whenever one comes back. `gbif sync-doi`
+    reflects it into an already-published Hugging Face Hub export's `CITATION.cff`,
+    same as `zenodo sync-doi`/`b2share sync-pid` — when the web wizard publishes Hugging
+    Face Hub and GBIF together in the same run, this happens automatically; the web
+    wizard's own **Sync DOI** section is only a manual fallback for whenever GBIF was
+    registered standalone (without Hugging Face Hub in the same run).
+
 !!! note "Mandatory in the web wizard"
     The CLI's own `gbif register` is entirely opt-in, like every other repository
     command. The web wizard, however, makes GBIF **mandatory** for Camtrap DP —

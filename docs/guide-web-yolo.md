@@ -84,5 +84,5 @@ Face Hub export, they confirm success with a direct link back to it (see
 pending moderator review, that's shown too — its final PID/DOI won't be known until a
 moderator approves the submission, which happens outside this wizard run.
 
-This screen looks the same as [Camtrap DP's](guide-web-camtrapdp.md#8-when-its-done),
+This screen looks the same as [Camtrap DP's](guide-web-camtrapdp.md#7-when-its-done),
 minus the GBIF entry in the "Published to" list.

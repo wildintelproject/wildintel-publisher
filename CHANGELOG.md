@@ -221,6 +221,15 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   other valid value once both are picked together. When GBIF is selected on its own, its
   form now explains that the locally fetched copy (from "Where is it located?") was only
   used for metadata, and the Archive URL must point to a separate, already-public copy.
+- CLI/Web: `camtrapdp-remote.zip` is now generated (and uploaded) for every Hugging Face
+  Hub publish of a Camtrap DP package, in both **Mirror** and **Link** mode — previously
+  only Mirror mode produced it, so GBIF's Archive URL only auto-filled/locked in that
+  case. The zip file itself lives at a permanent Hugging Face Hub URL regardless of mode;
+  only its own `media.csv`'s `filePath` entries differ (real Hugging Face Hub URLs in
+  Mirror, whatever the original source gave it in Link) — a separate, lesser concern from
+  the archive itself existing and being fetchable by GBIF's crawler. The wizard's own
+  Archive URL auto-fill/lock now applies whenever Hugging Face Hub is selected at all, no
+  longer conditional on its publishing mode.
 
 ## Released
 

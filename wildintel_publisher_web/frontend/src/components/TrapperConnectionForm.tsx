@@ -355,6 +355,16 @@ export default function TrapperConnectionForm({ onSelectionChange }: Props) {
               </span>
             </span>
           </label>
+
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-4">
+            Trapper's own defaults are used for every other export option, not yet configurable
+            here: <span className="font-mono">approved_only=true</span>,{' '}
+            <span className="font-mono">exclude_blank=false</span>,{' '}
+            <span className="font-mono">trapper_url_token=true</span>,{' '}
+            <span className="font-mono">release=false</span>,{' '}
+            <span className="font-mono">private_human=true</span>,{' '}
+            <span className="font-mono">private_vehicle=true</span>.
+          </p>
         </>
       )}
     </div>

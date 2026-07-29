@@ -257,6 +257,16 @@ def upload_to_huggingface(
     `prepare_hfh_export`, porque la media no vive realmente en este repo de
     HFH.
 
+    Para Camtrap DP, `camtrapdp-remote.zip` (ver common.write_remote_zip) se
+    genera y sube siempre, en ambos modos — media.csv dentro del zip lleva
+    lo que ya tuviera filePath en ese momento (URLs reales de HFH en modo
+    mirror, o la referencia original — el token de un solo uso de Trapper, o
+    lo que sea — en modo link). El zip en sí (el fichero que GBIF descarga)
+    queda alojado de forma permanente en este repo de HFH en cualquiera de
+    los dos modos; que sus entradas de filePath internas sigan siendo
+    resolubles más adelante depende únicamente del modo/origen, no de si el
+    zip mismo existe.
+
     Returns:
         La URL del repositorio en HuggingFace Hub.
 
@@ -300,13 +310,20 @@ def upload_to_huggingface(
         rewritten = adapter.link_media_to_hfh(output_dir, repo_id)
         console.print(f"  {rewritten} media reference(s) now pointing to HuggingFace Hub.")
         product.write_homepage(output_dir, f"https://huggingface.co/datasets/{repo_id}")
-        if adapter.product_type == product.CAMTRAPDP:
-            # A separate archive from camtrapdp-local.zip's own (see
-            # prepare_hfh_export) — this one is built only NOW, after
-            # link_media_to_hfh has already rewritten media.csv's filePath
-            # to real HFH URLs, so it's meant for GBIF's --archive-url (see
-            # common.write_remote_zip/services.gbif), not local/offline use.
-            common.write_remote_zip(output_dir)
+
+    if adapter.product_type == product.CAMTRAPDP:
+        # Generated in both modes — write_remote_zip packs media.csv AS-IS
+        # (see its own docstring), so in mirror mode this is built AFTER
+        # link_media_to_hfh has already rewritten filePath to real HFH URLs
+        # above; in link mode, filePath is left exactly as prepare_hfh_export
+        # produced it (whatever the original source gave it — a Trapper
+        # one-shot token URL, a local path, or an already-public URL, if the
+        # source itself was a Public URL). Either way, the zip's own HFH URL
+        # (where GBIF's --archive-url points) is permanent regardless of
+        # mode — only its INTERNAL filePath entries' resolvability depends on
+        # mirror/source, a separate, lesser concern than the archive itself
+        # existing and being fetchable/decompressible.
+        common.write_remote_zip(output_dir)
 
     common.write_checksums(output_dir)
 

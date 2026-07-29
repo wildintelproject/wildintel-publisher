@@ -87,7 +87,7 @@ file its own output directory holds (`zenodo_record.json`, `b2share_record.json`
 B2SHARE is still pending moderator review, that's shown too — its final PID/DOI won't be
 known until a moderator approves the submission, which happens outside this wizard run.
 
-This screen looks the same as [Camtrap DP's](guide-web-camtrapdp.md#8-when-its-done),
+This screen looks the same as [Camtrap DP's](guide-web-camtrapdp.md#7-when-its-done),
 minus the Hugging Face Hub/GBIF entries in the "Published to" list (and, since there's no
 Hugging Face Hub export to cross-reference into, no "Sync DOI"/"Sync PID" section either
 — those only appear for a product type that also publishes there).
