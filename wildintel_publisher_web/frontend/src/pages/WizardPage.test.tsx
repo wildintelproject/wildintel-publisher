@@ -468,6 +468,32 @@ async function reachPublishStepSoftware() {
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
 
+describe('WizardPage metadata errors', () => {
+  it('shows the error and keeps Next disabled when generateProductMetadata fails (e.g. a git clone with no CITATION.cff)', async () => {
+    mockedApi.generateProductMetadata.mockRejectedValue(
+      new Error('/repo has no CITATION.cff — a software application product must provide one at its repository root.'),
+    )
+    mockedApi.softwareCloneStart.mockResolvedValue({ task_id: 'clone-task-1' })
+    mockedApi.softwareCloneStatus.mockResolvedValue({
+      status: 'done', path: '/home/user/Documents/wildintel-publisher/software/repo', error: null,
+    })
+    render(<WizardPage />)
+
+    await userEvent.click(screen.getByRole('button', { name: /software application/i }))
+    await userEvent.click(screen.getByRole('button', { name: /git repository/i }))
+    await userEvent.type(screen.getByLabelText(/git repository url/i), 'https://github.com/user/repo.git')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    expect(await screen.findByText(/has no CITATION\.cff/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled()
+  })
+})
+
 describe('WizardPage publish step', () => {
   it('advances from the download result to the publish step', async () => {
     render(<WizardPage />)

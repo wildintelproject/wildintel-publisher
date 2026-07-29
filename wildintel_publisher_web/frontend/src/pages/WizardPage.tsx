@@ -206,6 +206,11 @@ export default function WizardPage() {
   const [randomizeMediaIds, setRandomizeMediaIds] = useState(false)
   const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, error: null })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
+  // Set whenever generateProductMetadata itself fails (e.g. a Software
+  // Application git clone with no CITATION.cff at its root — see
+  // ProductAdapter.validate) — without this, summary just stays null and
+  // Next stays silently, permanently disabled, with no indication why.
+  const [metadataError, setMetadataError] = useState<string | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
   const [selectedRepos, setSelectedRepos] = useState<Set<RepoId>>(new Set())
   // The order in which the selected repos will be published — determines
@@ -325,6 +330,7 @@ export default function WizardPage() {
     setRandomizeMediaIds(false)
     setDownload({ status: 'idle', path: null, error: null })
     setSummary(null)
+    setMetadataError(null)
     setFolderError(null)
     setSelectedRepos(new Set())
     setPublishOrder([])
@@ -471,6 +477,7 @@ export default function WizardPage() {
   useEffect(() => {
     if (download.status !== 'done' || !download.path || !productType) return
     setSummary(null)
+    setMetadataError(null)
     // Idempotent: (re)writes metadata.json from the product's own files, so
     // this works whether or not LocalDirectoryForm already generated it.
     // anonymizeCoordinates/coordinateDecimals and randomizeMediaIds only
@@ -479,7 +486,11 @@ export default function WizardPage() {
     // UUID, are both no-ops, so a later re-run (e.g. after "Back") can't
     // undo them.
     api.generateProductMetadata(download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds)
-      .then(setSummary).catch(() => setSummary(null))
+      .then(setSummary)
+      .catch((e) => {
+        setSummary(null)
+        setMetadataError(e instanceof Error ? e.message : 'Could not read this package.')
+      })
   }, [download.status, download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds])
 
   async function handleOpenFolder() {
@@ -792,6 +803,10 @@ export default function WizardPage() {
             </button>
             {folderError && <p className="text-sm text-red-600 dark:text-red-400">{folderError}</p>}
           </div>
+
+          {metadataError && (
+            <p className="mt-6 text-sm text-red-600 dark:text-red-400">{metadataError}</p>
+          )}
 
           {summary && !metadataComplete && (
             <CompleteMetadataForm
