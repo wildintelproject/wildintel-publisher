@@ -56,12 +56,13 @@ Face Hub is optional alongside it.
 
 If both are selected, Hugging Face Hub always publishes first — this isn't a choice you
 make (there's no manual reordering for this pair): GBIF's own configuration form depends
-on knowing what Hugging Face Hub already did. Its **Archive URL** field auto-fills and
-locks to Hugging Face Hub's own `camtrapdp-remote.zip` — generated regardless of whether
-Hugging Face Hub publishes in **Mirror** or **Link** mode (see
-[Publishing to Hugging Face Hub](publishing-hfh-camtrapdp.md)). Only when GBIF is the
-only one selected is the field left unlocked instead, with a note that you need to
-provide a separate, already-public archive URL by hand (see
+on knowing what Hugging Face Hub already did. **Archive URL** is the public URL of the
+zip GBIF will download and crawl to build the dataset. This field auto-fills and locks to
+Hugging Face Hub's own copy of it: if Hugging Face Hub was configured as **Mirror**, the
+images inside point to Hugging Face Hub itself; if configured as **Link**, they point
+back to the original repository instead. Only when GBIF is the only one selected is the
+field left unlocked instead, with a note that you need to provide a separate,
+already-public archive URL by hand (see
 [GBIF](guide-web-gbif.md)).
 
 ![Choosing repositories and publish order](img/web/repo-selection.png)
@@ -92,11 +93,15 @@ API call during this same automated sequence, using the archive URL entered in s
 
 ## 7. When it's done
 
-![All repositories published](img/web/all-done.png)
+![Publish finished — this example used Dry run, see step 6](img/web/all-done.png)
 
-The wizard confirms which repositories were published, but doesn't print each one's
-resulting URL/DOI directly on this screen — check the repository itself, or the record
-file its own output directory holds (`gbif_linked_dataset_record.json`).
+The heading reads **All done!** normally (this example used **Dry run**, so it reads
+**Dry run complete!** instead — see step 6). Either way, the wizard confirms which
+repositories were published (or simulated) and, for a real run, lists each one's
+resulting URL directly on this screen — GBIF's own entry also notes that its crawl (and
+so the actual occurrence records) can take a few hours to catch up, even though the
+dataset page itself is already live. Its DOI isn't shown here, though — check the record
+file its own output directory holds (`gbif_linked_dataset_record.json`) for that.
 
 If GBIF was published alongside Hugging Face Hub in the same run and came back with a
 DOI, it's already synced into Hugging Face Hub's `CITATION.cff` automatically — this
