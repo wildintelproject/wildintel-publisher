@@ -62,3 +62,14 @@ example per product type — see:
 
 Each link details exactly what ends up stored in the Zenodo record for that product
 type, and how the choice of [publishing mode](publishing-guide.md#publishing-modes) changes it.
+
+!!! note "Mandatory in the web wizard"
+    The CLI's own `zenodo prepare`/`upload`/`release` sequence is entirely opt-in, like
+    every other repository command. The web wizard, however, makes Zenodo **mandatory**
+    for both YOLO Dataset and Software Application — pre-selected and not deselectable,
+    since its DOI is always the one used to cite the dataset/software (Hugging Face Hub
+    and B2SHARE stay optional alongside it for YOLO Dataset; only B2SHARE does for
+    Software Application, which has no Hugging Face Hub target at all — see
+    [Products](products.md#where-products-can-be-published),
+    [guide-web-yolo.md](guide-web-yolo.md#4-choose-repositories-and-publish-order), and
+    [guide-web-software.md](guide-web-software.md#4-choose-repositories)).

@@ -88,6 +88,15 @@ username/password (`GBIF_USERNAME`/`GBIF_PASSWORD`).
     only repository in this project where re-publishing a corrected URL later is
     completely safe by design.
 
+!!! note "Mandatory in the web wizard"
+    The CLI's own `gbif register` is entirely opt-in, like every other repository
+    command. The web wizard, however, makes GBIF **mandatory** for Camtrap DP —
+    pre-selected and not deselectable, so a Camtrap DP dataset published through it
+    always ends up registered with GBIF (Hugging Face Hub stays optional alongside it,
+    and always publishes first when both are selected — see
+    [Products](products.md#where-products-can-be-published) and
+    [GBIF](guide-web-gbif.md)).
+
 ## 3. How to publish
 
 For the exact steps — first-time account/organization/installation setup and a full

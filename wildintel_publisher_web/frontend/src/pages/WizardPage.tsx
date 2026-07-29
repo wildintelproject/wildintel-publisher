@@ -110,13 +110,14 @@ const REPOS_BY_PRODUCT_TYPE: Record<ProductType, RepoId[]> = {
 }
 
 // Repos that, once their product type is picked, are pre-selected and
-// can't be deselected — for Software Application, Zenodo is always
-// published (its DOI is the one used to cite the software), and for
-// Camtrap DP, GBIF is always registered (see the "Required" badge in the
-// repo-selection grid, and toggleRepo's own guard below). Every other
-// product type has none.
+// can't be deselected — Zenodo is always published for both YOLO Dataset
+// and Software Application (its DOI is the one used to cite the dataset/
+// software), and for Camtrap DP, GBIF is always registered (see the
+// "Required" badge in the repo-selection grid, and toggleRepo's own guard
+// below). Every other product type has none.
 const MANDATORY_REPOS_BY_PRODUCT_TYPE: Partial<Record<ProductType, RepoId[]>> = {
   camtrapdp: ['gbif'],
+  yolo: ['zenodo'],
   software: ['zenodo'],
 }
 

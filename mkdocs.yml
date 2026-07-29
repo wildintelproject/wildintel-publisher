@@ -139,6 +139,7 @@ nav:
       - Products:
           - Camtrap DP: guide-web-camtrapdp.md
           - YOLO Dataset: guide-web-yolo.md
+          - Software Application: guide-web-software.md
       - Config:
           - Hugging Face Hub: guide-web-hfh.md
           - Zenodo: guide-web-zenodo.md

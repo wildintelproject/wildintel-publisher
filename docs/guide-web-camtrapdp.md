@@ -37,16 +37,19 @@ summary card shows the title, version, license, authors, and homepage.
 
 ## 4. Choose repositories and publish order
 
-Select one or more of **Hugging Face Hub**, **Zenodo**, **B2SHARE**, and **GBIF** — GBIF
-is only offered for Camtrap DP, see [Publishing to
-GBIF](publishing-gbif.md#4-what-can-i-publish-here). If you select more than one, a
-**publish order** list lets you reorder them: the first repository publishes the fetched
-package itself, and each next one publishes whatever the previous one wrote to its own
-output — so, for example, publishing to Hugging Face Hub before Zenodo lets Zenodo's
-record link back to it. GBIF doesn't take part in this chaining (it never hosts a copy of
-the package), but ordering it after whichever repository will host the package lets its
-own configuration form prefill the archive URL automatically (see
-[GBIF](guide-web-gbif.md)).
+For Camtrap DP, the wizard only offers **Hugging Face Hub** and **GBIF** (Zenodo/B2SHARE
+stay available for it via the CLI only). **GBIF is mandatory** here — pre-selected and
+not deselectable, so a Camtrap DP dataset always ends up registered with GBIF; Hugging
+Face Hub is optional alongside it.
+
+If both are selected, Hugging Face Hub always publishes first — this isn't a choice you
+make (there's no manual reordering for this pair): GBIF's own configuration form depends
+on knowing what Hugging Face Hub already did. Its **Archive URL** field auto-fills and
+locks to Hugging Face Hub's own `camtrapdp-remote.zip`, but only when Hugging Face Hub is
+configured to publish in **Mirror** mode — that file is never generated in **Link** mode,
+so in that case (or when GBIF is the only one selected) the field is left unlocked
+instead, with a note that you need to provide a separate, already-public archive URL by
+hand (see [GBIF](guide-web-gbif.md)).
 
 ![Choosing repositories and publish order](img/web/repo-selection.png)
 

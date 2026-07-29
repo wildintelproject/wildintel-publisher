@@ -599,18 +599,20 @@ describe('WizardPage publish step', () => {
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
   })
 
-  it('lets the user deselect a repository before starting publishing', async () => {
-    // Camtrap DP always has GBIF mandatory, so deselecting its only other
-    // (optional) repo never gets down to zero — YOLO has no mandatory repo
-    // of its own, so this is the type that can actually reach that state.
+  it('lets the user deselect an optional repository, keeping Start publishing while the mandatory one remains', async () => {
+    // Every implemented product type has a mandatory repo now (GBIF for
+    // Camtrap DP, Zenodo for YOLO/Software), so selection can never really
+    // reach zero — deselecting an optional repo alongside it is the
+    // meaningful case left to test.
     render(<WizardPage />)
     await reachPublishStepYolo()
 
-    const hfhButton = screen.getByRole('button', { name: /hugging face hub/i })
-    await userEvent.click(hfhButton)
-    await userEvent.click(hfhButton)
+    const b2shareButton = screen.getByRole('button', { name: /b2share/i })
+    await userEvent.click(b2shareButton)
+    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
 
-    expect(screen.queryByRole('button', { name: /start publishing/i })).not.toBeInTheDocument()
+    await userEvent.click(b2shareButton)
+    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
   })
 })
 
@@ -637,14 +639,23 @@ async function configureGbifAndContinue() {
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 }
 
-async function runHfhPublishToDone() {
+// Zenodo is mandatory for both YOLO and Software Application — used as the
+// "only selected repository" case in single-repo mechanics tests, since
+// neither product type can reach a genuinely empty selection anymore.
+async function configureZenodoAndContinue() {
+  await act(async () => {})
+  await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+}
+
+async function runZenodoPublishToDone() {
   mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
   mockedApi.publishAllStatus.mockResolvedValue({
     status: 'done', error: null, dry_run: false,
     repos: {
-      hfh: {
+      zenodo: {
         status: 'done', stage: 'done', error: null,
-        repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
+        repo_url: 'https://sandbox.zenodo.org/records/1', doi: '10.5281/zenodo.1', pid: null, output_dir: '/zenodo/output',
       },
     },
   })
@@ -656,13 +667,12 @@ async function runHfhPublishToDone() {
 
 describe('WizardPage publish order', () => {
   it('does not show a publish-order list with only one repository selected', async () => {
-    // Camtrap DP always has GBIF mandatory too, so picking just Hugging
-    // Face Hub there is already two repos — YOLO has no mandatory repo of
-    // its own, so it's the type that can reach a genuine single-repo state.
+    // Every implemented product type now has a mandatory repo (GBIF for
+    // Camtrap DP, Zenodo for YOLO/Software) — Software Application is the
+    // one that reaches a genuine single-repo state with no extra clicks,
+    // since it has no Hugging Face Hub to add alongside Zenodo.
     render(<WizardPage />)
-    await reachPublishStepYolo()
-
-    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await reachPublishStepSoftware()
 
     expect(screen.queryByText('Publish order')).not.toBeInTheDocument()
   })
@@ -800,16 +810,19 @@ describe('WizardPage publish order', () => {
     render(<WizardPage />)
     await reachPublishStepYolo()
 
+    // Zenodo is mandatory for YOLO — already selected (and first in publish
+    // order, since it's added the moment the product type is picked) once
+    // reachPublishStepYolo runs, nothing to click for it here.
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
     await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
-    await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 3.', { exact: false })
     await act(async () => {})
     await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await screen.findByText('Step 2 of 3.', { exact: false })
+    await configureHfhAndContinue()
 
     await screen.findByText('Step 3 of 3.', { exact: false })
     await act(async () => {})
@@ -1103,33 +1116,32 @@ describe('WizardPage publish order', () => {
   })
 
   it('shows an "All done!" screen once the only selected repository finishes publishing', async () => {
-    // Camtrap DP always has GBIF mandatory too — YOLO has no mandatory
-    // repo of its own, so it's the type that can reach a genuine
-    // single-repo publish.
+    // Every implemented product type now has a mandatory repo (GBIF for
+    // Camtrap DP, Zenodo for YOLO/Software) — Software Application is the
+    // one that reaches a genuine single-repo publish with no extra clicks,
+    // since it has no Hugging Face Hub to add alongside Zenodo.
     render(<WizardPage />)
-    await reachPublishStepYolo()
+    await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
-    await configureHfhAndContinue()
+    await configureZenodoAndContinue()
     await screen.findByText('Ready to publish')
 
-    await runHfhPublishToDone()
+    await runZenodoPublishToDone()
 
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
-    expect(screen.getByText(/Published to: Hugging Face Hub\./)).toBeInTheDocument()
+    expect(screen.getByText(/Published to: Zenodo\./)).toBeInTheDocument()
   })
 
   it('resets back to the first step when "Publish again" is clicked', async () => {
     render(<WizardPage />)
-    await reachPublishStepYolo()
+    await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
-    await configureHfhAndContinue()
+    await configureZenodoAndContinue()
     await screen.findByText('Ready to publish')
 
-    await runHfhPublishToDone()
+    await runZenodoPublishToDone()
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
 
     await userEvent.click(screen.getByRole('button', { name: /^publish again$/i }))

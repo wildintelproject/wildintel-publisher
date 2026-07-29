@@ -173,6 +173,10 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   Camtrap DP dataset always ends up registered with GBIF. Hugging Face Hub stays optional
   alongside it (GBIF registers standalone, with a manually-provided archive URL, when
   it's the only repository selected).
+- Web: Zenodo is now mandatory for YOLO Dataset too, pre-selected and not deselectable —
+  same mechanism, and same reasoning, as Software Application's own Zenodo: its DOI is
+  always the one used to cite the dataset. Hugging Face Hub and B2SHARE both stay optional
+  alongside it.
 - Web: show each successfully published repository's real URL in the wizard's publish
   progress/summary screens, and let a partial failure retry only the repositories that
   didn't finish, instead of re-running the whole selection (which could otherwise fail a

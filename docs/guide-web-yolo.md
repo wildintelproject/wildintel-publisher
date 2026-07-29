@@ -32,17 +32,20 @@ the title, version, license, authors, and homepage.
 
 ## 4. Choose repositories and publish order
 
-Select one or more of **Hugging Face Hub**, **Zenodo**, and **B2SHARE** — GBIF isn't
-offered here, see [Publishing to GBIF](publishing-gbif.md#4-what-can-i-publish-here). If
-you select more than one, a **publish order** list lets you reorder them: the first
+**Zenodo** is mandatory here — pre-selected and not deselectable, since its DOI is always
+the one used to cite the dataset. **Hugging Face Hub** and **B2SHARE** stay optional
+alongside it; GBIF isn't offered at all for this product type, see [Publishing to
+GBIF](publishing-gbif.md#4-what-can-i-publish-here). If you add Hugging Face Hub and/or
+B2SHARE on top of Zenodo, a **publish order** list lets you reorder them: the first
 repository publishes the local dataset itself, and each next one publishes whatever the
 previous one wrote to its own output — so, for example, publishing to Hugging Face Hub
 before Zenodo lets Zenodo's record link back to it. A YOLO dataset's images always travel
 together with `data.yaml` in self-contained/mirror mode — there's no external repository
 for them to link to instead the way Camtrap DP can.
 
-This screen looks the same as [Camtrap DP's](guide-web-camtrapdp.md#4-choose-repositories-and-publish-order),
-minus the GBIF option.
+This is the same mandatory-repo mechanic used for [Software
+Application](guide-web-software.md#4-choose-repositories) (Zenodo there too), just with
+Hugging Face Hub and B2SHARE still available alongside it here.
 
 ## 5. Configure each selected repository
 

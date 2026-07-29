@@ -4,7 +4,10 @@
     See [Publishing to GBIF](publishing-gbif.md) for what this repository is: unlike
     Hugging Face Hub, Zenodo, and B2SHARE, it never hosts a copy of the package — it only
     registers, in its Registry, a dataset whose endpoint points at a URL where the
-    Camtrap DP is already publicly hosted.
+    Camtrap DP is already publicly hosted. GBIF is **mandatory** for Camtrap DP in the
+    wizard — pre-selected and not deselectable, so this configuration step always comes
+    up; Hugging Face Hub stays optional alongside it, and always publishes first when
+    both are selected (no manual reordering for this pair).
 
 Every time you publish a Camtrap DP to GBIF, a page similar to this one appears, asking
 you to fill in the following fields:
@@ -20,12 +23,18 @@ you to fill in the following fields:
   ever crawled; `camtrapdp-local.zip` *is* a real zip, but its `media.csv` uses paths
   relative to a sibling `images/` folder, meaningless once GBIF extracts it in isolation.
   `camtrapdp-remote.zip` is built specifically for this — its `media.csv` already points at
-  real Hugging Face Hub URLs. If Hugging Face Hub precedes GBIF in the publish order, this
-  is pre-filled automatically
-  (`https://huggingface.co/datasets/<repo>/resolve/main/camtrapdp-remote.zip`, fully
-  derived from what you typed into the Hugging Face Hub form) — still editable if you'd
-  rather point at somewhere else. Use **Validate archive** to check upfront that the URL
-  really is a zip containing a valid Camtrap DP, before registering it with GBIF.
+  real Hugging Face Hub URLs, but it's only ever generated when Hugging Face Hub publishes
+  in **Mirror** mode (never in Link mode). Two cases:
+    - **Hugging Face Hub is also selected, publishing in Mirror mode**: this field is
+      pre-filled *and locked* (read-only) to
+      `https://huggingface.co/datasets/<repo>/resolve/main/camtrapdp-remote.zip`, derived
+      from what you typed into the Hugging Face Hub form — there's no other valid value
+      once both are selected together, so it can't be edited.
+    - **Otherwise** (no Hugging Face Hub in this run, or it's publishing in Link mode):
+      the field is empty and editable — type in the URL of a separate, already-public
+      Camtrap DP archive yourself (e.g. hosted outside this tool, or from an earlier
+      publish). Use **Validate archive** to check upfront that the URL really is a zip
+      containing a valid Camtrap DP, before registering it with GBIF.
 - **Environment** — **Sandbox** (`gbif-test.org`, testing — its own separate account) or
   **Production** (`gbif.org`).
 - **Registry language** — ISO 639-2/T code the Registry API requires (defaults to
