@@ -63,6 +63,9 @@ class CamtrapDPAdapter:
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
         common.anonymize_deployment_coordinates(input_dir, decimals=decimals)
 
+    def randomize_media_ids(self, input_dir: Path) -> None:
+        common.randomize_media_ids(input_dir)
+
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
         if (output_dir / common.DATAPACKAGE_FILENAME).is_file():

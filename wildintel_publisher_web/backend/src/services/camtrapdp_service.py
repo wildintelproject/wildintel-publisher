@@ -30,6 +30,7 @@ def datapackage_path(output_dir: Path) -> Path:
 def generate_metadata(
     product_type: str, input_dir: Path, *,
     anonymize_coordinates: bool = False, coordinate_decimals: int = 2,
+    randomize_media_ids: bool = False,
 ) -> dict:
     """The "before the flow starts" step (see product.generate_metadata_json)
     — validates the raw product and best-effort extracts its metadata into
@@ -40,6 +41,9 @@ def generate_metadata(
     deployments.csv's latitude/longitude in input_dir itself, once, here —
     a product-level preprocessing step every later repo-specific prepare
     step inherits automatically, with no flag of its own.
+
+    randomize_media_ids (Camtrap DP only) replaces every mediaID that isn't
+    already a UUID, same "applied once here" shape.
 
     The caller should check product.missing_required_fields() on the
     result — if it's non-empty, the product itself didn't provide
@@ -53,6 +57,7 @@ def generate_metadata(
     return product.generate_metadata_json(
         product_type, input_dir,
         anonymize_coordinates=anonymize_coordinates, coordinate_decimals=coordinate_decimals,
+        randomize_media_ids=randomize_media_ids,
     )
 
 

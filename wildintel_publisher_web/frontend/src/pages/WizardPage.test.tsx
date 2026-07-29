@@ -173,7 +173,7 @@ describe('WizardPage download flow', () => {
     await waitFor(() => expect(screen.getByText('Package downloaded')).toBeInTheDocument())
     expect(screen.getByText('/home/user/Documents/wildintel-publisher/trapper')).toBeInTheDocument()
     expect(mockedApi.trapperStartDownload).toHaveBeenCalledWith(
-      'https://trapper.example', 'alice', 'secret', 10, 'r0007-dona_0018',
+      'https://trapper.example', 'alice', 'secret', 10, 'r0007-dona_0018', true,
     )
   })
 
@@ -327,7 +327,7 @@ describe('WizardPage coordinate anonymization', () => {
 
     expect(screen.queryByLabelText(/decimal places/i)).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('checkbox', { name: /anonymize deployment coordinates/i }))
 
     expect(screen.getByLabelText(/decimal places/i)).toBeInTheDocument()
   })
@@ -344,7 +344,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
 
-    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('checkbox', { name: /anonymize deployment coordinates/i }))
     const decimalsInput = screen.getByLabelText(/decimal places/i)
     await userEvent.clear(decimalsInput)
     await userEvent.type(decimalsInput, '1')
@@ -352,7 +352,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
     await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalledWith(
-      '/data/camtrapdp', 'camtrapdp', true, 1,
+      '/data/camtrapdp', 'camtrapdp', true, 1, false,
     ))
   })
 })

@@ -75,6 +75,20 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   different (possibly unreleased) one. Falls back to today's behavior (the default
   branch's latest commit) when neither tag exists, e.g. a repository that doesn't tag
   releases.
+- CLI/Web: an opt-in **randomize media IDs** option for Camtrap DP replaces every
+  `mediaID` in `media.csv` that isn't already a UUID with a freshly generated one,
+  keeping `observations.csv`'s own `mediaID` references in sync — keeps published
+  mediaIDs from leaking the original export's own numbering convention, and collision-free
+  if this data is later merged with another project's/repository's. Same "applied once,
+  as a product-level preprocessing step when `metadata.json` is first generated" shape as
+  **anonymize coordinates** (`product generate-metadata --randomize-media-ids` on the CLI;
+  a checkbox next to "Anonymize deployment coordinates" in the web wizard, Step 1).
+- CLI/Web: `trapper download`/the wizard's Trapper source form can now include
+  event-level (aggregated) observations in the fetched Camtrap DP package, alongside the
+  media-level ones already included — Trapper's own API defaults this off
+  (`include_events=false`); wildintel-publisher now always sends it explicitly, defaulting
+  it **on** instead (`--include-events/--no-include-events` on the CLI; an "Include
+  events" checkbox, checked by default, once a deployment is selected in the web wizard).
 
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four

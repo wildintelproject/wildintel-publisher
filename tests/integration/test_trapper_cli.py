@@ -40,6 +40,21 @@ def test_download_calls_service_with_resolved_params_when_all_present(tmp_path):
     assert call_kwargs["trapper_url"] == "https://t.example"
     assert call_kwargs["project_id"] == 1
     assert call_kwargs["deployment_id"] == "r0007-dona_0018"
+    assert call_kwargs["include_events"] is True  # default
+
+
+def test_download_can_disable_include_events(tmp_path):
+    with patch("wildintel_publisher.commands.trapper.trapper_service.fetch_camtrapdp_package") as mock_fetch:
+        mock_fetch.return_value = tmp_path
+        result = runner.invoke(app, [
+            "trapper", "download",
+            "--trapper-url", "https://t.example", "--trapper-user", "u", "--trapper-password", "p",
+            "--project-id", "1", "--deployment-id", "r0007-dona_0018", "--output-dir", str(tmp_path),
+            "--no-include-events",
+        ])
+
+    assert result.exit_code == 0, result.output
+    assert mock_fetch.call_args.kwargs["include_events"] is False
 
 
 def test_download_reports_service_errors_and_exits_nonzero():

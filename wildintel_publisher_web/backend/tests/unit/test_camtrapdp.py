@@ -90,6 +90,44 @@ def test_generate_metadata_leaves_coordinates_untouched_by_default(tmp_path):
     assert "41.123456" in (tmp_path / "deployments.csv").read_text(encoding="utf-8")
 
 
+def test_generate_metadata_randomizes_media_ids_when_requested(tmp_path):
+    _write_datapackage(
+        tmp_path,
+        title="My Camtrap DP", description="A test package.", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+    (tmp_path / "media.csv").write_text("mediaID,fileName\nimg001,img001.jpg\n", encoding="utf-8")
+
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        response = _client().post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp",
+            "randomize_media_ids": True,
+        })
+
+    assert response.status_code == 200
+    assert "mediaID,fileName\nimg001,img001.jpg\n" not in (tmp_path / "media.csv").read_text(encoding="utf-8")
+    assert ",img001.jpg" in (tmp_path / "media.csv").read_text(encoding="utf-8")  # fileName is untouched
+
+
+def test_generate_metadata_leaves_media_ids_untouched_by_default(tmp_path):
+    _write_datapackage(
+        tmp_path,
+        title="My Camtrap DP", description="A test package.", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+    (tmp_path / "media.csv").write_text("mediaID,fileName\nimg001,img001.jpg\n", encoding="utf-8")
+
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        response = _client().post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp",
+        })
+
+    assert response.status_code == 200
+    assert "img001" in (tmp_path / "media.csv").read_text(encoding="utf-8")
+
+
 def test_generate_metadata_reports_400_when_validation_fails(tmp_path):
     tmp_path.mkdir(parents=True, exist_ok=True)  # no datapackage.json at all
     response = _client().post("/api/camtrapdp/generate-metadata", json={

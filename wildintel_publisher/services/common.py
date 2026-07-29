@@ -10,6 +10,7 @@ import io
 import json
 import re
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 from zipfile import ZipFile
@@ -399,6 +400,73 @@ def anonymize_deployment_coordinates(output_dir: Path, *, decimals: int = DEFAUL
         write_csv(deployments_csv, fieldnames, rows)
         console.print(f"  {DEPLOYMENTS_CSV_FILENAME}: {rounded} deployment(s) coordinates rounded to {decimals} decimal(s).")
     return rounded
+
+
+def randomize_media_ids(output_dir: Path) -> int:
+    """Reemplaza en media.csv cualquier mediaID que no sea ya un UUID4 válido
+    por uno recién generado (uuid.uuid4()), y actualiza toda referencia
+    coincidente en observations.csv para que el enlace entre ambas tablas
+    siga intacto — así los mediaID publicados no delatan la convención de
+    numeración original (ids secuenciales, o derivados del propio id interno
+    de Trapper) y quedan garantizados como únicos si estos datos acaban
+    integrándose con los de otro proyecto/repositorio.
+
+    Solo toca los mediaID que aún NO son un UUID válido — de ahí que sea
+    idempotente (una segunda pasada no vuelve a generar otros distintos, a
+    diferencia de regenerar incondicionalmente cada vez), la misma garantía
+    que ya ofrece anonymize_deployment_coordinates y de la que depende, por
+    ejemplo, el wizard web al volver a llamar a esto tras pulsar "Back".
+
+    No-op si media.csv no existe o no tiene esa columna — nunca lanza. Las
+    filas de observations.csv sin mediaID (basadas en evento, no en un
+    fichero) no se tocan, igual que en drop_observations_of_removed_media.
+
+    Returns:
+        Cuántos mediaID se han sustituido.
+    """
+    media_csv = output_dir / MEDIA_CSV_FILENAME
+    if not media_csv.is_file():
+        return 0
+
+    fieldnames, rows = read_csv(media_csv)
+    if MEDIA_ID_COLUMN not in fieldnames:
+        return 0
+
+    id_map = {}
+    for row in rows:
+        old_id = row.get(MEDIA_ID_COLUMN)
+        if not old_id:
+            continue
+        try:
+            uuid.UUID(old_id)
+            continue  # already a valid UUID — leave it as-is
+        except ValueError:
+            pass
+        new_id = str(uuid.uuid4())
+        id_map[old_id] = new_id
+        row[MEDIA_ID_COLUMN] = new_id
+
+    if not id_map:
+        return 0
+
+    write_csv(media_csv, fieldnames, rows)
+    console.print(f"  {MEDIA_CSV_FILENAME}: {len(id_map)} mediaID(s) replaced with random UUIDs.")
+
+    observations_csv = output_dir / OBSERVATIONS_CSV_FILENAME
+    if observations_csv.is_file():
+        obs_fieldnames, obs_rows = read_csv(observations_csv)
+        if MEDIA_ID_COLUMN in obs_fieldnames:
+            updated = 0
+            for row in obs_rows:
+                old_id = row.get(MEDIA_ID_COLUMN)
+                if old_id in id_map:
+                    row[MEDIA_ID_COLUMN] = id_map[old_id]
+                    updated += 1
+            if updated:
+                write_csv(observations_csv, obs_fieldnames, obs_rows)
+                console.print(f"  {OBSERVATIONS_CSV_FILENAME}: {updated} mediaID reference(s) updated to match.")
+
+    return len(id_map)
 
 
 def format_apa_author(author: dict) -> str:

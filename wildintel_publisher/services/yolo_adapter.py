@@ -173,6 +173,9 @@ class YoloAdapter:
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
         pass  # a YOLO dataset has no GPS coordinates of its own
 
+    def randomize_media_ids(self, input_dir: Path) -> None:
+        pass  # a YOLO dataset has no mediaID of its own
+
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
         data_yaml_source = _data_yaml_path(output_dir)

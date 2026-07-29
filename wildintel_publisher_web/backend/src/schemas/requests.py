@@ -38,6 +38,11 @@ class DownloadRequest(TrapperCredentials):
     project_id: int
     deployment_id: str
     clear_cache: bool = False
+    # Whether the generated package includes event-level (aggregated)
+    # observations, in addition to the media-level ones — Trapper's own API
+    # defaults this to false; wildintel-publisher defaults it to true
+    # instead (see services.trapper.fetch_camtrapdp_package).
+    include_events: bool = True
 
 
 class OpenFolderRequest(BaseModel):
@@ -76,6 +81,13 @@ class GenerateMetadataRequest(BaseModel):
     # wildintel_publisher.services.common.anonymize_deployment_coordinates.
     anonymize_coordinates: bool = False
     coordinate_decimals: int = 2
+    # Camtrap DP only — replaces every mediaID in media.csv (and matching
+    # observations.csv references) that isn't already a UUID with a freshly
+    # generated one, in input_dir itself, before metadata is extracted.
+    # Same "applied once here" shape as anonymize_coordinates, and just as
+    # safe to call again later (a mediaID that's already a UUID is left
+    # alone). See wildintel_publisher.services.common.randomize_media_ids.
+    randomize_media_ids: bool = False
 
 
 class UpdateMetadataRequest(BaseModel):

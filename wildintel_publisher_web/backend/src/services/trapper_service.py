@@ -156,6 +156,7 @@ def list_deployments(url: str, username: str, password: str, classification_proj
 
 def start_download_task(
     *, url: str, username: str, password: str, project_id: int, deployment_id: str, clear_cache: bool = False,
+    include_events: bool = True,
 ) -> str:
     """Launches 'fetch_camtrapdp_package' as a background asyncio task (via a
     worker thread, since it's a blocking/synchronous call) and returns a
@@ -189,6 +190,7 @@ def start_download_task(
                 license_id=trapper_defaults.license_id,
                 license_name=trapper_defaults.license_name,
                 license_url=trapper_defaults.license_url,
+                include_events=include_events,
             )
             _download_tasks[task_id] = {"status": "done", "path": str(path), "error": None}
         except Exception as exc:

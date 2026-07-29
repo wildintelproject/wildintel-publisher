@@ -200,6 +200,10 @@ export default function WizardPage() {
   // anonymized coordinates automatically, with no flag of its own.
   const [anonymizeCoordinates, setAnonymizeCoordinates] = useState(false)
   const [coordinateDecimals, setCoordinateDecimals] = useState(2)
+  // Camtrap DP only — replaces every mediaID that isn't already a UUID,
+  // once, as part of generateProductMetadata, same shape as
+  // anonymizeCoordinates above.
+  const [randomizeMediaIds, setRandomizeMediaIds] = useState(false)
   const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, error: null })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
@@ -318,6 +322,7 @@ export default function WizardPage() {
     setArchiveSourceUrl(null)
     setAnonymizeCoordinates(false)
     setCoordinateDecimals(2)
+    setRandomizeMediaIds(false)
     setDownload({ status: 'idle', path: null, error: null })
     setSummary(null)
     setFolderError(null)
@@ -468,13 +473,14 @@ export default function WizardPage() {
     setSummary(null)
     // Idempotent: (re)writes metadata.json from the product's own files, so
     // this works whether or not LocalDirectoryForm already generated it.
-    // anonymizeCoordinates/coordinateDecimals only matter the first time
-    // this runs for a given download.path — rounding already-rounded
-    // coordinates again is a no-op, so a later re-run (e.g. after "Back")
-    // can't un-anonymize them.
-    api.generateProductMetadata(download.path, productType, anonymizeCoordinates, coordinateDecimals)
+    // anonymizeCoordinates/coordinateDecimals and randomizeMediaIds only
+    // matter the first time this runs for a given download.path — rounding
+    // already-rounded coordinates, or replacing a mediaID that's already a
+    // UUID, are both no-ops, so a later re-run (e.g. after "Back") can't
+    // undo them.
+    api.generateProductMetadata(download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds)
       .then(setSummary).catch(() => setSummary(null))
-  }, [download.status, download.path, productType, anonymizeCoordinates, coordinateDecimals])
+  }, [download.status, download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds])
 
   async function handleOpenFolder() {
     if (!download.path) return
@@ -546,7 +552,7 @@ export default function WizardPage() {
     try {
       const { task_id } = await api.trapperStartDownload(
         trapperSelection.url, trapperSelection.username, trapperSelection.password,
-        trapperSelection.projectId, trapperSelection.deploymentId,
+        trapperSelection.projectId, trapperSelection.deploymentId, trapperSelection.includeEvents,
       )
       // Poll until the background task finishes
       while (true) {
@@ -734,6 +740,23 @@ export default function WizardPage() {
                   <span className="text-sm text-zinc-500 dark:text-zinc-400">(2 ≈ 1.1 km, 1 ≈ 11 km)</span>
                 </div>
               )}
+              <label className="flex items-start gap-3 cursor-pointer mt-4">
+                <input
+                  type="checkbox"
+                  checked={randomizeMediaIds}
+                  onChange={(e) => setRandomizeMediaIds(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">Randomize media IDs</span>
+                  <span className="block text-zinc-500 dark:text-zinc-400">
+                    Replaces every mediaID that isn't already a UUID with a freshly generated one,
+                    keeping media.csv and observations.csv in sync — avoids leaking the original
+                    export's own numbering convention, and guarantees the ids stay unique if this
+                    data is later merged with another project's or repository's.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 

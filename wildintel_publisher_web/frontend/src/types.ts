@@ -27,6 +27,10 @@ export interface TrapperDownloadSelection {
   password: string
   projectId: number
   deploymentId: string
+  /** Whether the generated package includes event-level (aggregated)
+   * observations, in addition to the media-level ones. Defaults to true in
+   * TrapperConnectionForm — Trapper's own API defaults it to false. */
+  includeEvents: boolean
 }
 
 export interface ProductLicense {

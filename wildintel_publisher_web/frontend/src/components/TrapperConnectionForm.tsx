@@ -57,6 +57,12 @@ export default function TrapperConnectionForm({ onSelectionChange }: Props) {
   const [deploymentPk, setDeploymentPk] = useState('')
   const [loadingDeployments, setLoadingDeployments] = useState(false)
 
+  // Camtrap DP specific — whether the generated package also includes
+  // event-level (aggregated) observations, on top of the media-level ones.
+  // Trapper's own API defaults this to false; wildintel-publisher defaults
+  // it to true instead.
+  const [includeEvents, setIncludeEvents] = useState(true)
+
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
     setConn({ status: 'idle', message: '' })
@@ -144,8 +150,9 @@ export default function TrapperConnectionForm({ onSelectionChange }: Props) {
       password: form.password,
       projectId: Number(classificationProjectPk),
       deploymentId: selectedDeployment.deployment_id,
+      includeEvents,
     })
-  }, [selectedDeployment, classificationProjectPk, hasClassificationProject, form.url, form.username, form.password, onSelectionChange])
+  }, [selectedDeployment, classificationProjectPk, hasClassificationProject, form.url, form.username, form.password, includeEvents, onSelectionChange])
 
   return (
     <div>
@@ -332,6 +339,22 @@ export default function TrapperConnectionForm({ onSelectionChange }: Props) {
               Selected deployment: <span className="font-mono">{selectedDeployment.deployment_id}</span>
             </div>
           )}
+
+          <label className="flex items-start gap-3 cursor-pointer mt-5">
+            <input
+              type="checkbox"
+              checked={includeEvents}
+              onChange={(e) => setIncludeEvents(e.target.checked)}
+              className="mt-1 w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm">
+              <span className="font-semibold text-zinc-800 dark:text-zinc-200">Include events</span>
+              <span className="block text-zinc-500 dark:text-zinc-400">
+                Also generates event-level (aggregated) observations, alongside the media-level
+                ones already included — needs sequences to have been generated for this project.
+              </span>
+            </span>
+          </label>
         </>
       )}
     </div>

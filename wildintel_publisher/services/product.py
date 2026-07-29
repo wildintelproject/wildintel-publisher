@@ -100,6 +100,19 @@ class ProductAdapter(Protocol):
         and ignore it, having no coordinates of their own."""
         ...
 
+    def randomize_media_ids(self, input_dir: Path) -> None:
+        """Mutates `input_dir` in place, replacing any mediaID that isn't
+        already a valid UUID4 with a freshly generated one — a
+        uniqueness/privacy option so published mediaIDs don't leak
+        whatever numbering convention the original export used, and stay
+        collision-free if this data is later merged with another
+        project's/repository's. Applied once (see generate_metadata_json)
+        as a product-level preprocessing step, before any repo-specific
+        prepare even runs. Only means anything to CamtrapDPAdapter (see
+        common.randomize_media_ids); other product types accept and ignore
+        it, having no mediaID of their own."""
+        ...
+
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         """Copies just this product type's own files out of an
         already-prepared output_dir (which also has repo-specific extras —
@@ -275,6 +288,7 @@ def _preserve_foreign_metadata_json(directory: Path) -> None:
 def generate_metadata_json(
     product_type: str, input_dir: Path, *,
     anonymize_coordinates: bool = False, coordinate_decimals: int = 2,
+    randomize_media_ids: bool = False,
 ) -> dict:
     """The "before the flow starts" step: validates the raw product, extracts
     whatever generic metadata it can from it, and writes metadata.json into
@@ -289,6 +303,11 @@ def generate_metadata_json(
     from another repo's already-prepared output, chained forward) inherits
     the same already-anonymized coordinates automatically, with no
     per-repository flag of its own.
+
+    If `randomize_media_ids` is True, also replaces every mediaID that
+    isn't already a UUID (see ProductAdapter.randomize_media_ids) — same
+    "applied once, here" shape as anonymize_coordinates, and just as safe
+    to call again later (a mediaID that's already a UUID is left alone).
 
     extract_metadata is best-effort: a field it couldn't determine from the
     product comes back as None/[] rather than raising, so the caller should
@@ -316,6 +335,8 @@ def generate_metadata_json(
     _preserve_foreign_metadata_json(input_dir)
     if anonymize_coordinates:
         adapter.anonymize_coordinates(input_dir, decimals=coordinate_decimals)
+    if randomize_media_ids:
+        adapter.randomize_media_ids(input_dir)
     metadata = adapter.extract_metadata(input_dir)
     adapter.checkout_release(input_dir, version=metadata.get("version"))
     data = {"product_type": product_type, **metadata, "publish_history": []}

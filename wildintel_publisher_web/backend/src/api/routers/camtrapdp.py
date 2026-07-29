@@ -27,6 +27,7 @@ def generate_metadata(req: GenerateMetadataRequest) -> dict:
         return camtrapdp_service.generate_metadata(
             req.product_type, Path(req.input_dir),
             anonymize_coordinates=req.anonymize_coordinates, coordinate_decimals=req.coordinate_decimals,
+            randomize_media_ids=req.randomize_media_ids,
         )
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc

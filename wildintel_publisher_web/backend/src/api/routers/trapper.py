@@ -103,12 +103,13 @@ async def download(req: DownloadRequest) -> dict:
     Returns a task_id; poll GET /api/trapper/download/{task_id} for status."""
     url, username, password = _resolve(req)
     logger.info(
-        "Trapper download requested: project_id=%d deployment_id=%s clear_cache=%s",
-        req.project_id, req.deployment_id, req.clear_cache,
+        "Trapper download requested: project_id=%d deployment_id=%s clear_cache=%s include_events=%s",
+        req.project_id, req.deployment_id, req.clear_cache, req.include_events,
     )
     task_id = trapper_service.start_download_task(
         url=url, username=username, password=password,
         project_id=req.project_id, deployment_id=req.deployment_id, clear_cache=req.clear_cache,
+        include_events=req.include_events,
     )
     return {"task_id": task_id}
 

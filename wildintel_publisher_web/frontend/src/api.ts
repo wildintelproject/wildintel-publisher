@@ -53,9 +53,11 @@ export const api = {
 
   trapperStartDownload: (
     url: string, username: string, password: string, projectId: number, deploymentId: string,
+    includeEvents = true,
   ) =>
     post<{ task_id: string }>('/api/trapper/download', {
       url, username, password, project_id: projectId, deployment_id: deploymentId,
+      include_events: includeEvents,
     }),
 
   trapperDownloadStatus: (taskId: string) =>
@@ -82,10 +84,16 @@ export const api = {
   // anonymizeCoordinates/coordinateDecimals (Camtrap DP only) round
   // deployments.csv's latitude/longitude in inputDir itself, once, here —
   // see WizardPage's anonymizeCoordinates/coordinateDecimals state.
-  generateProductMetadata: (inputDir: string, productType: string, anonymizeCoordinates = false, coordinateDecimals = 2) =>
+  // randomizeMediaIds (Camtrap DP only) replaces every mediaID that isn't
+  // already a UUID, same "applied once here" shape.
+  generateProductMetadata: (
+    inputDir: string, productType: string,
+    anonymizeCoordinates = false, coordinateDecimals = 2, randomizeMediaIds = false,
+  ) =>
     post<DatapackageSummary>('/api/camtrapdp/generate-metadata', {
       input_dir: inputDir, product_type: productType,
       anonymize_coordinates: anonymizeCoordinates, coordinate_decimals: coordinateDecimals,
+      randomize_media_ids: randomizeMediaIds,
     }),
 
   completeProductMetadata: (inputDir: string, updates: Partial<Omit<DatapackageSummary, 'product_type' | 'hfh_repo_id'>>) =>

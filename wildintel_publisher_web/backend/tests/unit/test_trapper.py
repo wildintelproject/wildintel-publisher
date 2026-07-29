@@ -173,6 +173,22 @@ def test_download_start_and_poll_until_done():
     assert call_kwargs["project_id"] == 1
     assert call_kwargs["deployment_id"] == "r0007-dona_0018"
     assert call_kwargs["clear_cache"] is False
+    assert call_kwargs["include_events"] is True  # default, even though the request didn't set it
+
+
+def test_download_passes_through_include_events_false():
+    from main import app
+    fake_path = Path("/tmp/fake-camtrapdp-output")
+
+    with patch("services.trapper_service.fetch_camtrapdp_package", return_value=fake_path) as mock_fetch:
+        with TestClient(app) as client:
+            start = client.post("/api/trapper/download", json={
+                **CREDS, "project_id": 1, "deployment_id": "r0007-dona_0018", "include_events": False,
+            })
+            task_id = start.json()["task_id"]
+            _poll_download(client, task_id)
+
+    assert mock_fetch.call_args.kwargs["include_events"] is False
 
 
 def test_download_reports_error_status_on_failure():

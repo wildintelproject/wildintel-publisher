@@ -130,14 +130,24 @@ describe('TrapperConnectionForm', () => {
     await waitFor(() => expect(mockedApi.trapperTestConnection).toHaveBeenCalledWith('https://trapper.example', 'alice', ''))
   })
 
-  it('reports the selection once a deployment is chosen', async () => {
+  it('reports the selection once a deployment is chosen, with events included by default', async () => {
     const onSelectionChange = renderForm()
     await selectDeployment()
 
     await waitFor(() => expect(onSelectionChange).toHaveBeenCalledWith({
       url: 'https://trapper.example', username: 'alice', password: 'secret',
-      projectId: 10, deploymentId: 'r0007-dona_0018',
+      projectId: 10, deploymentId: 'r0007-dona_0018', includeEvents: true,
     }))
+  })
+
+  it('reports includeEvents=false once the checkbox is unchecked', async () => {
+    const onSelectionChange = renderForm()
+    await selectDeployment()
+    await waitFor(() => expect(onSelectionChange).toHaveBeenCalledWith(expect.objectContaining({ includeEvents: true })))
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /include events/i }))
+
+    await waitFor(() => expect(onSelectionChange).toHaveBeenLastCalledWith(expect.objectContaining({ includeEvents: false })))
   })
 
   it('clears the selection when an upstream field changes after a deployment was chosen', async () => {

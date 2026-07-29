@@ -38,6 +38,16 @@ def generate_metadata(
         common.DEFAULT_COORDINATE_DECIMALS, "--coordinate-decimals",
         help="Decimal places to round to when --anonymize-coordinates is set (2 ≈ 1.1 km).",
     ),
+    randomize_media_ids: bool = typer.Option(
+        False, "--randomize-media-ids/--no-randomize-media-ids",
+        help=(
+            "Replaces every mediaID in media.csv (and matching observations.csv references) that "
+            "isn't already a UUID with a freshly generated one, in --input-dir itself (Camtrap DP "
+            "only) — keeps published mediaIDs from leaking the original export's own numbering "
+            "convention, and collision-free if this data is later merged with another project's/ "
+            "repository's. Applied once here, same as --anonymize-coordinates."
+        ),
+    ),
 ) -> None:
     """Validates the product and writes metadata.json into --input-dir —
     required once, before 'hfh prepare'/'zenodo prepare'/'b2share prepare'
@@ -46,6 +56,7 @@ def generate_metadata(
         metadata = product_service.generate_metadata_json(
             product_type, Path(input_dir),
             anonymize_coordinates=anonymize_coordinates, coordinate_decimals=coordinate_decimals,
+            randomize_media_ids=randomize_media_ids,
         )
     except Exception as exc:
         logging.error("Could not generate metadata.json: %s", exc)

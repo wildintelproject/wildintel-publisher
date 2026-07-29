@@ -29,6 +29,13 @@ already-hosted package with [GBIF](publishing-gbif.md), since the same URL used 
 it is then directly reusable as GBIF's own `--archive-url`, already confirmed public and
 valid).
 
+When fetching from Trapper, the generated package can also **include events** —
+event-level (aggregated) observations, on top of the media-level ones already included,
+requiring sequences to have been generated for that project. Trapper's own API defaults
+this off; wildintel-publisher always sends it explicitly, defaulting it **on** instead
+(`--include-events`/`--no-include-events` on `trapper download`; a checkbox, checked by
+default, once a deployment is selected in the web wizard's Trapper source form).
+
 ## 2. Raw package layout
 
 A Camtrap DP package is four files at the root of a directory:
@@ -78,6 +85,24 @@ enabled.
 Because it mutates `--input-dir` in place, enabling it against a **Local Directory**
 source rounds the coordinates in that directory's own `deployments.csv` directly —
 there's no separate "raw" copy kept anywhere with the original precision.
+
+### Media ID randomization
+
+`media.csv`'s own `mediaID` sometimes carries whatever numbering convention the
+original export used (e.g. sequential ids, or something derived from Trapper's own
+internal id) — not a problem on its own, but not guaranteed to stay unique either, if
+this data ever gets merged with another project's or repository's. An optional
+**randomize media IDs** setting replaces every `mediaID` that isn't already a UUID with
+a freshly generated one, and keeps `observations.csv`'s own `mediaID` references in
+sync so the two tables stay linked.
+
+Same shape as coordinate anonymization above — a **product-level preprocessing step**,
+applied once as part of generating `metadata.json`, so every repository that later
+prepares its own export inherits the already-randomized ids automatically. In the web
+app's wizard, the option appears right below "Anonymize deployment coordinates" (Step
+1); on the CLI, it's `--randomize-media-ids` on `product generate-metadata`. It's off by
+default, and safe to run more than once — a `mediaID` that's already a UUID is left
+alone, so re-running it never changes an id a second time.
 
 ### `filePath` — a one-shot token URL, or already local
 

@@ -121,6 +121,14 @@ def download(
     license_url: Optional[str] = typer.Option(
         TRAPPER_DEFAULTS.license_url, "--license-url", help=_trapper_help("license_url"),
     ),
+    include_events: bool = typer.Option(
+        True, "--include-events/--no-include-events",
+        help=(
+            "Whether the generated package includes event-level (aggregated) observations, "
+            "in addition to the media-level ones — Trapper's own API defaults this to false, "
+            "'trapper download' defaults it to true instead."
+        ),
+    ),
 ) -> None:
     """Fetches (generates, downloads and extracts) the Camtrap DP package of a Trapper classification project."""
     trapper_user = trapper_user or TRAPPER_DEFAULTS.user_name
@@ -143,6 +151,7 @@ def download(
             license_id=license_id,
             license_name=license_name,
             license_url=license_url,
+            include_events=include_events,
         )
     except Exception as exc:
         logging.error("Could not fetch the Camtrap DP package: %s", exc)

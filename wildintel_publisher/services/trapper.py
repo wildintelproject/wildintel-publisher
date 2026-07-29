@@ -48,6 +48,7 @@ def fetch_camtrapdp_package(
     license_id: Optional[str] = None,
     license_name: Optional[str] = None,
     license_url: Optional[str] = None,
+    include_events: bool = True,
 ) -> Path:
     """Genera (o reutiliza) el paquete Camtrap DP del proyecto de clasificación
     `project_id` en el servidor Trapper `trapper_url`, lo descarga y lo
@@ -76,6 +77,11 @@ def fetch_camtrapdp_package(
             "private" (o vacíos) — ver _fix_datapackage_license. Arregla el
             paquete en la fuente, en vez de dejar que cada consumidor
             (ej. 'hfh prepare') tenga que hacer su propio fallback.
+        include_events: Si el paquete generado incluye observations.csv a
+            nivel de evento (agregado), además de las de nivel media —
+            parámetro `include_events` de la API. A diferencia de esta,
+            aquí el valor por defecto es True (la API por su cuenta usa
+            False), así que siempre se envía explícito, nunca se omite.
 
     Returns:
         `output_dir`, con el paquete ya extraído dentro (datapackage.json,
@@ -90,7 +96,13 @@ def fetch_camtrapdp_package(
         base_url=trapper_url, user_name=trapper_user, user_password=trapper_password, timeout=timeout,
     )
 
-    package_kwargs = {}
+    console.print(
+        "  Using Trapper's own defaults for: approved_only=True, exclude_blank=False, "
+        "trapper_url_token=True, release=False, private_human=True, private_vehicle=True "
+        "(not yet configurable from wildintel-publisher)."
+    )
+
+    package_kwargs = {"include_events": include_events}
     if title:
         package_kwargs["title"] = title
     if description:

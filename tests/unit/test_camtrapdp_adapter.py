@@ -40,3 +40,22 @@ def test_anonymize_coordinates_rounds_deployments_csv_in_place(tmp_path):
         rows = list(csv.DictReader(f))
     assert rows[0]["latitude"] == "41.12"
     assert rows[0]["longitude"] == "-3.99"
+
+
+def _write_media_csv(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "media.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["mediaID", "fileName"])
+        writer.writeheader()
+        writer.writerow({"mediaID": "img001", "fileName": "img001.jpg"})
+    return root
+
+
+def test_randomize_media_ids_replaces_media_csv_ids_in_place(tmp_path):
+    input_dir = _write_media_csv(tmp_path)
+
+    CamtrapDPAdapter().randomize_media_ids(input_dir)
+
+    with (input_dir / "media.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["mediaID"] != "img001"
