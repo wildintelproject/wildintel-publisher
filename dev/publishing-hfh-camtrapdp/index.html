@@ -1693,31 +1693,34 @@ description, the public images, and the generated documentation — to
 <h2 id="what-gets-stored">What gets stored</h2>
 <p>Regardless of publishing mode, the repository always ends up with the four core Camtrap DP
 tables (<code>datapackage.json</code>, <code>deployments.csv</code>, <code>media.csv</code>, <code>observations.csv</code> — private
-rows already filtered out), the common description (<code>metadata.json</code>), and the generated
-documentation (<code>README.md</code>, <code>LICENSE</code>, <code>CITATION.cff</code>, <code>checksums-sha256.txt</code>).</p>
+rows already filtered out), the common description (<code>metadata.json</code>), the generated
+documentation (<code>README.md</code>, <code>LICENSE</code>, <code>CITATION.cff</code>, <code>checksums-sha256.txt</code>), and
+<code>camtrapdp-remote.zip</code> — the same four tables, packed as-is into a zip. This is the one
+to register as <a href="../publishing-gbif/">GBIF</a>'s <code>--archive-url</code> — GBIF's <code>CAMTRAP_DP</code> crawler
+downloads and decompresses whatever URL it's given, so it needs a real zip archive, unlike
+a bare <code>datapackage.json</code> (not an archive at all). The zip itself lives at a permanent
+Hugging Face Hub URL regardless of mode; only what its own <code>filePath</code> entries point at
+differs between the two:</p>
 <ul>
 <li><strong>Mirror mode (the default)</strong> — every public image is downloaded and uploaded to the
   repository as its own individual file, under <code>images/</code>, preserving the original file
   arrangement: one file per image, never a zip. <code>media.csv</code>'s <code>filePath</code> is rewritten,
   once the destination repository is known, to the real, permanent Hugging Face Hub URL
-  of each image. Two additional zips are also generated:<ul>
-<li><code>camtrapdp-local.zip</code> — the same tables with <code>filePath</code> made relative to <code>images/</code>,
-  meant to be used together with the already-downloaded <code>images/</code> folder without
-  needing network access to resolve each file again.</li>
-<li><code>camtrapdp-remote.zip</code> — the same tables as-is, <code>filePath</code> left pointing at the real
-  Hugging Face Hub URLs. This is the one to register as
-  <a href="../publishing-gbif/">GBIF</a>'s <code>--archive-url</code> — GBIF's <code>CAMTRAP_DP</code> crawler
-  downloads and decompresses whatever URL it's given, so it needs a real zip archive
-  whose media references are resolvable once extracted in isolation, unlike
-  <code>camtrapdp-local.zip</code>'s relative paths (meaningful only alongside a sibling
-  <code>images/</code> folder) or a bare <code>datapackage.json</code> (not an archive at all).</li>
-</ul>
-</li>
-<li><strong>Link mode</strong> — no images are downloaded or uploaded at all. The repository still gets
-  the four core tables, but <code>media.csv</code>'s <code>filePath</code> is left exactly as Trapper
-  delivered it: a temporary, one-shot URL that expires. This only really makes sense for
-  a quick, throwaway inspection, since Hugging Face Hub is the one repository in this
-  project actually meant to host the media itself.</li>
+  of each image — <code>camtrapdp-remote.zip</code>'s own <code>filePath</code> entries carry these same
+  permanent URLs, so GBIF's crawler can resolve every image directly once it extracts the
+  zip in isolation. An additional <code>camtrapdp-local.zip</code> is also generated — the same
+  tables with <code>filePath</code> made relative to <code>images/</code> instead, meant to be used together
+  with the already-downloaded <code>images/</code> folder without needing network access to resolve
+  each file again (meaningless once extracted on its own, unlike <code>camtrapdp-remote.zip</code>).</li>
+<li><strong>Link mode</strong> — no images are downloaded or uploaded at all, and no
+  <code>camtrapdp-local.zip</code> either (there's no local <code>images/</code> folder for it to reference).
+  <code>media.csv</code>'s <code>filePath</code> — and therefore <code>camtrapdp-remote.zip</code>'s own copy of it too —
+  is left exactly as the source gave it: Trapper's temporary, one-shot URL (expires), a
+  local path (meaningless to an external crawler), or an already-public URL if the
+  product's own source was a <a href="../product-camtrapdp/#1-what-is-camtrap-dp">Public URL</a>
+  archive (in which case the reference stays valid). The zip archive itself is still
+  fetchable and decompressible by GBIF either way — only whether its <em>internal</em> media
+  references stay resolvable afterwards depends on the source.</li>
 </ul>
 <p>This is the one repository where images travel one by one, as real files in the
 repository — Zenodo and B2SHARE, in contrast, bundle them into a single zip when hosting

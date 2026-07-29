@@ -1390,10 +1390,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-choose-the-primary-doi-only-if-hfh-zenodo-and-b2share-are-all-selected" class="md-nav__link">
+  <a href="#6-confirm-and-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)
+        6. Confirm and publish
       
     </span>
   </a>
@@ -1401,21 +1401,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-confirm-and-publish" class="md-nav__link">
+  <a href="#7-when-its-done" class="md-nav__link">
     <span class="md-ellipsis">
       
-        7. Confirm and publish
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#8-when-its-done" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. When it's done
+        7. When it's done
       
     </span>
   </a>
@@ -1788,10 +1777,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-choose-the-primary-doi-only-if-hfh-zenodo-and-b2share-are-all-selected" class="md-nav__link">
+  <a href="#6-confirm-and-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)
+        6. Confirm and publish
       
     </span>
   </a>
@@ -1799,21 +1788,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-confirm-and-publish" class="md-nav__link">
+  <a href="#7-when-its-done" class="md-nav__link">
     <span class="md-ellipsis">
       
-        7. Confirm and publish
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#8-when-its-done" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. When it's done
+        7. When it's done
       
     </span>
   </a>
@@ -1857,12 +1835,24 @@ an already-published Camtrap DP zip archive from a public URL (validated against
 official schema on the way in — the same URL is then reusable as-is for
 <a href="../publishing-gbif/">GBIF</a>'s own archive URL, since it's already confirmed public).</p>
 <p><img alt="Choosing where the package comes from" src="../img/web/source-selection.png" /></p>
+<p>Once a source is picked, two optional preprocessing settings appear below it — both off
+by default, applied once (right as the package's common description is generated), and
+safe to leave unchecked if neither concern applies to your dataset:</p>
+<ul>
+<li><strong>Anonymize deployment coordinates</strong> — rounds every deployment's latitude/longitude
+  before publishing, useful for sensitive sites (poaching risk, protected species,
+  private land).</li>
+<li><strong>Randomize media IDs</strong> — replaces every <code>mediaID</code> that isn't already a UUID with a
+  freshly generated one, keeping <code>media.csv</code>/<code>observations.csv</code> in sync — guards against
+  leaking the original export's own numbering convention, and keeps ids collision-free if
+  this data is later merged elsewhere.</li>
+</ul>
+<p><img alt="Anonymize coordinates and randomize media IDs" src="../img/web/camtrapdp-privacy-options.png" /></p>
 <h2 id="3-confirm-the-package-and-its-description">3. Confirm the package and its description</h2>
 <p>Once the package is ready (downloaded, or already local), the wizard shows where it
 lives. If its common description is missing something required (title, description,
 version, license, authors), a form prompts for exactly what's missing; once complete, a
 summary card shows the title, version, license, authors, and homepage.</p>
-<p><img alt="Confirming the package's description" src="../img/web/confirm-package.png" /></p>
 <p><img alt="Confirming the package's description" src="../img/web/confirm-package.png" /></p>
 <h2 id="4-choose-repositories-and-publish-order">4. Choose repositories and publish order</h2>
 <p>For Camtrap DP, the wizard only offers <strong>Hugging Face Hub</strong> and <strong>GBIF</strong> (Zenodo/B2SHARE
@@ -1871,44 +1861,42 @@ not deselectable, so a Camtrap DP dataset always ends up registered with GBIF; H
 Face Hub is optional alongside it.</p>
 <p>If both are selected, Hugging Face Hub always publishes first — this isn't a choice you
 make (there's no manual reordering for this pair): GBIF's own configuration form depends
-on knowing what Hugging Face Hub already did. Its <strong>Archive URL</strong> field auto-fills and
-locks to Hugging Face Hub's own <code>camtrapdp-remote.zip</code>, but only when Hugging Face Hub is
-configured to publish in <strong>Mirror</strong> mode — that file is never generated in <strong>Link</strong> mode,
-so in that case (or when GBIF is the only one selected) the field is left unlocked
-instead, with a note that you need to provide a separate, already-public archive URL by
-hand (see <a href="../guide-web-gbif/">GBIF</a>).</p>
+on knowing what Hugging Face Hub already did. <strong>Archive URL</strong> is the public URL of the
+zip GBIF will download and crawl to build the dataset. This field auto-fills and locks to
+Hugging Face Hub's own copy of it: if Hugging Face Hub was configured as <strong>Mirror</strong>, the
+images inside point to Hugging Face Hub itself; if configured as <strong>Link</strong>, they point
+back to the original repository instead. Only when GBIF is the only one selected is the
+field left unlocked instead, with a note that you need to provide a separate,
+already-public archive URL by hand (see
+<a href="../guide-web-gbif/">GBIF</a>).</p>
 <p><img alt="Choosing repositories and publish order" src="../img/web/repo-selection.png" /></p>
 <h2 id="5-configure-each-selected-repository">5. Configure each selected repository</h2>
 <p>The wizard walks through your selected repositories one at a time, each with its own
 configuration form — see that repository's own page for the full form, field-by-field,
-with a screenshot: <a href="../guide-web-hfh/">Hugging Face Hub</a>, <a href="../guide-web-zenodo/">Zenodo</a>,
-<a href="../guide-web-b2share/">B2SHARE</a>, <a href="../guide-web-gbif/">GBIF</a>.</p>
-<h2 id="6-choose-the-primary-doi-only-if-hfh-zenodo-and-b2share-are-all-selected">6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)</h2>
-<p>If Hugging Face Hub, Zenodo, and B2SHARE are all selected together, you're asked which
-of Zenodo's or B2SHARE's DOI should be treated as <em>primary</em> in Hugging Face Hub's own
-citation file — Hugging Face Hub never has a DOI of its own, so this only comes up when
-there's more than one candidate to choose from.</p>
-<p><img alt="Choosing the primary DOI" src="../img/web/primary-doi-choice.png" /></p>
-<h2 id="7-confirm-and-publish">7. Confirm and publish</h2>
-<p>After a final summary screen, <strong>Publish</strong> runs the whole sequence on its own: uploading
-to every selected repository, cross-referencing whatever DOIs Zenodo/B2SHARE obtained
-into each other's (and Hugging Face Hub's) citation file, then locking each repository —
-with a single live progress view showing every repository's status as it goes. GBIF has
-no upload/lock of its own to speak of — it's registered with a single Registry API call
-during this same automated sequence, using the archive URL from step 5 (see <a href="../publishing-gbif/#2-main-characteristics">Publishing
-to GBIF</a>).</p>
-<h2 id="8-when-its-done">8. When it's done</h2>
-<p><img alt="All repositories published" src="../img/web/all-done.png" /></p>
-<p>The wizard confirms which repositories were published, but doesn't print each one's
-resulting URL/DOI/PID directly on this screen — check the repository itself, or the
-record file its own output directory holds (<code>zenodo_record.json</code>,
-<code>b2share_record.json</code>, <code>gbif_linked_dataset_record.json</code>). If Zenodo and/or B2SHARE were
-published, you can also use the <strong>Sync DOI</strong>/<strong>Sync PID</strong> sections shown here — besides
-reflecting the DOI/PID into an already-published Hugging Face Hub export, they confirm
-success with a direct link back to it (see <a href="../guide-web-zenodo/#sync-doi-to-hugging-face-hub">Zenodo</a>/
-<a href="../guide-web-b2share/#sync-piddoi-to-hugging-face-hub">B2SHARE</a>). If B2SHARE is still
-pending moderator review, that's shown too — its final PID/DOI won't be known until a
-moderator approves the submission, which happens outside this wizard run.</p>
+with a screenshot: <a href="../guide-web-hfh/">Hugging Face Hub</a>, <a href="../guide-web-gbif/">GBIF</a>.</p>
+<h2 id="6-confirm-and-publish">6. Confirm and publish</h2>
+<p>Once every selected repository is configured, a final summary screen appears, confirming
+nothing has actually been published yet. If you checked <strong>Dry run</strong> back in step 4,
+that's called out here too — the button reads <strong>Start dry run now</strong> instead of
+<strong>Publish</strong>, and simulates the whole flow without uploading or creating anything on
+Hugging Face Hub or GBIF (no token/credentials needed in this mode).</p>
+<p><img alt="Ready to publish" src="../img/web/ready-to-publish.png" /></p>
+<p><strong>Publish</strong> runs the whole sequence on its own: uploading
+to Hugging Face Hub (if selected) and registering the package with GBIF, syncing GBIF's
+DOI (if one was minted) into Hugging Face Hub's citation file, then locking Hugging Face
+Hub — with a single live progress view showing every repository's status as it goes.
+GBIF has no upload/lock of its own to speak of — it's registered with a single Registry
+API call during this same automated sequence, using the archive URL entered in step 5
+(see <a href="../publishing-gbif/#2-main-characteristics">Publishing to GBIF</a>).</p>
+<h2 id="7-when-its-done">7. When it's done</h2>
+<p><img alt="Publish finished — this example used Dry run, see step 6" src="../img/web/all-done.png" /></p>
+<p>The heading reads <strong>All done!</strong> normally (this example used <strong>Dry run</strong>, so it reads
+<strong>Dry run complete!</strong> instead — see step 6). Either way, the wizard confirms which
+repositories were published (or simulated) and, for a real run, lists each one's
+resulting URL directly on this screen — GBIF's own entry also notes that its crawl (and
+so the actual occurrence records) can take a few hours to catch up, even though the
+dataset page itself is already live. Its DOI isn't shown here, though — check the record
+file its own output directory holds (<code>gbif_linked_dataset_record.json</code>) for that.</p>
 <p>If GBIF was published alongside Hugging Face Hub in the same run and came back with a
 DOI, it's already synced into Hugging Face Hub's <code>CITATION.cff</code> automatically — this
 screen just confirms it, with a link back to the export, no extra step needed. GBIF's own
