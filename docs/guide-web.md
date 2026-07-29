@@ -14,7 +14,7 @@ For the same walkthrough using the command line instead, see the
 
 ## Getting the web app
 
-Prebuilt binaries — no Python or Node installation required.
+The app is available for Windows, macOS, and Linux. Follow these steps:
 
 1. Go to the [Releases page](https://github.com/wildintelproject/wildintel-publisher/releases)
    and pick the latest stable release (or the `web-dev` pre-release for the latest
@@ -46,7 +46,8 @@ Prebuilt binaries — no Python or Node installation required.
    ```
 
 It starts a local server and opens your default browser automatically (falling back to
-the next free port if its default one is busy) — no separate step needed.
+the next free port if its default one is busy) — no separate step needed. If everything
+went well, a screen similar to the following should appear:
 
 ![The welcome screen](img/web/welcome.png)
 
