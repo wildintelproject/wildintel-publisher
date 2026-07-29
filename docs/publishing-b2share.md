@@ -65,7 +65,7 @@ example per product type — see:
 | Product type | Availability |
 |---|---|
 | [Camtrap DP](publishing-b2share-camtrapdp.md) | ✅ Available |
-| [YOLO Dataset](publishing-b2share-yolo.md) | ✅ Available |
+| [AI Dataset](publishing-b2share-yolo.md) | ✅ Available |
 | YOLO-based AI models | 🔜 Coming soon |
 
 Each link details exactly what ends up stored in the B2SHARE record for that product

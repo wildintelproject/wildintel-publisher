@@ -77,13 +77,9 @@ pre-fills its forms with those same saved values.
 On the wizard's first screen, pick what you want to publish. Currently we can publish:
 
 - **[Camtrap DP](guide-web-camtrapdp.md)** — a camera-trap package, fetched from a
-  Trapper classification project or already available locally, to Hugging Face Hub
-  and/or GBIF (the wizard's own repository choice for this product type — Zenodo/B2SHARE
-  stay available for it via the CLI). GBIF is mandatory here.
-- **[YOLO Dataset](guide-web-yolo.md)** — a local YOLO training dataset, to Hugging Face
-  Hub, Zenodo, and/or B2SHARE (Zenodo is mandatory here).
-- **[Software Application](guide-web-software.md)** — a git repository, to Zenodo
-  and/or B2SHARE (Zenodo is mandatory here).
+  Trapper classification project or already available locally.
+- **[AI Dataset](guide-web-yolo.md)** — a local dataset in YOLO training format.
+- **[Software Application](guide-web-software.md)** — a git repository.
 - **AI Model** *(coming soon)* — a trained AI model artifact.
 - **EBV** *(coming soon)* — Essential Biodiversity Variables derived from the project
   data.

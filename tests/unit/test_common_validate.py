@@ -58,6 +58,20 @@ def test_validate_camtrap_dp_raises_on_invalid_report(tmp_path):
             validate_camtrap_dp(tmp_path)
 
 
+def test_validate_camtrap_dp_raises_on_missing_profile_when_patch_disabled(tmp_path):
+    datapackage_path = tmp_path / "datapackage.json"
+    datapackage_path.write_text(json.dumps({"title": "T"}), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="does not declare a \"profile\""):
+        validate_camtrap_dp(tmp_path, patch_missing_profile=False)
+
+    # Nothing written — unlike the default, this path never touches the file,
+    # since it's meant for a throwaway copy of a zip hosted somewhere this
+    # project doesn't control (see gbif.validate_camtrap_dp_archive).
+    data = json.loads(datapackage_path.read_text(encoding="utf-8"))
+    assert "profile" not in data
+
+
 def test_validate_camtrap_dp_raises_when_datapackage_missing(tmp_path):
     with pytest.raises(RuntimeError, match="not found"):
         validate_camtrap_dp(tmp_path)

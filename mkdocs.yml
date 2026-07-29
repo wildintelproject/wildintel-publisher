@@ -114,22 +114,22 @@ nav:
   - Products:
       - Overview: products.md
       - Camtrap DP: product-camtrapdp.md
-      - YOLO Dataset: product-yolo.md
+      - AI Dataset: product-yolo.md
       - Software Application: product-software.md
   - Publishing:
       - Overview: publishing-guide.md
       - Hugging Face Hub:
           - Overview: publishing-hfh.md
           - Camtrap DP: publishing-hfh-camtrapdp.md
-          - YOLO Dataset: publishing-hfh-yolo.md
+          - AI Dataset: publishing-hfh-yolo.md
       - Zenodo:
           - Overview: publishing-zenodo.md
           - Camtrap DP: publishing-zenodo-camtrapdp.md
-          - YOLO Dataset: publishing-zenodo-yolo.md
+          - AI Dataset: publishing-zenodo-yolo.md
       - B2SHARE:
           - Overview: publishing-b2share.md
           - Camtrap DP: publishing-b2share-camtrapdp.md
-          - YOLO Dataset: publishing-b2share-yolo.md
+          - AI Dataset: publishing-b2share-yolo.md
       - GBIF: publishing-gbif.md
   - Features: features.md
   - Developer Guide: developer-guide.md
@@ -139,7 +139,7 @@ nav:
           - Overview: guide-web.md
           - Products:
               - Camtrap DP: guide-web-camtrapdp.md
-              - YOLO Dataset: guide-web-yolo.md
+              - AI Dataset: guide-web-yolo.md
               - Software Application: guide-web-software.md
           - Config:
               - Hugging Face Hub: guide-web-hfh.md

@@ -49,7 +49,7 @@ example per product type — see:
 | Product type | Availability |
 |---|---|
 | [Camtrap DP](publishing-hfh-camtrapdp.md) | ✅ Available |
-| [YOLO Dataset](publishing-hfh-yolo.md) | ✅ Available |
+| [AI Dataset](publishing-hfh-yolo.md) | ✅ Available |
 | YOLO-based AI models | 🔜 Coming soon |
 
 Each link details exactly what ends up stored on Hugging Face Hub for that product type,

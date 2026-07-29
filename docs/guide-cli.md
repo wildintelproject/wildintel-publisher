@@ -375,10 +375,10 @@ dataset and replaces its `CAMTRAP_DP` endpoint, rather than creating a duplicate
 
 ---
 
-## YOLO Dataset
+## AI Dataset
 
 Identical shape to Camtrap DP — just a different `--product-type`, and no Trapper step
-(a YOLO dataset is already a local directory).
+(an AI Dataset, in YOLO training format, is already a local directory).
 
 ### 1. Generate its common description
 

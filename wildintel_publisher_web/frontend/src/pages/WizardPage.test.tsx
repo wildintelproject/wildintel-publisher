@@ -73,13 +73,13 @@ describe('WizardPage', () => {
     expect(screen.getByText('Download')).toBeInTheDocument()
   })
 
-  it('shows the six product type options, with Camtrap DP, YOLO Dataset and Software Application enabled', () => {
+  it('shows the six product type options, with Camtrap DP, AI Dataset and Software Application enabled', () => {
     // AI Model/EBV/Image Gallery have no adapter of their own yet (see
     // WizardPage's PRODUCT_OPTIONS comment).
     render(<WizardPage />)
 
     expect(screen.getByRole('button', { name: /camtrap dp/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /yolo dataset/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /ai dataset/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /software application/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /ai model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /ebv/i })).toBeDisabled()
@@ -293,7 +293,7 @@ async function reachPublishStepYolo() {
     authors: [{ name: 'Alice', affiliation: '' }],
   })
 
-  await userEvent.click(screen.getByRole('button', { name: /yolo dataset/i }))
+  await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
   await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
   await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -312,9 +312,9 @@ describe('WizardPage coordinate anonymization', () => {
     expect(screen.getByText('Anonymize deployment coordinates')).toBeInTheDocument()
   })
 
-  it('does not show the anonymize-coordinates option for a YOLO Dataset', async () => {
+  it('does not show the anonymize-coordinates option for an AI Dataset', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /yolo dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
 
     expect(screen.queryByText('Anonymize deployment coordinates')).not.toBeInTheDocument()

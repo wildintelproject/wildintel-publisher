@@ -1,7 +1,7 @@
 # Web App User Guide — Software Application
 
-A step-by-step walkthrough of publishing a software application using the web app's
-wizard — screen by screen, with no commands involved. See the [Publishing
+The `wildintel-publisher` web app makes it easy to publish a software application — a
+step-by-step wizard, screen by screen, with no commands involved. See the [Publishing
 Guide](publishing-guide.md) for the concepts referenced along the way (media modes,
 locking, the generic pipeline), and [Software Application](product-software.md) for what
 this product type actually is. Before starting, make sure every repository account you

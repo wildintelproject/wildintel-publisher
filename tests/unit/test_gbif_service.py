@@ -178,6 +178,28 @@ def test_validate_camtrap_dp_archive_passes_for_a_zip_nested_in_a_single_top_lev
         validate_camtrap_dp_archive("https://example.org/camtrapdp-remote.zip")  # must not raise
 
 
+def test_validate_camtrap_dp_archive_disables_profile_patching(camtrapdp_dir, tmp_path, monkeypatch):
+    # This is a throwaway extraction of a URL this project doesn't control —
+    # patching a missing "profile" here would only fix a copy that's about
+    # to be discarded, while the real, unpatched remote file is what GBIF's
+    # own crawler will actually fetch (see common.validate_camtrap_dp's own
+    # patch_missing_profile docstring). validate_camtrap_dp_archive must
+    # therefore call it with patch_missing_profile=False.
+    input_dir = camtrapdp_dir()
+    zip_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for filename in ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]:
+            zf.write(input_dir / filename, filename)
+
+    fake_validate = MagicMock()
+    monkeypatch.setattr("wildintel_publisher.services.gbif.common.validate_camtrap_dp", fake_validate)
+    with patch("httpx.stream", return_value=_fake_stream_response(200, zip_path.read_bytes())):
+        validate_camtrap_dp_archive("https://example.org/camtrapdp-local.zip")
+
+    fake_validate.assert_called_once()
+    assert fake_validate.call_args.kwargs.get("patch_missing_profile") is False
+
+
 def test_validate_camtrap_dp_archive_propagates_a_schema_validation_failure(camtrapdp_dir, tmp_path, monkeypatch):
     # Build the fixture BEFORE overriding the mock: camtrapdp_dir() itself
     # validates the package on the way in (via the same common.

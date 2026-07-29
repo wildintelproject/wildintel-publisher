@@ -164,6 +164,15 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   /api/publish/start` accepted any order, so a request bypassing the wizard UI could
   silently end up with a stale/wrong GBIF registration. Now rejected with a 400 if GBIF is
   listed before Hugging Face Hub in `repos`.
+- CLI/Web: `common.validate_camtrap_dp` silently auto-adds a missing `datapackage.json`
+  `"profile"` field wherever it validates a local copy this project actually controls
+  (Trapper, Local Directory, or a Public URL source's own persisted copy) — correct there,
+  since the patch lands in the exact file that later gets published. GBIF's own **Validate
+  archive** check (`gbif.validate_camtrap_dp_archive`), however, downloads an externally
+  hosted zip into a throwaway extraction it discards right after — patching that copy only
+  "fixed" something nobody would ever see, silently reporting a URL as valid when the real,
+  unpatched file (the one GBIF's own crawler will actually fetch) was still missing
+  `"profile"`. It now raises instead whenever that field is missing there.
 
 ### Changed
 - Web: restrict the Camtrap DP wizard to Hugging Face Hub and GBIF only (Zenodo and
@@ -173,7 +182,7 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   Camtrap DP dataset always ends up registered with GBIF. Hugging Face Hub stays optional
   alongside it (GBIF registers standalone, with a manually-provided archive URL, when
   it's the only repository selected).
-- Web: Zenodo is now mandatory for YOLO Dataset too, pre-selected and not deselectable —
+- Web: Zenodo is now mandatory for AI Dataset too, pre-selected and not deselectable —
   same mechanism, and same reasoning, as Software Application's own Zenodo: its DOI is
   always the one used to cite the dataset. Hugging Face Hub and B2SHARE both stay optional
   alongside it.
@@ -188,7 +197,7 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   URL won't actually exist yet, so **Validate archive** failing at that point doesn't read
   as something being misconfigured.
 - Web: temporarily narrow the wizard to a single, thoroughly-tested flow — Camtrap DP
-  (YOLO Dataset/Software Application marked "Coming soon") published to Hugging Face Hub
+  (AI Dataset/Software Application marked "Coming soon") published to Hugging Face Hub
   and GBIF only (Zenodo/B2SHARE marked "Coming soon" too, for every product type). All
   four are still fully implemented and available via the CLI; this only trims what the
   wizard currently offers.

@@ -108,7 +108,7 @@ User Guide](guide-web-gbif.md).
 | Product type | Availability |
 |---|---|
 | Camtrap DP | ✅ Available |
-| YOLO Dataset | ❌ Not applicable |
+| AI Dataset | ❌ Not applicable |
 | YOLO-based AI models | ❌ Not applicable |
 
 Camtrap DP is a biodiversity data standard GBIF/TDWG recognize natively — YOLO training

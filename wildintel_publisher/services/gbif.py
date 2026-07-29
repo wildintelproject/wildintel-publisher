@@ -240,10 +240,18 @@ def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
     silently otherwise (a crawl that finishes with finishReason=ABORT and
     nothing ever indexed, with no error visible anywhere in this project).
 
+    Calls common.validate_camtrap_dp with patch_missing_profile=False —
+    `url` is hosted externally, in a throwaway extraction this function
+    discards once done, so silently patching a missing "profile" here (the
+    default elsewhere) would only fix a copy nobody ever sees, while
+    reporting a false "valid" for the real, unpatched file GBIF will
+    actually crawl.
+
     Raises:
         RuntimeError: if `url` isn't http(s), can't be downloaded, isn't a
         real zip archive, or the extracted content doesn't pass Camtrap DP
-        validation (frictionless) — the message identifies which.
+        validation (frictionless, including a missing "profile") — the
+        message identifies which.
     """
     if not (url.startswith("http://") or url.startswith("https://")):
         raise RuntimeError(f"Archive URL must be a public http(s) URL, got: {url}")
@@ -274,7 +282,7 @@ def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(extract_dir)
 
-        common.validate_camtrap_dp(common.find_camtrap_dp_root(extract_dir))
+        common.validate_camtrap_dp(common.find_camtrap_dp_root(extract_dir), patch_missing_profile=False)
 
 
 def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path) -> str:

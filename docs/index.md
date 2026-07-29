@@ -19,7 +19,7 @@ repositories: [Hugging Face Hub](https://huggingface.co/), [Zenodo](https://zeno
 
 What each supported product type is, how it's obtained, and what turning it into a
 publishable export involves: [Camtrap DP](product-camtrapdp.md) ·
-[YOLO Dataset](product-yolo.md).
+[AI Dataset](product-yolo.md).
 
 **[Publishing Guide](publishing-guide.md)**
 

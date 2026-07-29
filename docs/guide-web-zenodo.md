@@ -27,7 +27,7 @@ you to fill in the following fields:
 
 Zenodo reserves its DOI *before* uploading, so it's already known by the time publishing
 finishes — see step 8 of the [Camtrap DP](guide-web-camtrapdp.md#8-when-its-done) or
-[YOLO Dataset](guide-web-yolo.md#8-when-its-done) walkthrough for how to see it.
+[AI Dataset](guide-web-yolo.md#8-when-its-done) walkthrough for how to see it.
 
 ## Sync DOI to Hugging Face Hub
 

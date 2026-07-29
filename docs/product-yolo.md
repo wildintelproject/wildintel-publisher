@@ -1,9 +1,10 @@
-# YOLO Dataset
+# AI Dataset
 
-This guide describes the **YOLO** product type — what it is, how it's obtained, and
-what gets published. See the [Products](products.md) page for an index of every product
-type, and the [Publishing Guide](publishing-guide.md) (plus the per-repository guides it
-links to) for how the publishing process itself works.
+This guide describes the **AI Dataset** product type — a dataset in YOLO training
+format — what it is, how it's obtained, and what gets published. See the
+[Products](products.md) page for an index of every product type, and the [Publishing
+Guide](publishing-guide.md) (plus the per-repository guides it links to) for how the
+publishing process itself works.
 
 ---
 

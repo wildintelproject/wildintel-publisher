@@ -1,16 +1,17 @@
-# Web App User Guide — YOLO Dataset
+# Web App User Guide — AI Dataset
 
-A step-by-step walkthrough of publishing a YOLO dataset using the web app's wizard —
-screen by screen, with no commands involved. See the [Publishing
-Guide](publishing-guide.md) for the concepts referenced along the way (media modes,
-locking, the generic pipeline). Before starting, make sure every repository account you
-plan to use is ready — see [Before you start](guide-web.md#before-you-start).
+The `wildintel-publisher` web app makes it easy to publish an AI Dataset (a dataset in
+YOLO training format) — a step-by-step wizard, screen by screen, with no commands
+involved. See the [Publishing Guide](publishing-guide.md) for the concepts referenced
+along the way (media modes, locking, the generic pipeline). Before starting, make sure
+every repository account you plan to use is ready — see [Before you
+start](guide-web.md#before-you-start).
 
 ---
 
 ## 1. Choose what to publish
 
-On the wizard's first screen, pick **YOLO Dataset**.
+On the wizard's first screen, pick **AI Dataset**.
 
 ![Choosing what to publish](img/web/product-selection-yolo.png)
 

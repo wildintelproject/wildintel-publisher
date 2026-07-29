@@ -31,7 +31,7 @@ interface ProductOption {
 // "Adding a new product type").
 const PRODUCT_OPTIONS: ProductOption[] = [
   { value: 'camtrapdp', emoji: '📦', title: 'Camtrap DP', description: 'A camera-trap data package fetched from Trapper.', available: true },
-  { value: 'yolo', emoji: '🗂️', title: 'YOLO Dataset', description: 'An image dataset in YOLO training format (images/train, val, test + data.yaml).', available: true },
+  { value: 'yolo', emoji: '🗂️', title: 'AI Dataset', description: 'An image dataset in YOLO training format (images/train, val, test + data.yaml).', available: true },
   { value: 'software', emoji: '💻', title: 'Software Application', description: 'A software application published from its own git repository.', available: true },
   { value: 'ai_model', emoji: '🤖', title: 'AI Model', description: 'A trained AI model artifact.', available: false },
   { value: 'ebv', emoji: '🌍', title: 'EBV', description: 'Essential Biodiversity Variables derived from the project data.', available: false },
@@ -110,7 +110,7 @@ const REPOS_BY_PRODUCT_TYPE: Record<ProductType, RepoId[]> = {
 }
 
 // Repos that, once their product type is picked, are pre-selected and
-// can't be deselected — Zenodo is always published for both YOLO Dataset
+// can't be deselected — Zenodo is always published for both AI Dataset
 // and Software Application (its DOI is the one used to cite the dataset/
 // software), and for Camtrap DP, GBIF is always registered (see the
 // "Required" badge in the repo-selection grid, and toggleRepo's own guard

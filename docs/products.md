@@ -12,7 +12,7 @@ it can be published to.
 | Product type | Source | Availability |
 |---|---|---|
 | [Camtrap DP](product-camtrapdp.md) | A [Trapper](https://gitlab.com/trapper-project/trapper) classification project | Available |
-| [YOLO Dataset](product-yolo.md) | An already-local YOLO training dataset | Available |
+| [AI Dataset](product-yolo.md) | An already-local dataset in YOLO training format | Available |
 | [Software Application](product-software.md) | A git repository, cloned via its URL | Available |
 | YOLO-based AI models | Trained model weights/checkpoints produced from a YOLO dataset | 🔜 Coming soon |
 
@@ -20,7 +20,7 @@ it can be published to.
   observations, in the [Camtrap DP](https://camtrap-dp.tdwg.org/) standard. Comes from a
   Trapper classification project, with any media marked private filtered out before
   anything is published anywhere.
-- **[YOLO Dataset](product-yolo.md)** — an object-detection training dataset in
+- **[AI Dataset](product-yolo.md)** — an object-detection training dataset in
   [YOLO](https://docs.ultralytics.com/datasets/)'s standard layout: images split into
   training/validation/test sets, each paired with its bounding-box labels.
 - **[Software Application](product-software.md)** — source code archived as its own
@@ -50,7 +50,7 @@ fit for either. Conversely, a software application has no media/dataset content 
 own, so Hugging Face Hub isn't a fit for it either — only Zenodo/B2SHARE, which mint a
 DOI for the code itself.
 
-| Repository | Camtrap DP | YOLO Dataset | Software Application | YOLO-based AI models |
+| Repository | Camtrap DP | AI Dataset | Software Application | YOLO-based AI models |
 |---|:---:|:---:|:---:|:---:|
 | [Hugging Face Hub](publishing-hfh.md) | ✅ | ✅ | ❌ | 🔜 |
 | [Zenodo](publishing-zenodo.md) | ✅ | ✅ | ✅ | 🔜 |
@@ -64,7 +64,7 @@ DOI for the code itself.
     CLI's `hfh`/`zenodo`/`b2share`/`gbif` commands stay generic across product types (see
     the [Developer Guide](developer-guide.md)). The web app's own wizard, however, only
     lets a Camtrap DP package be published to Hugging Face Hub and GBIF, keeping
-    Zenodo/B2SHARE reserved for YOLO datasets and software applications in that flow. GBIF
+    Zenodo/B2SHARE reserved for AI Datasets and software applications in that flow. GBIF
     is **mandatory** there — pre-selected and not deselectable, so a Camtrap DP dataset
     always ends up registered with GBIF (Hugging Face Hub stays optional alongside it).
 

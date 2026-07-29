@@ -145,7 +145,7 @@ def write_checksums(output_dir: Path) -> Path:
     return path
 
 
-def validate_camtrap_dp(output_dir: Path) -> None:
+def validate_camtrap_dp(output_dir: Path, *, patch_missing_profile: bool = True) -> None:
     """Valida datapackage.json (y los CSV que referencia) contra el esquema
     oficial de Camtrap DP con frictionless — no solo la estructura genérica
     de Data Package, sino los requisitos propios del estándar (campos
@@ -154,13 +154,27 @@ def validate_camtrap_dp(output_dir: Path) -> None:
 
     Si datapackage.json no declara "profile" (necesario para que frictionless
     sepa que debe aplicar el esquema de Camtrap DP, no solo el genérico de
-    Data Package), se le añade aquí mismo — queda así permanentemente en el
-    fichero, que es lo que el propio estándar recomienda para que cualquier
-    herramienta lo autodetecte.
+    Data Package):
+
+    - patch_missing_profile=True (default) — se añade aquí mismo, en
+      `output_dir`, y queda así permanentemente en el fichero, que es lo que
+      el propio estándar recomienda para que cualquier herramienta lo
+      autodetecte. Correcto siempre que `output_dir` sea una copia local que
+      este proyecto controla y desde la que luego se construye lo que se
+      publica (Trapper, Local Directory, o la copia ya persistida al usar
+      Public URL como fuente) — el parche llega a lo que de verdad se sube.
+    - patch_missing_profile=False — se lanza un error en su lugar, sin
+      tocar nada. Pensado para cuando `output_dir` es la extracción
+      *desechable* de un zip alojado en una URL externa que este proyecto no
+      controla (ver gbif.validate_camtrap_dp_archive): parchear ahí solo
+      arreglaría una copia temporal que se descarta al momento, dando una
+      falsa validación — el zip real, tal y como lo rastreará GBIF, seguiría
+      sin "profile".
 
     Raises:
-        RuntimeError: si datapackage.json no es JSON válido, o si la
-        validación de Camtrap DP falla (con el detalle de cada error).
+        RuntimeError: si datapackage.json no es JSON válido, si le falta
+        "profile" y patch_missing_profile=False, o si la validación de
+        Camtrap DP falla (con el detalle de cada error).
     """
     datapackage_path = output_dir / DATAPACKAGE_FILENAME
     if not datapackage_path.is_file():
@@ -172,6 +186,15 @@ def validate_camtrap_dp(output_dir: Path) -> None:
         raise RuntimeError(f"{datapackage_path} is not valid JSON: {exc}") from exc
 
     if not data.get("profile"):
+        if not patch_missing_profile:
+            raise RuntimeError(
+                f"{datapackage_path} does not declare a \"profile\" — required for GBIF's own "
+                f"CAMTRAP_DP crawler (and frictionless) to recognise this as a Camtrap DP package, "
+                f"not just a generic Data Package. This archive is hosted externally, so it can't be "
+                f'patched from here: add "profile": "{CAMTRAP_DP_PROFILE_URL}" to datapackage.json '
+                "at the source and re-publish it there, or fetch/rebuild it through a source this "
+                "project controls (Trapper, or a local directory) instead."
+            )
         data["profile"] = CAMTRAP_DP_PROFILE_URL
         datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         console.print(f"  datapackage.json: added \"profile\": \"{CAMTRAP_DP_PROFILE_URL}\" (it didn't have one).")

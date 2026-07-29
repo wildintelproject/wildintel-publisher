@@ -1,7 +1,7 @@
 # Web App User Guide — Camtrap DP
 
-A step-by-step walkthrough of publishing a Camtrap DP package using the web app's wizard —
-screen by screen, with no commands involved. See the [Publishing
+The `wildintel-publisher` web app makes it easy to publish a Camtrap DP package — a
+step-by-step wizard, screen by screen, with no commands involved. See the [Publishing
 Guide](publishing-guide.md) for the concepts referenced along the way (media modes,
 locking, the generic pipeline). Before starting, make sure every repository account you
 plan to use is ready — see [Before you start](guide-web.md#before-you-start).

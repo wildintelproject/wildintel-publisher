@@ -31,7 +31,7 @@ you to fill in the following fields:
 Unlike Zenodo, B2SHARE only *submits* the record for moderator review — its PID/DOI may
 not be known yet once the wizard finishes (see step 8 of the
 [Camtrap DP](guide-web-camtrapdp.md#8-when-its-done) or
-[YOLO Dataset](guide-web-yolo.md#8-when-its-done) walkthrough).
+[AI Dataset](guide-web-yolo.md#8-when-its-done) walkthrough).
 
 ## Sync PID/DOI to Hugging Face Hub
 

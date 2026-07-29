@@ -116,4 +116,7 @@ def _mock_camtrap_dp_validation(monkeypatch: pytest.MonkeyPatch):
     time (before this fixture runs), which binds its own independent
     reference to the original function object — unaffected by this fixture
     rebinding the attribute on the `common` module later."""
-    monkeypatch.setattr("wildintel_publisher.services.common.validate_camtrap_dp", lambda output_dir: None)
+    monkeypatch.setattr(
+        "wildintel_publisher.services.common.validate_camtrap_dp",
+        lambda output_dir, *, patch_missing_profile=True: None,
+    )

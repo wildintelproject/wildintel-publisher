@@ -6,8 +6,8 @@
   a [Trapper](https://gitlab.com/trapper-project/trapper) classification project
   (optionally scoped to a single deployment), automatically filtering out any media
   marked private before anything is ever written to disk or published anywhere.
-- **[YOLO](product-yolo.md)** — publishes an already-local YOLO training dataset
-  (`images/train,val,test` + `data.yaml`) with no external fetch step.
+- **[AI Dataset](product-yolo.md)** — publishes an already-local dataset in YOLO training
+  format (`images/train,val,test` + `data.yaml`) with no external fetch step.
 - **A shared, generic pipeline** underneath both: `product generate-metadata` extracts
   a common `title`/`description`/`version`/`license`/`authors`/`homepage` envelope
   (`metadata.json`) from whichever product type you're publishing, so every
