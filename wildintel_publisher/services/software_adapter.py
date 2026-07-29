@@ -108,9 +108,9 @@ class SoftwareAdapter:
             metadata["homepage"] = _git_remote_url(input_dir)
         return metadata
 
-    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:
         if not version:
-            return
+            return None
         tag = git_source.checkout_matching_tag(input_dir, version)
         if tag:
             console.print(f"[green]✓[/green] Checked out tag {tag!r} (CITATION.cff version {version!r}).")
@@ -119,6 +119,7 @@ class SoftwareAdapter:
                 f"[yellow]⚠[/yellow] No git tag matches version {version!r} — using the default "
                 "branch's latest commit."
             )
+        return tag
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
         # image_timeout accepted for interface parity with the other
@@ -197,8 +198,28 @@ class SoftwareAdapter:
     def link_media_to_hfh(self, output_dir: Path, hfh_repo_id: str) -> int:
         return 0  # no media of any kind to rewrite — a software product is never linked to HFH
 
-    def bundle_local_zip(self, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
-        product.zip_directory(output_dir, zip_path, exclude_names=product.GENERATED_FILENAMES)
+    def bundle_local_zip(self, input_dir: Path, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
+        """Zips `input_dir` (the raw clone) directly, under the repository's
+        own real file names — GIT_DIRNAME and metadata.json aside, this is
+        the exact same "whole repo" content prepare(mirror=True) copies into
+        output_dir too, just read from the untouched original instead of
+        that already-processed (SOURCE_-renamed) copy. A whole-repo mirror
+        has nothing product-specific for prepare() to transform first
+        (unlike Camtrap DP's private-media filtering/image download), so
+        reading directly from input_dir is both simpler and produces a zip
+        whose files keep their real names (e.g. the repo's own README.md),
+        rather than a SOURCE_-prefixed copy of it living alongside a
+        newly-generated one of the same original name."""
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for entry in sorted(input_dir.iterdir()):
+                if entry.name in (GIT_DIRNAME, product.METADATA_FILENAME):
+                    continue
+                if entry.is_file():
+                    zf.write(entry, entry.relative_to(input_dir).as_posix())
+                elif entry.is_dir():
+                    for file_path in sorted(entry.rglob("*")):
+                        if file_path.is_file():
+                            zf.write(file_path, file_path.relative_to(input_dir).as_posix())
 
     def readme_context(self, output_dir: Path) -> dict:
         return {}

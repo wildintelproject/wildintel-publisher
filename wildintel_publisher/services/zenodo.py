@@ -156,7 +156,7 @@ def prepare_zenodo_export(
     )
     if self_contained:
         zip_filename = _self_contained_zip_filename(adapter.product_type)
-        adapter.bundle_local_zip(output_dir, output_dir / zip_filename, embed_images=True)
+        adapter.bundle_local_zip(input_dir, output_dir, output_dir / zip_filename, embed_images=True)
         common.cleanup_self_contained_sources(output_dir, adapter, product_meta, zip_filename)
     common.write_checksums(output_dir)
 

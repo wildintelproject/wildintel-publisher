@@ -149,8 +149,8 @@ class YoloAdapter:
             "homepage": data.get("homepage"),
         }
 
-    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
-        pass  # a YOLO dataset's raw source isn't a git checkout in this pipeline's sense
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:
+        return None  # a YOLO dataset's raw source isn't a git checkout in this pipeline's sense
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
         # image_timeout is accepted for interface parity with
@@ -206,7 +206,7 @@ class YoloAdapter:
     def link_media_to_hfh(self, output_dir: Path, hfh_repo_id: str) -> int:
         return 0  # nothing to rewrite — images/ has no remote-URL references
 
-    def bundle_local_zip(self, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
+    def bundle_local_zip(self, input_dir: Path, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
         # embed_images is always true in practice here: the images/ tree IS
         # the dataset, there's no "loose alongside the zip" mode like
         # Camtrap DP's camtrapdp-local.zip.

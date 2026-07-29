@@ -65,6 +65,12 @@ export interface DatapackageSummary {
    * mode already set it — null if the product was never mirror-published
    * to HFH. */
   hfh_repo_id?: string | null
+  /** Software Application only (see ProductAdapter.checkout_release in the
+   * backend) — the git tag actually checked out to match CITATION.cff's own
+   * "version", or null if none matched (so the default branch's latest
+   * commit was published instead) or this product type has no git checkout
+   * to begin with. Reporting-only, never part of metadata.json itself. */
+  checked_out_tag?: string | null
 }
 
 /** Which of DatapackageSummary's required fields the extractor couldn't

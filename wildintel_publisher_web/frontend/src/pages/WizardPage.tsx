@@ -860,6 +860,21 @@ export default function WizardPage() {
                   </>
                 )}
               </dl>
+
+              {productType === 'software' && summary.version && (
+                summary.checked_out_tag ? (
+                  <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
+                    ✓ Checked out tag <span className="font-mono">{summary.checked_out_tag}</span> — matches
+                    CITATION.cff's own version.
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
+                    ⚠ No git tag matches version <span className="font-mono">{summary.version}</span> —
+                    publishing from the default branch's latest commit instead, which may not be what
+                    CITATION.cff actually describes.
+                  </p>
+                )
+              )}
             </div>
           )}
         </div>

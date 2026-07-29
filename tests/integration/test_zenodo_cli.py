@@ -404,3 +404,37 @@ def test_zenodo_prepare_software_reference_mode_copies_no_source_and_cites_the_r
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
     assert "https://github.com/example/my-app" in readme
     assert "REPLACE_WITH_HF_USER/dataset" not in readme
+
+
+def test_zenodo_prepare_software_self_contained_mode_zips_the_original_repo_files(tmp_path):
+    """Self-contained ("Mirror") mode bundles the whole repo into a zip — its
+    contents come straight from the clone itself (input_dir), so the repo's
+    own README.md/CITATION.cff keep their real names inside the zip, instead
+    of a SOURCE_-renamed copy sitting alongside a newly-generated one under
+    the same original name (see SoftwareAdapter.bundle_local_zip)."""
+    input_dir = _init_software_repo(tmp_path / "repo")
+    (input_dir / "README.md").write_text("# my-app\n", encoding="utf-8")
+    generate = runner.invoke(app, [
+        "product", "generate-metadata", "--input-dir", str(input_dir), "--product-type", "software",
+    ])
+    assert generate.exit_code == 0, generate.output
+
+    output_dir = tmp_path / "zenodo_out"
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir), "--self-contained",
+    ])
+
+    assert result.exit_code == 0, result.output
+    # Only the generated citation files + the zip survive loose in output_dir
+    # — everything else (the repo's own files) is only inside the zip.
+    assert not (output_dir / "main.py").exists()
+    assert (output_dir / "README.md").is_file()
+    assert (output_dir / "CITATION.cff").is_file()
+
+    with zipfile.ZipFile(output_dir / "software.zip") as zf:
+        names = set(zf.namelist())
+    assert "main.py" in names
+    assert "README.md" in names  # the repo's own, real name — not SOURCE_README.md
+    assert "CITATION.cff" in names
+    assert not any(name.startswith(".git/") for name in names)
+    assert "metadata.json" not in names

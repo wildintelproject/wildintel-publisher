@@ -143,7 +143,8 @@ def test_prepare_copies_nothing_when_mirror_is_false(tmp_path):
 
 def test_checkout_release_noops_when_version_is_none(tmp_path):
     root = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
-    SoftwareAdapter().checkout_release(root, version=None)  # must not raise, no git command run
+    result = SoftwareAdapter().checkout_release(root, version=None)  # must not raise, no git command run
+    assert result is None
 
 
 def test_checkout_release_delegates_to_git_source(tmp_path, monkeypatch):
@@ -154,9 +155,10 @@ def test_checkout_release_delegates_to_git_source(tmp_path, monkeypatch):
         lambda repo_dir, version, **kwargs: calls.append((repo_dir, version)) or "v1.0.0",
     )
 
-    SoftwareAdapter().checkout_release(root, version="1.0.0")
+    result = SoftwareAdapter().checkout_release(root, version="1.0.0")
 
     assert calls == [(root, "1.0.0")]
+    assert result == "v1.0.0"
 
 
 def test_checkout_release_does_not_raise_when_no_tag_matches(tmp_path, monkeypatch):
@@ -166,7 +168,9 @@ def test_checkout_release_does_not_raise_when_no_tag_matches(tmp_path, monkeypat
         lambda repo_dir, version, **kwargs: None,
     )
 
-    SoftwareAdapter().checkout_release(root, version="9.9.9")  # must not raise
+    result = SoftwareAdapter().checkout_release(root, version="9.9.9")  # must not raise
+
+    assert result is None
 
 
 def test_prepare_preserves_the_source_citation_cff_under_a_source_prefix(tmp_path):
@@ -286,18 +290,41 @@ def test_link_media_to_hfh_is_a_no_op(tmp_path):
     assert SoftwareAdapter().link_media_to_hfh(output_dir, "alice/dataset") == 0
 
 
-def test_bundle_local_zip_packs_files_but_not_generated_ones(tmp_path):
-    output_dir = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
-    (output_dir / "README.md").write_text("# hi", encoding="utf-8")
-    (output_dir / "metadata.json").write_text("{}", encoding="utf-8")
+def test_bundle_local_zip_reads_input_dir_and_keeps_real_file_names(tmp_path):
+    # Reads directly from input_dir (the untouched clone) — unlike
+    # prepare()'s own copy, there's no SOURCE_ rename here: the repo's own
+    # README.md/CITATION.cff end up in the zip under their real names, since
+    # nothing at those same names is ever generated inside input_dir itself.
+    input_dir = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
+    (input_dir / "README.md").write_text("# hi", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
     zip_path = output_dir / "software-local.zip"
 
-    SoftwareAdapter().bundle_local_zip(output_dir, zip_path, embed_images=True)
+    SoftwareAdapter().bundle_local_zip(input_dir, output_dir, zip_path, embed_images=True)
 
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
     assert "main.py" in names
-    assert "README.md" not in names
+    assert "README.md" in names
+    assert "CITATION.cff" in names
+
+
+def test_bundle_local_zip_excludes_git_dir_and_metadata_json(tmp_path):
+    input_dir = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
+    (input_dir / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (input_dir / "metadata.json").write_text("{}", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    zip_path = output_dir / "software-local.zip"
+
+    SoftwareAdapter().bundle_local_zip(input_dir, output_dir, zip_path, embed_images=True)
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = set(zf.namelist())
+    assert "main.py" in names
+    assert not any(name.startswith(".git/") for name in names)
+    assert "metadata.json" not in names
     assert "metadata.json" not in names
 
 
@@ -320,6 +347,10 @@ def test_generate_metadata_json_writes_product_type_and_history(tmp_path):
     assert result["product_type"] == "software"
     assert result["title"] == "my-app"
     assert result["publish_history"] == []
+    # Reporting-only — never part of metadata.json's own schema (see
+    # ProductAdapter.checkout_release) — _write_repo's ".git" isn't a real
+    # git repository, so there's no tag to actually check out here.
+    assert result["checked_out_tag"] is None
 
     on_disk = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
-    assert on_disk == result
+    assert on_disk == {k: v for k, v in result.items() if k != "checked_out_tag"}

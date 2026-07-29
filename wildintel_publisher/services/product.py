@@ -70,7 +70,7 @@ class ProductAdapter(Protocol):
         """
         ...
 
-    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:
         """Best-effort: if this product type's raw source is a git checkout
         and `version` matches an available tag, switches input_dir to that
         exact tag before anything gets packaged — so what gets published
@@ -80,7 +80,17 @@ class ProductAdapter(Protocol):
         extract_metadata (which is what determined `version` in the first
         place). No-op for product types with nothing analogous — only
         SoftwareAdapter's raw source is a git checkout in this pipeline's
-        sense."""
+        sense.
+
+        Returns:
+            The tag actually checked out, or None — either because this
+            product type has nothing analogous, `version` was empty, or (for
+            SoftwareAdapter specifically) no git tag matched it, so the
+            default branch's latest commit was left in place instead.
+            generate_metadata_json surfaces this (as "checked_out_tag", never
+            persisted to metadata.json itself) so the web wizard can warn
+            when it's falsy and a version WAS given — the CLI already prints
+            its own warning for that case directly."""
         ...
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
@@ -133,9 +143,17 @@ class ProductAdapter(Protocol):
         rewrite (e.g. media that isn't referenced by URL at all)."""
         ...
 
-    def bundle_local_zip(self, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
+    def bundle_local_zip(self, input_dir: Path, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
         """Writes a single self-contained zip of this product's own files —
-        for repos like Zenodo that don't host folder structures."""
+        for repos like Zenodo that don't host folder structures. `input_dir`
+        is the original, untouched product (before this repo's own prepare()
+        ran) — only SoftwareAdapter reads from it directly, zipping the raw
+        clone's own files under their real names instead of output_dir's
+        already-processed (SOURCE_-renamed) copies, since a whole-repo
+        mirror has nothing meaningful prepare() needs to transform first
+        (unlike Camtrap DP's private-media filtering/image download, which
+        must run before anything gets zipped). Every other adapter zips
+        output_dir exactly as before, ignoring input_dir entirely."""
         ...
 
     def readme_context(self, output_dir: Path) -> dict:
@@ -338,10 +356,15 @@ def generate_metadata_json(
     if randomize_media_ids:
         adapter.randomize_media_ids(input_dir)
     metadata = adapter.extract_metadata(input_dir)
-    adapter.checkout_release(input_dir, version=metadata.get("version"))
+    checked_out_tag = adapter.checkout_release(input_dir, version=metadata.get("version"))
     data = {"product_type": product_type, **metadata, "publish_history": []}
     write_metadata_json(input_dir, data)
-    return data
+    # checked_out_tag is reporting-only — never part of metadata.json's own
+    # schema (ProductMetadata forbids unknown fields), just returned here so
+    # callers (the web wizard, in particular) can warn when it's falsy and a
+    # version WAS given, instead of silently publishing code that doesn't
+    # match what's cited (see ProductAdapter.checkout_release).
+    return {**data, "checked_out_tag": checked_out_tag}
 
 
 def missing_required_fields(data: dict) -> list[str]:

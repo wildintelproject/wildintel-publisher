@@ -89,6 +89,23 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   (`include_events=false`); wildintel-publisher now always sends it explicitly, defaulting
   it **on** instead (`--include-events/--no-include-events` on the CLI; an "Include
   events" checkbox, checked by default, once a deployment is selected in the web wizard).
+- Web: a Software Application git clone with no `CITATION.cff` at its root (or any other
+  `ProductAdapter.validate` failure) now shows the actual error message on the package
+  confirmation screen — it used to fail silently, leaving **Next** permanently disabled
+  with no indication why.
+- CLI/Web: whether the git tag matching `CITATION.cff`'s own `version` was actually found
+  (see the "Which commit gets published" entry above) is no longer CLI-only — the web
+  wizard now shows the same outcome as a note on the package confirmation screen: a green
+  confirmation naming the tag if one matched, or an amber warning if it didn't (publishing
+  from the default branch's latest commit instead).
+- CLI/Web: a Software Application published in **Mirror** mode's self-contained zip
+  (`zenodo prepare --self-contained`/`b2share prepare --self-contained`) now bundles the
+  clone's own files under their real names (e.g. the repository's own `README.md`),
+  instead of a `SOURCE_`-renamed copy sitting alongside a newly-generated file of the same
+  original name — `SoftwareAdapter.bundle_local_zip` now reads directly from the untouched
+  clone, since a whole-repo mirror has nothing product-specific for `prepare()` to
+  transform first (unlike Camtrap DP's private-media filtering/image download, which must
+  still run before anything gets zipped there).
 
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four

@@ -44,8 +44,8 @@ class CamtrapDPAdapter:
             "homepage": datapackage_meta.get("homepage"),
         }
 
-    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
-        pass  # Camtrap DP's raw source isn't a git checkout in this pipeline's sense
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:
+        return None  # Camtrap DP's raw source isn't a git checkout in this pipeline's sense
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
         for filename in common.CORE_CAMTRAPDP_FILES:
@@ -96,7 +96,7 @@ class CamtrapDPAdapter:
     def link_media_to_hfh(self, output_dir: Path, hfh_repo_id: str) -> int:
         return common.rewrite_media_filepaths_to_hfh(output_dir, hfh_repo_id)
 
-    def bundle_local_zip(self, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
+    def bundle_local_zip(self, input_dir: Path, output_dir: Path, zip_path: Path, *, embed_images: bool) -> None:
         common.write_local_zip(output_dir, zip_filename=zip_path.name, embed_images=embed_images)
 
     def readme_context(self, output_dir: Path) -> dict:

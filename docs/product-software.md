@@ -61,6 +61,11 @@ commits happen to sit on the default branch. If neither tag exists (or the repos
 doesn't tag releases at all), the default branch's latest commit is used, same as
 before — this is entirely best-effort and never fails the flow.
 
+Either way, the outcome is visible: the CLI's `product generate-metadata` prints which
+tag was checked out (or that none matched), and the web wizard shows the same as a note
+right on the package confirmation screen — a green confirmation when the tag matched, or
+an amber warning when it didn't, so a version/commit mismatch is never silent.
+
 ## 3. What gets published
 
 Before a software application can be published anywhere, it's given a common
@@ -83,12 +88,13 @@ whether the source code itself is copied depends on the mode (Zenodo/B2SHARE's o
 "Mode" choice, same setting every other product type has, just relabeled here since
 there's no Hugging Face Hub to link to):
 
-- **Mirror** (self-contained): copies the whole cloned tree (minus `.git/`) and bundles
-  it into a single zip alongside the generated files — everything needed to use the
-  software offline, in one archive. If the repository already had its own
-  `README.md`/`LICENSE`/`CITATION.cff`, those are kept alongside the generated ones
-  under a `SOURCE_` prefix (e.g. `SOURCE_README.md`) rather than being silently
-  overwritten.
+- **Mirror** (self-contained): bundles the whole cloned tree (minus `.git/`), under its
+  own real file names, into a single zip — everything needed to use the software
+  offline, in one archive. If the repository already had its own
+  `README.md`/`LICENSE`/`CITATION.cff`, those travel inside the zip exactly as the
+  repository had them; the generated `README.md`/`LICENSE`/`CITATION.cff`/checksums sit
+  alongside the zip itself (not inside it), so nothing gets silently overwritten either
+  way.
 - **Reference only**: no source code is copied at all — only the generated
   `README.md`/`CITATION.cff`/`LICENSE`/checksums are published, citing the repository
   directly (its `homepage`). Gives the software a permanent, citable DOI/PID without

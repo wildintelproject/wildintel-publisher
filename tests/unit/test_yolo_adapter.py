@@ -137,7 +137,7 @@ def test_bundle_local_zip_packs_data_yaml_and_images_but_not_generated_files(tmp
     (output_dir / "metadata.json").write_text("{}", encoding="utf-8")
     zip_path = output_dir / "yolo-local.zip"
 
-    YoloAdapter().bundle_local_zip(output_dir, zip_path, embed_images=True)
+    YoloAdapter().bundle_local_zip(output_dir, output_dir, zip_path, embed_images=True)  # input_dir unused here
 
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
@@ -166,7 +166,8 @@ def test_readme_context_accepts_a_names_mapping(tmp_path):
 def test_checkout_release_noops(tmp_path):
     # A YOLO dataset's raw source isn't a git checkout — never raises,
     # never touches the directory.
-    YoloAdapter().checkout_release(tmp_path, version="1.0")
+    result = YoloAdapter().checkout_release(tmp_path, version="1.0")
+    assert result is None
     assert list(tmp_path.iterdir()) == []
 
 
@@ -181,6 +182,10 @@ def test_generate_metadata_json_writes_product_type_and_history(tmp_path):
     assert result["product_type"] == "yolo"
     assert result["title"] == "Test YOLO Dataset"
     assert result["publish_history"] == []
+    # Reporting-only — never part of metadata.json's own schema (see
+    # ProductAdapter.checkout_release) — a YOLO dataset has no git tag to
+    # check out in the first place.
+    assert result["checked_out_tag"] is None
 
     on_disk = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
-    assert on_disk == result
+    assert on_disk == {k: v for k, v in result.items() if k != "checked_out_tag"}

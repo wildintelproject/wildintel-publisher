@@ -129,7 +129,7 @@ def prepare_hfh_export(
             common.LOCAL_ZIP_FILENAME if adapter.product_type == product.CAMTRAPDP
             else f"{adapter.product_type}-local.zip"
         )
-        adapter.bundle_local_zip(output_dir, output_dir / local_zip_filename, embed_images=False)
+        adapter.bundle_local_zip(input_dir, output_dir, output_dir / local_zip_filename, embed_images=False)
     common.write_checksums(output_dir)
 
     console.print(f"[green]✔  HuggingFace Hub export prepared in {output_dir}[/green]")

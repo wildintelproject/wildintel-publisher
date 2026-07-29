@@ -492,6 +492,54 @@ describe('WizardPage metadata errors', () => {
     expect(await screen.findByText(/has no CITATION\.cff/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled()
   })
+
+  async function reachConfirmPackageSoftware() {
+    mockedApi.softwareCloneStart.mockResolvedValue({ task_id: 'clone-task-1' })
+    mockedApi.softwareCloneStatus.mockResolvedValue({
+      status: 'done', path: '/home/user/Documents/wildintel-publisher/software/repo', error: null,
+    })
+    render(<WizardPage />)
+
+    await userEvent.click(screen.getByRole('button', { name: /software application/i }))
+    await userEvent.click(screen.getByRole('button', { name: /git repository/i }))
+    await userEvent.type(screen.getByLabelText(/git repository url/i), 'https://github.com/user/repo.git')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
+  }
+
+  it('confirms the checked-out tag when it matches CITATION.cff\'s version', async () => {
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Software', description: 'A software application.', version: '1.2.0',
+      license: { id: 'MIT', name: 'MIT', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+      checked_out_tag: 'v1.2.0',
+    })
+    await reachConfirmPackageSoftware()
+
+    expect(await screen.findByText(/checked out tag/i)).toBeInTheDocument()
+    expect(screen.getByText('v1.2.0')).toBeInTheDocument()
+    expect(screen.queryByText(/no git tag matches/i)).not.toBeInTheDocument()
+  })
+
+  it('warns when no git tag matches CITATION.cff\'s version', async () => {
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Software', description: 'A software application.', version: '9.9.9',
+      license: { id: 'MIT', name: 'MIT', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+      checked_out_tag: null,
+    })
+    await reachConfirmPackageSoftware()
+
+    expect(await screen.findByText(/no git tag matches/i)).toBeInTheDocument()
+    expect(screen.getAllByText('9.9.9')).toHaveLength(2) // shown both in "Version" and the warning itself
+    expect(screen.queryByText(/^checked out tag/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('WizardPage publish step', () => {

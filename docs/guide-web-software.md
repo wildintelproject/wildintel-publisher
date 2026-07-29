@@ -35,12 +35,13 @@ authors, and homepage.
 
 ![Confirming the package's description](img/web/confirm-package-software.png)
 
-Right after this step, the wizard also tries to switch the local clone to the git tag
-matching `CITATION.cff`'s own `version` (`1.2.0`, then `v1.2.0`) — so what ends up
-published matches the cited release rather than whatever commit happened to be on the
-repository's default branch. If no matching tag exists, it silently proceeds with the
-default branch's latest commit instead; nothing here blocks you from continuing either
-way.
+Before this screen ever renders, the wizard already tried to switch the local clone to
+the git tag matching `CITATION.cff`'s own `version` (`1.2.0`, then `v1.2.0`) — so what
+ends up published matches the cited release rather than whatever commit happened to be on
+the repository's default branch. The outcome is shown right here, below the summary
+card: a green confirmation naming the tag if one matched, or an amber warning if none did
+(publishing from the default branch's latest commit instead) — either way, nothing here
+blocks you from continuing.
 
 ## 4. Choose repositories
 
@@ -61,10 +62,11 @@ configuration form — see [Zenodo](guide-web-zenodo.md)/[B2SHARE](guide-web-b2s
 for the full form, field-by-field. The **Mode** section reads a bit differently here than
 in those pages' own screenshots (captured for Camtrap DP): for a software application it
 reads **Mirror** ("bundles the whole repository, at the version cited in `CITATION.cff`,
-into a single zip") and **Reference only** instead of Link ("only `README.md` and
-`CITATION.cff` are uploaded, citing the repository directly — the source code itself is
-not copied here"). Everything else about these forms (token, environment, communities/
-community UUID, **Test connection**) works exactly the same.
+into a single zip") and **Reference only** instead of Link ("only the generated
+`README.md`/`LICENSE`/`CITATION.cff`/checksums are uploaded, citing the repository
+directly — the source code itself is not copied here"). Everything else about these
+forms (token, environment, communities/community UUID, **Test connection**) works
+exactly the same.
 
 ![Configuring Zenodo for a Software Application](img/web/zenodo-configure-software.png)
 

@@ -18,7 +18,8 @@ def test_readme_context_has_nothing_extra(tmp_path):
 def test_checkout_release_noops(tmp_path):
     # Camtrap DP's raw source isn't a git checkout — never raises, never
     # touches the directory.
-    CamtrapDPAdapter().checkout_release(tmp_path, version="1.0")
+    result = CamtrapDPAdapter().checkout_release(tmp_path, version="1.0")
+    assert result is None
     assert list(tmp_path.iterdir()) == []
 
 
