@@ -12,10 +12,14 @@ import shutil
 import subprocess
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 import yaml
+from rich.console import Console
 
-from wildintel_publisher.services import product
+from wildintel_publisher.services import git_source, product
+
+console = Console()
 
 GIT_DIRNAME = ".git"
 CITATION_CFF_FILENAME = "CITATION.cff"
@@ -104,10 +108,30 @@ class SoftwareAdapter:
             metadata["homepage"] = _git_remote_url(input_dir)
         return metadata
 
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
+        if not version:
+            return
+        tag = git_source.checkout_matching_tag(input_dir, version)
+        if tag:
+            console.print(f"[green]✓[/green] Checked out tag {tag!r} (CITATION.cff version {version!r}).")
+        else:
+            console.print(
+                f"[yellow]⚠[/yellow] No git tag matches version {version!r} — using the default "
+                "branch's latest commit."
+            )
+
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
-        # mirror/image_timeout accepted for interface parity with the other
-        # adapters but unused — a software application has no media to
-        # mirror/link, the whole cloned tree (minus .git) IS the product.
+        # image_timeout accepted for interface parity with the other
+        # adapters but unused — a software application has no images to
+        # download.
+        if not mirror:
+            # "Link" mode: no source copied — prepare_<repo>_export's own
+            # generated README.md/CITATION.cff (written afterwards, on top
+            # of this method's output) cite the repository directly via
+            # metadata.json's homepage instead (see zenodo.py/b2share.py's
+            # write_readme), rather than pointing at a copy that doesn't
+            # exist here.
+            return
         for entry in input_dir.iterdir():
             if entry.name == GIT_DIRNAME:
                 continue

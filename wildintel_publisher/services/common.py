@@ -130,11 +130,15 @@ def write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
 
 def write_checksums(output_dir: Path) -> Path:
     """Escribe checksums-sha256.txt con el SHA-256 de todos los ficheros del
-    export, excluyéndose a sí mismo."""
+    export, excluyéndose a sí mismo y a metadata.json — bookkeeping interno
+    del pipeline (product_type, publish_history...), nunca subido a ningún
+    repositorio (ver upload_to_huggingface/upload_to_zenodo/upload_to_b2share),
+    así que tampoco tiene sentido listarlo como si formara parte del
+    export publicado."""
     path = output_dir / CHECKSUM_FILENAME
     with path.open("w", encoding="utf-8") as f:
         for file_path in sorted(output_dir.rglob("*")):
-            if not file_path.is_file() or file_path == path:
+            if not file_path.is_file() or file_path == path or file_path.name == product.METADATA_FILENAME:
                 continue
             rel = file_path.relative_to(output_dir).as_posix()
             f.write(f"{sha256_file(file_path)}  {rel}\n")

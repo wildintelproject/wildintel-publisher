@@ -68,6 +68,13 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   same run's `doi_populate` step, or a later `zenodo sync-doi`/`b2share sync-pid`/
   `gbif sync-doi` — now also updates its `README.md`'s own "## Citation" section (which
   cites the export's own repo URL by default), not just `CITATION.cff` as before.
+- CLI/Web: a software application's raw source now switches to the git tag matching
+  `CITATION.cff`'s own `version` (trying `1.2.0`, then `v1.2.0`), once, right after
+  `metadata.json` is generated — previously only the default branch's current commit was
+  ever used, so an export could end up citing one version while actually shipping a
+  different (possibly unreleased) one. Falls back to today's behavior (the default
+  branch's latest commit) when neither tag exists, e.g. a repository that doesn't tag
+  releases.
 
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four
@@ -113,10 +120,59 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   scheduled a background `asyncio` task — with no event loop running in the worker
   thread FastAPI runs sync routes in, the clone silently never started and the status
   poll would hang forever. Now `async def`, matching every other background-task route.
+- CLI/Web: preparing a software application for Zenodo/B2SHARE (`zenodo prepare`/
+  `b2share prepare`, or the wizard's own Zenodo/B2SHARE steps) crashed outright —
+  `write_readme` looked for a `README-software-body.md.j2` template that never existed,
+  so every attempt failed with an uncaught `TemplateNotFound`. New template (shared by
+  Zenodo/B2SHARE) fixes this.
+- CLI/Web: even past that fix, software's own **Link** mode (the non-mirror choice on
+  Zenodo/B2SHARE's "Mode" section) was broken in two ways: it cited a Hugging Face Hub
+  placeholder URL (`REPLACE_WITH_HF_USER/dataset`) that never resolves to anything, since
+  software has no Hugging Face Hub target at all; and, since `SoftwareAdapter.prepare`
+  ignored the mode entirely and always copied the whole repository loose, any file inside
+  a subdirectory (`src/`, `lib/`, ...) silently never reached Zenodo/B2SHARE — both
+  services only ever upload files sitting directly at the export's own root, not
+  recursively. Relabeled **Reference only**: copies no source code at all, and cites the
+  repository directly (`CITATION.cff`'s `repository-code`/`url`, or the git remote) —
+  only `README.md`/`CITATION.cff`/`LICENSE`/checksums get published, giving the software
+  a citable DOI/PID without duplicating code that already has a canonical home.
+- CLI/Web: `metadata.json` — internal pipeline bookkeeping (`product_type`,
+  `publish_history`) — was being uploaded verbatim to Hugging Face Hub/Zenodo/B2SHARE
+  alongside the actual export, and listed in `checksums-sha256.txt` as if it were part of
+  the published record. It still stays in `output_dir` (every repo that later chains off
+  of it, or re-reads it during upload/release, still needs it there) but is no longer
+  sent to any repository or included in the checksums manifest.
+- Web: when Hugging Face Hub and GBIF are both selected, the GBIF form's Archive URL
+  used to always lock to Hugging Face Hub's own `camtrapdp-remote.zip` — but that file is
+  only ever generated in Hugging Face Hub's **Mirror** mode (see `hfh.
+  upload_to_huggingface`); in **Link** mode it's never created, so a locked field would
+  point GBIF at a URL that 404s, with no error visible anywhere in the wizard. The field
+  now only locks/prefills when Hugging Face Hub is actually publishing in Mirror mode —
+  otherwise it behaves exactly like GBIF standalone (no Hugging Face Hub in the run):
+  unlocked, with a note that a separate, already-public archive URL must be provided by
+  hand.
+- Web: GBIF's own registration (`publish_orchestrator._lock_one`) read `metadata.json`
+  from the publish task's ORIGINAL input directory, regardless of whether an earlier repo
+  in the same run (typically Hugging Face Hub, in Mirror mode) had just updated its
+  `homepage` field to its own real dataset URL — so GBIF's Registry entry ended up with a
+  stale or missing `homepage` even when the run set a real one. Now reads from this
+  repo's own input directory as of its actual turn in the chain, same as every other
+  repo already does.
+- Web: publishing Hugging Face Hub and GBIF together only worked correctly (predictable
+  archive URL, correct `homepage` — see above) when Hugging Face Hub published first; the
+  wizard's own `toggleRepo` already enforces this order client-side, but `POST
+  /api/publish/start` accepted any order, so a request bypassing the wizard UI could
+  silently end up with a stale/wrong GBIF registration. Now rejected with a 400 if GBIF is
+  listed before Hugging Face Hub in `repos`.
 
 ### Changed
 - Web: restrict the Camtrap DP wizard to Hugging Face Hub and GBIF only (Zenodo and
   B2SHARE remain available for Camtrap DP via the CLI).
+- Web: GBIF is now mandatory for Camtrap DP in the wizard — pre-selected and not
+  deselectable, the same mechanism Software Application's own Zenodo already uses, so a
+  Camtrap DP dataset always ends up registered with GBIF. Hugging Face Hub stays optional
+  alongside it (GBIF registers standalone, with a manually-provided archive URL, when
+  it's the only repository selected).
 - Web: show each successfully published repository's real URL in the wizard's publish
   progress/summary screens, and let a partial failure retry only the repositories that
   didn't finish, instead of re-running the whole selection (which could otherwise fail a

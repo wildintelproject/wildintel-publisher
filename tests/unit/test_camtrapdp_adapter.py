@@ -15,6 +15,13 @@ def test_readme_context_has_nothing_extra(tmp_path):
     assert CamtrapDPAdapter().readme_context(tmp_path) == {}
 
 
+def test_checkout_release_noops(tmp_path):
+    # Camtrap DP's raw source isn't a git checkout — never raises, never
+    # touches the directory.
+    CamtrapDPAdapter().checkout_release(tmp_path, version="1.0")
+    assert list(tmp_path.iterdir()) == []
+
+
 def _write_deployments_csv(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     with (root / "deployments.csv").open("w", newline="", encoding="utf-8") as f:

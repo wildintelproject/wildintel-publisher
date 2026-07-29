@@ -182,6 +182,7 @@ def prepare_b2share_export(
         output_dir, resolved_version, adapter, self_contained=self_contained,
         title=title, description=description, license_id=license["id"],
         authors=authors, date_released=date_released, hfh_repo_id=hfh_repo_id,
+        homepage=product_meta.get("homepage"),
     )
     common.write_license(
         LICENSE_TEMPLATE_FILE, output_dir,
@@ -210,19 +211,33 @@ def prepare_b2share_export(
 def write_readme(
     output_dir: Path, version: str, adapter: product.ProductAdapter, *, self_contained: bool,
     title: str, description: str, license_id: str, authors: list, date_released: str,
-    hfh_repo_id: Optional[str],
+    hfh_repo_id: Optional[str], homepage: Optional[str] = None,
 ) -> Path:
     """Renders templates/common/README-{product_type}-body.md.j2 (shared
     with hfh.py/zenodo.py for the same product_type) with B2SHARE's own
     format fragment slotted in (see
     templates/b2share/_readme-format-{product_type}.md.j2 — it folds its
     own "where this lives" bit in directly, so no location_template here,
-    unlike HFH)."""
+    unlike HFH).
+
+    The citation URL (and, via `homepage`, the format fragment's own "where
+    this lives" text) falls back through: self-contained -> placeholder
+    (patched with the real PID/DOI once reserved); hfh_repo_id -> Hugging
+    Face Hub (Camtrap DP/YOLO's usual link-mode target); homepage ->
+    wherever metadata.json says the product's own source lives (Software's
+    only option — see REPOS_BY_PRODUCT_TYPE.software); else the same HFH
+    placeholder text used when self-contained (nothing better to point
+    at)."""
     path = output_dir / README_FILENAME
     hfh_repo_id_display = hfh_repo_id or "REPLACE_WITH_HF_USER/dataset"
-    publisher_url = (
-        PLACEHOLDER_CITATION_URL if self_contained else f"https://huggingface.co/datasets/{hfh_repo_id_display}"
-    )
+    if self_contained:
+        publisher_url = PLACEHOLDER_CITATION_URL
+    elif hfh_repo_id:
+        publisher_url = f"https://huggingface.co/datasets/{hfh_repo_id}"
+    elif homepage:
+        publisher_url = homepage
+    else:
+        publisher_url = f"https://huggingface.co/datasets/{hfh_repo_id_display}"
     body_template = COMMON_TEMPLATES_DIR / f"README-{adapter.product_type}-body.md.j2"
     text = common.render_text_template(
         body_template,
@@ -230,6 +245,7 @@ def write_readme(
         version=version,
         description=description,
         hfh_repo_id=hfh_repo_id_display,
+        homepage=homepage,
         self_contained=self_contained,
         zip_filename=_self_contained_zip_filename(adapter.product_type),
         license_id=license_id,
@@ -535,7 +551,13 @@ def upload_to_b2share(
         common.write_checksums(output_dir)
         console.print(f"[green]✔  DOI reserved ahead of upload: {pid}[/green]")
 
-    files = sorted(p for p in output_dir.iterdir() if p.is_file() and p.name != RECORD_FILENAME)
+    # metadata.json is internal pipeline bookkeeping (product_type,
+    # publish_history...), kept locally for chaining/re-reading — never
+    # meant to be part of the published record itself.
+    files = sorted(
+        p for p in output_dir.iterdir()
+        if p.is_file() and p.name not in (RECORD_FILENAME, product.METADATA_FILENAME)
+    )
     console.print(f"Uploading {len(files)} metadata file(s) to draft {record_id} ...")
     for file_path in files:
         upload_file(api_base_url, token, record_id, file_path, file_path.name)

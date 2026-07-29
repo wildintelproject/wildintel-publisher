@@ -1,0 +1,29 @@
+## About this record
+
+{% if self_contained %}
+This is a **self-contained** Zenodo record: `{{ zip_filename }}` bundles the whole
+repository (minus `.git/`), at the version cited below — everything needed to use the
+software, in a single archive. The loose files are not published separately; only
+`{{ zip_filename }}` (plus this README, license and citation) makes up the record.
+
+```text
+.
+├── {{ zip_filename }}          ← self-contained package: the software's source code
+├── checksums-sha256.txt
+├── CITATION.cff
+└── LICENSE
+```
+{% else %}
+This is a **reference-only** Zenodo record — it does not host the source code itself,
+only its citation metadata (this README and `CITATION.cff`). This record exists to give
+the software a permanent, citable DOI, independent of wherever its source code
+repository lives.
+{% endif %}
+{% if homepage %}
+
+The software's source code is hosted at:
+
+```text
+{{ homepage }}
+```
+{% endif %}

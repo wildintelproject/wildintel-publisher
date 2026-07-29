@@ -127,6 +127,48 @@ def test_prepare_copies_everything_except_git_dir(tmp_path):
     assert not (output_dir / ".git").exists()
 
 
+def test_prepare_copies_nothing_when_mirror_is_false(tmp_path):
+    # "Link"/reference-only mode (see zenodo.py/b2share.py's write_readme):
+    # no source code copied — just the generically-generated README.md/
+    # CITATION.cff/LICENSE/checksums, written afterwards by
+    # prepare_<repo>_export on top of whatever this leaves in output_dir.
+    input_dir = _write_repo(tmp_path / "input", citation_cff=DEFAULT_CITATION_CFF)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    SoftwareAdapter().prepare(input_dir, output_dir, mirror=False, image_timeout=60)
+
+    assert list(output_dir.iterdir()) == []
+
+
+def test_checkout_release_noops_when_version_is_none(tmp_path):
+    root = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
+    SoftwareAdapter().checkout_release(root, version=None)  # must not raise, no git command run
+
+
+def test_checkout_release_delegates_to_git_source(tmp_path, monkeypatch):
+    root = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
+    calls = []
+    monkeypatch.setattr(
+        "wildintel_publisher.services.software_adapter.git_source.checkout_matching_tag",
+        lambda repo_dir, version, **kwargs: calls.append((repo_dir, version)) or "v1.0.0",
+    )
+
+    SoftwareAdapter().checkout_release(root, version="1.0.0")
+
+    assert calls == [(root, "1.0.0")]
+
+
+def test_checkout_release_does_not_raise_when_no_tag_matches(tmp_path, monkeypatch):
+    root = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
+    monkeypatch.setattr(
+        "wildintel_publisher.services.software_adapter.git_source.checkout_matching_tag",
+        lambda repo_dir, version, **kwargs: None,
+    )
+
+    SoftwareAdapter().checkout_release(root, version="9.9.9")  # must not raise
+
+
 def test_prepare_preserves_the_source_citation_cff_under_a_source_prefix(tmp_path):
     # CITATION.cff is one of product.GENERATED_FILENAMES — the pipeline
     # writes its own citation-focused version, so the repo's own copy (the

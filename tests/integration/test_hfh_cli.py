@@ -198,6 +198,9 @@ def test_hfh_upload_rewrites_media_csv_and_calls_upload_folder(camtrapdp_dir, tm
     mock_create_repo.assert_called_once()
     mock_upload_folder.assert_called_once()
     fake_api.create_tag.assert_not_called()  # tagging moved to 'hfh release' — see the tests below
+    # metadata.json is internal pipeline bookkeeping — never meant to reach
+    # the published dataset repo itself.
+    assert mock_upload_folder.call_args.kwargs["ignore_patterns"] == ["metadata.json"]
 
     with (output_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

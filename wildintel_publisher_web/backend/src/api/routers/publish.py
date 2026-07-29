@@ -98,6 +98,18 @@ async def start(req: PublishAllRequest) -> dict:
     if not req.repos:
         raise HTTPException(400, "No repositories to publish to.")
 
+    # The wizard's own toggleRepo already forces this order client-side (see
+    # WizardPage.tsx) — GBIF's own archive_url is typically derived from
+    # Hugging Face Hub's repo_id, and services.publish_orchestrator reads
+    # GBIF's metadata.json from its own turn in the chain, which only picks
+    # up Hugging Face Hub's mirror-mode updates (e.g. "homepage" — see
+    # product.write_homepage) if Hugging Face Hub already had its turn.
+    # Enforced again here so a request that bypasses the wizard UI (a direct
+    # API call) can't silently end up with a stale/wrong GBIF registration.
+    repo_names = [cfg.repo for cfg in req.repos]
+    if "hfh" in repo_names and "gbif" in repo_names and repo_names.index("hfh") > repo_names.index("gbif"):
+        raise HTTPException(400, "Hugging Face Hub must be listed before GBIF when both are selected.")
+
     resolved_repos = [
         _resolve_repo_config(cfg, version=req.version, timeout=req.timeout, dry_run=req.dry_run)
         for cfg in req.repos

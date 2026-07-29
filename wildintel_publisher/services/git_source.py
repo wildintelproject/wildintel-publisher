@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 DEFAULT_TIMEOUT = 300
 
@@ -62,3 +63,33 @@ def clone_repository(url: str, output_dir: Path, *, clear_cache: bool = False, t
         raise RuntimeError(f"git clone failed for {url!r}: {(exc.stderr or '').strip() or exc}") from exc
 
     return destination
+
+
+def checkout_matching_tag(repo_dir: Path, version: str, *, timeout: int = DEFAULT_TIMEOUT) -> Optional[str]:
+    """Best-effort: tries `version` then `v{version}` (the two conventions a
+    bare semver field like CITATION.cff's own commonly maps to as a git
+    tag) — for whichever one exists on the remote, shallow-fetches just
+    that tag and checks it out. Never raises: if neither candidate exists,
+    `repo_dir` is left exactly as it was (whatever `clone_repository` left
+    checked out — the default branch's HEAD).
+
+    A `--depth 1` fetch of a tag unrelated to whatever's already shallowly
+    cloned is a normal, well-supported git operation — the tag's own
+    commit/tree objects don't need to share history with what's already
+    present for `git checkout` to switch to it.
+
+    Returns:
+        The tag name actually checked out, or None if neither candidate
+        exists on the remote.
+    """
+    for candidate in (version, f"v{version}"):
+        try:
+            subprocess.run(
+                ["git", "fetch", "--depth", "1", "origin", f"refs/tags/{candidate}:refs/tags/{candidate}"],
+                cwd=repo_dir, check=True, capture_output=True, text=True, timeout=timeout,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        subprocess.run(["git", "checkout", candidate], cwd=repo_dir, check=True, capture_output=True, text=True, timeout=timeout)
+        return candidate
+    return None

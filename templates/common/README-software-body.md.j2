@@ -1,0 +1,61 @@
+{# Shared by zenodo.py/b2share.py's write_readme() for Software Application
+   products (no HFH target — see REPOS_BY_PRODUCT_TYPE.software). Only
+   what's genuinely repo-specific (whether the source code itself is
+   bundled, or this is a reference-only citation record) is factored out
+   into format_template (see each repo's own
+   templates/<repo>/_readme-format-software.md.j2). No location_template,
+   and no "Privacy"/"Limitations" sections — not applicable to source code,
+   unlike Camtrap DP/YOLO. record_noun is "record" (Zenodo/B2SHARE's own
+   vocabulary for what gets published — software has no HFH export). #}
+---
+license: {{ license_id | lower }}
+pretty_name: {{ dataset_name }}
+---
+
+# {{ dataset_name }}
+
+![License](https://img.shields.io/badge/license-{{ license_id | replace("-", "--") }}-blue.svg)
+[![WildINTEL](https://img.shields.io/badge/WildINTEL-project-blue)](https://wildintel.eu/)
+
+Version: `{{ version }}`
+
+{{ description }}
+
+{% include format_template %}
+
+## Integrity verification
+
+`checksums-sha256.txt` lists the SHA-256 hash of every file in this {{ record_noun }}, to verify
+nothing was corrupted or truncated after downloading.
+
+## Source
+
+Generated via [wildintel-publisher](https://github.com/wildintelproject/wildintel-publisher).
+
+## Contributing
+
+{% if repository_code %}
+Issues and pull requests are welcome in the source code repository: {{ repository_code }}
+{% else %}
+Issues and pull requests are welcome in the source code repository.
+{% endif %}
+
+## Funding
+
+This work is part of the [WildINTEL project](https://wildintel.eu/), funded by the
+[Biodiversa+](https://www.biodiversa.eu/) Joint Research Call 2022-2023
+"Improved transnational monitoring of biodiversity and ecosystem change for science and society (BiodivMon)".
+
+## License
+
+This software is released under: `{{ license_id }}`. See the `LICENSE` file for the full text.
+
+## Citation
+
+To cite this software:
+
+> {{ apa_citation }}
+
+This citation was generated from the [`CITATION.cff`](CITATION.cff) file. See
+[About CITATION files](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-citation-files)
+for more info.

@@ -96,6 +96,25 @@ describe('ZenodoPublishForm', () => {
       mirrorImages: false, outputMode: 'prepared', outputDir: '/zenodo/output',
     })
   })
+
+  it('uses Camtrap DP wording for the Mode section when productType is omitted', async () => {
+    const onOutputDirChange = vi.fn()
+    render(<ZenodoPublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
+
+    expect(screen.getByText(/bundles them inside Zenodo's own camtrapdp\.zip/i)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^link/i })).toBeInTheDocument()
+  })
+
+  it('uses reference-only wording for the Mode section for a Software Application', async () => {
+    const onOutputDirChange = vi.fn()
+    render(<ZenodoPublishForm productType="software" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
+
+    expect(screen.getByText(/bundles the whole repository/i)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^reference only/i })).toBeInTheDocument()
+    expect(screen.queryByText(/camtrapdp\.zip/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('SyncDoiSection', () => {

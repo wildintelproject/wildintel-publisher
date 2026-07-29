@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -68,6 +68,19 @@ class ProductAdapter(Protocol):
             RuntimeError: if a required field (title/description/license/
             authors) can't be determined from the product.
         """
+        ...
+
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
+        """Best-effort: if this product type's raw source is a git checkout
+        and `version` matches an available tag, switches input_dir to that
+        exact tag before anything gets packaged — so what gets published
+        actually matches the version metadata.json ends up citing, instead
+        of whatever the default branch's HEAD happened to be at clone time.
+        Called once (see generate_metadata_json), right after
+        extract_metadata (which is what determined `version` in the first
+        place). No-op for product types with nothing analogous — only
+        SoftwareAdapter's raw source is a git checkout in this pipeline's
+        sense."""
         ...
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
@@ -283,6 +296,16 @@ def generate_metadata_json(
     missing, collect it from the user (see update_metadata_json) before
     moving on to the actual publish steps.
 
+    Also calls ProductAdapter.checkout_release with whatever version
+    extract_metadata determined — for a software application, switches its
+    git checkout to the matching tag (if one exists) before anything gets
+    packaged, so what's published actually matches the version being
+    cited. metadata.json's own fields are still the ones extract_metadata
+    read *before* this switch — if a repository's tagged release's
+    CITATION.cff genuinely differs from its default branch's, the exported
+    metadata won't perfectly match the checked-out code (accepted
+    trade-off, avoids a second extract pass).
+
     Raises:
         RuntimeError: if the product itself doesn't validate (see
         ProductAdapter.validate) — this is unrelated to individual metadata
@@ -294,6 +317,7 @@ def generate_metadata_json(
     if anonymize_coordinates:
         adapter.anonymize_coordinates(input_dir, decimals=coordinate_decimals)
     metadata = adapter.extract_metadata(input_dir)
+    adapter.checkout_release(input_dir, version=metadata.get("version"))
     data = {"product_type": product_type, **metadata, "publish_history": []}
     write_metadata_json(input_dir, data)
     return data

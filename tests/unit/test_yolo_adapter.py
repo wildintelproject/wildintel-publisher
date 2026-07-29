@@ -163,6 +163,13 @@ def test_readme_context_accepts_a_names_mapping(tmp_path):
     assert context == {"num_classes": 2, "class_names": ["cat", "dog"]}
 
 
+def test_checkout_release_noops(tmp_path):
+    # A YOLO dataset's raw source isn't a git checkout — never raises,
+    # never touches the directory.
+    YoloAdapter().checkout_release(tmp_path, version="1.0")
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_generate_metadata_json_writes_product_type_and_history(tmp_path):
     """End-to-end through services.product, not just the adapter directly —
     proves YoloAdapter is properly registered and reachable via

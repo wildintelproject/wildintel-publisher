@@ -308,10 +308,15 @@ async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status:
     repo_url _dry_run_upload_hfh already set; GBIF fakes a plausible
     dataset_page_url instead of calling the Registry API.
 
-    `input_dir` is the publish task's ORIGINAL input directory (untouched by
-    any other repo's own build_dir) — only GBIF reads it, for the product's
-    title/description/license, since its own build_dir was never populated
-    (see _upload_one)."""
+    `input_dir` is this repo's OWN input directory, as of its own turn in the
+    chain (see _run's `input_dirs`) — only GBIF reads it, for the product's
+    title/description/license/homepage, since its own build_dir was never
+    populated (see _upload_one). Deliberately NOT the publish task's
+    original input_dir: if a repo publishing in mirror mode ahead of GBIF
+    (e.g. HFH) already set metadata.json's own "homepage" (see
+    product.write_homepage), that update lives in the chained copy, not the
+    original — reading the original here would send GBIF's registration a
+    stale/missing homepage even though the run just set a real one."""
     repo = cfg["repo"]
     repo_status["stage"] = "releasing"
     if repo == "hfh":
@@ -471,12 +476,21 @@ def start_publish_all_task(
     async def _run() -> None:
         build_dirs: dict[str, Path] = {}
         chain_dirs: list[Path] = []
+        # Each repo's own input_dir, as of its OWN turn in the chain — GBIF's
+        # is what matters most, since its build_dir is never populated (see
+        # _upload_one) and _lock_one falls back to reading metadata.json from
+        # here instead; a repo publishing in mirror mode ahead of it (e.g.
+        # HFH) may have just updated metadata.json's own "homepage" (see
+        # product.write_homepage), and that update only reaches this dict's
+        # entry, never the very first input_dir.
+        input_dirs: dict[str, Path] = {}
         try:
             current_input_dir = input_dir
             for i, cfg in enumerate(repos):
                 repo = cfg["repo"]
                 repo_status = _publish_tasks[task_id]["repos"][repo]
                 repo_status["status"] = "running"
+                input_dirs[repo] = current_input_dir
                 build_dir = Path(tempfile.mkdtemp(prefix=f"{repo}-build-"))
                 build_dirs[repo] = build_dir
                 await _upload_one(
@@ -505,7 +519,7 @@ def start_publish_all_task(
                 repo = cfg["repo"]
                 repo_status = _publish_tasks[task_id]["repos"][repo]
                 build_dir = build_dirs[repo]
-                await _lock_one(cfg, input_dir=input_dir, build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
+                await _lock_one(cfg, input_dir=input_dirs[repo], build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
                 final_output_dir = await _finalize_one(
                     cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
                 )

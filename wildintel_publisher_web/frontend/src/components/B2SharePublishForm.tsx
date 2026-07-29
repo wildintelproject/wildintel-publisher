@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { OutputMode } from '../types'
+import type { OutputMode, ProductType } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
@@ -49,6 +49,11 @@ interface Props {
    * is ever actually sent to B2SHARE; the PID is faked instead (see
    * services.publish_orchestrator's dry-run branches). */
   dryRun?: boolean
+  /** Changes the "Mode" section's copy for Software Application (no HFH
+   * target — "Link" doesn't mean "point at an HFH copy" here, since there
+   * isn't one; see the reworded labels below). Camtrap DP/YOLO's usual
+   * wording is used whenever this is omitted or any other product type. */
+  productType?: ProductType | null
   /** Reports this form's current output directory whenever it changes, so a
    * later step in the publish order can use it as its own inputDir. */
   onOutputDirChange?: (dir: string) => void
@@ -71,7 +76,7 @@ interface Props {
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
-export default function B2SharePublishForm({ dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function B2SharePublishForm({ dryRun, productType, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
   const [form, setForm] = useState(() => ({
     outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
     environment: initialConfig?.environment ?? 'sandbox', communityId: initialConfig?.communityId ?? '',
@@ -232,8 +237,13 @@ export default function B2SharePublishForm({ dryRun, onOutputDirChange, initialC
               checked={mirrorImages}
               onChange={() => setMirrorImages(true)}
             />
-            <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-              public images and bundles them inside B2SHARE's own camtrapdp.zip.</span>
+            {productType === 'software' ? (
+              <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
+                CITATION.cff) into a single zip.</span>
+            ) : (
+              <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
+                public images and bundles them inside B2SHARE's own camtrapdp.zip.</span>
+            )}
           </label>
           <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
             <input
@@ -243,8 +253,13 @@ export default function B2SharePublishForm({ dryRun, onOutputDirChange, initialC
               checked={!mirrorImages}
               onChange={() => setMirrorImages(false)}
             />
-            <span><strong>Link</strong> - the repository stores links to where the product's items
-              (the images) already live on Hugging Face Hub, instead of a copy.</span>
+            {productType === 'software' ? (
+              <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
+                citing the GitHub repository directly — the source code itself is not copied here.</span>
+            ) : (
+              <span><strong>Link</strong> - the repository stores links to where the product's items
+                (the images) already live on Hugging Face Hub, instead of a copy.</span>
+            )}
           </label>
         </div>
       </div>

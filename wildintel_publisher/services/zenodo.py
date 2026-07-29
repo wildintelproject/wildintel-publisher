@@ -141,7 +141,7 @@ def prepare_zenodo_export(
         output_dir, metadata, resolved_version, adapter,
         title=title, description=description, license_id=license["id"],
         authors=authors, date_released=date_released, hfh_repo_id=hfh_repo_id,
-        self_contained=self_contained,
+        homepage=product_meta.get("homepage"), self_contained=self_contained,
     )
     common.write_license(
         LICENSE_TEMPLATE_FILE, output_dir,
@@ -167,20 +167,33 @@ def prepare_zenodo_export(
 def write_readme(
     output_dir: Path, metadata: ZenodoSettings, version: str, adapter: product.ProductAdapter, *,
     title: str, description: str, license_id: str, authors: list, date_released: str,
-    hfh_repo_id: Optional[str], self_contained: bool,
+    hfh_repo_id: Optional[str], homepage: Optional[str] = None, self_contained: bool,
 ) -> Path:
     """Renders templates/common/README-{product_type}-body.md.j2 (shared
     with hfh.py/b2share.py for the same product_type) with Zenodo's own
     format fragment slotted in (see
     templates/zenodo/_readme-format-{product_type}.md.j2 — it folds its own
     "where this lives" bit in directly, so no location_template here,
-    unlike HFH)."""
+    unlike HFH).
+
+    The citation URL (and, via `homepage`, the format fragment's own "where
+    this lives" text) falls back through: self-contained -> placeholder
+    (patched with the real DOI once reserved); hfh_repo_id -> Hugging Face
+    Hub (Camtrap DP/YOLO's usual link-mode target); homepage -> wherever
+    metadata.json says the product's own source lives (Software's only
+    option, since it has no HFH target at all — see
+    REPOS_BY_PRODUCT_TYPE.software); else the same HFH placeholder text
+    used when self-contained (nothing better to point at)."""
     path = output_dir / README_FILENAME
     hfh_repo_id_display = hfh_repo_id or "REPLACE_WITH_HF_USER/dataset"
-    citation_url = (
-        PLACEHOLDER_CITATION_URL if self_contained
-        else f"https://huggingface.co/datasets/{hfh_repo_id_display}"
-    )
+    if self_contained:
+        citation_url = PLACEHOLDER_CITATION_URL
+    elif hfh_repo_id:
+        citation_url = f"https://huggingface.co/datasets/{hfh_repo_id}"
+    elif homepage:
+        citation_url = homepage
+    else:
+        citation_url = f"https://huggingface.co/datasets/{hfh_repo_id_display}"
     body_template = COMMON_TEMPLATES_DIR / f"README-{adapter.product_type}-body.md.j2"
     text = common.render_text_template(
         body_template,
@@ -188,6 +201,7 @@ def write_readme(
         version=version,
         description=description,
         hfh_repo_id=hfh_repo_id_display,
+        homepage=homepage,
         self_contained=self_contained,
         zip_filename=_self_contained_zip_filename(adapter.product_type),
         license_id=license_id,
@@ -410,7 +424,13 @@ def upload_to_zenodo(
         common.write_checksums(output_dir)
         console.print(f"[green]✔  DOI reserved ahead of upload: {doi}[/green]")
 
-    files = sorted(p for p in output_dir.iterdir() if p.is_file() and p.name != RECORD_FILENAME)
+    # metadata.json is internal pipeline bookkeeping (product_type,
+    # publish_history...), kept locally for chaining/re-reading — never
+    # meant to be part of the published record itself.
+    files = sorted(
+        p for p in output_dir.iterdir()
+        if p.is_file() and p.name not in (RECORD_FILENAME, product.METADATA_FILENAME)
+    )
     console.print(f"Uploading {len(files)} file(s) to deposition {deposition_id} ...")
     for file_path in files:
         upload_file_to_bucket(bucket_url, token, file_path, file_path.name)

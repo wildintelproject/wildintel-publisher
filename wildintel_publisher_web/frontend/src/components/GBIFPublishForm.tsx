@@ -68,12 +68,15 @@ interface Props {
    * show a caveat next to Validate archive, so a 404 at this stage doesn't
    * read as something being wrong. */
   archiveNotPublishedYet?: boolean
-  /** True when GBIF is the ONLY repository selected in this run (no Hugging
-   * Face Hub) — the locally fetched/downloaded copy (step "Where is it
-   * located?") only ever served to extract metadata.json's title/
-   * description/license here; it's never what GBIF will actually crawl.
-   * Shown as a clarifying note next to Archive URL, so it's clear a
-   * different, already-public copy needs to be pointed at by hand. */
+  /** True when there's no Hugging Face Hub repo in this run that will end up
+   * with its own self-contained camtrapdp-remote.zip — either HFH isn't
+   * selected at all, or it is but publishing in Link mode (which never
+   * generates that file — see WizardPage). Either way, the locally fetched/
+   * downloaded copy (step "Where is it located?") only ever served to
+   * extract metadata.json's title/description/license here; it's never what
+   * GBIF will actually crawl. Shown as a clarifying note next to Archive
+   * URL, so it's clear a different, already-public copy needs to be pointed
+   * at by hand. */
   standaloneRegistration?: boolean
   /** A previously-collected config for this same repository — given when
    * the user goes Back to re-visit a step they already configured (see
@@ -224,10 +227,11 @@ export default function GBIFPublishForm({
         )}
         {standaloneRegistration && (
           <p className={hintClass}>
-            This is <strong>not</strong> the local copy you just fetched in "Where is it located?" —
-            that one was only used to read its title/description/license. This URL must point to a
-            completely separate, already-public copy of the same Camtrap DP (e.g. hosted outside this
-            tool, or from an earlier publish).
+            This isn't derived automatically here — not from the local copy you just fetched in
+            "Where is it located?" (only used to read its title/description/license), and not from
+            Hugging Face Hub either if it's not publishing a self-contained archive in this run (Link
+            mode never creates one). This URL must point to a completely separate, already-public copy
+            of the same Camtrap DP (e.g. hosted outside this tool, or from an earlier publish).
           </p>
         )}
         {archiveNotPublishedYet && (

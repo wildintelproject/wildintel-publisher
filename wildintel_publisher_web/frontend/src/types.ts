@@ -1,3 +1,5 @@
+export type ProductType = 'camtrapdp' | 'yolo' | 'software' | 'ai_model' | 'ebv' | 'image_gallery'
+
 export interface ResearchProject {
   pk: number
   name: string

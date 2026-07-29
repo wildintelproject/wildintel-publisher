@@ -64,7 +64,9 @@ DOI for the code itself.
     CLI's `hfh`/`zenodo`/`b2share`/`gbif` commands stay generic across product types (see
     the [Developer Guide](developer-guide.md)). The web app's own wizard, however, only
     lets a Camtrap DP package be published to Hugging Face Hub and GBIF, keeping
-    Zenodo/B2SHARE reserved for YOLO datasets and software applications in that flow.
+    Zenodo/B2SHARE reserved for YOLO datasets and software applications in that flow. GBIF
+    is **mandatory** there — pre-selected and not deselectable, so a Camtrap DP dataset
+    always ends up registered with GBIF (Hugging Face Hub stays optional alongside it).
 
 See the [Publishing Guide](publishing-guide.md) for how the publishing process itself
 works, and each repository's own guide (linked above) for what publishing a given

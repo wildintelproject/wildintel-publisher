@@ -36,6 +36,7 @@ from __future__ import annotations
 import shutil
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -147,6 +148,9 @@ class YoloAdapter:
             "authors": authors,
             "homepage": data.get("homepage"),
         }
+
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
+        pass  # a YOLO dataset's raw source isn't a git checkout in this pipeline's sense
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
         # image_timeout is accepted for interface parity with

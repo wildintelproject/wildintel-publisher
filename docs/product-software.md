@@ -51,6 +51,16 @@ provide is asked for by hand — the web app's wizard prompts for whatever's sti
 missing, same as every other product type. The repository's own git remote URL is used
 as a fallback homepage when `CITATION.cff` has neither `repository-code` nor `url`.
 
+### Which commit gets published
+
+The initial `git clone` just fetches the default branch's current tip — but once
+`CITATION.cff`'s `version` is known, a second step tries to switch to the matching git
+tag (`1.2.0` or `v1.2.0`, whichever exists) before anything gets packaged, so what's
+published actually matches the version being cited rather than whatever unreleased
+commits happen to sit on the default branch. If neither tag exists (or the repository
+doesn't tag releases at all), the default branch's latest commit is used, same as
+before — this is entirely best-effort and never fails the flow.
+
 ## 3. What gets published
 
 Before a software application can be published anywhere, it's given a common
@@ -67,12 +77,22 @@ underlying format:
 Title, description, version, license, and authors are **required** — if `CITATION.cff`
 didn't provide one of them, it needs to be added by hand before publishing can proceed.
 
-From there, publishing a software application copies the whole cloned tree (minus
-`.git/`) and generates a `README.md`, a machine-readable `CITATION.cff`, a `LICENSE`
-file, and a checksums manifest covering everything. If the repository already had its
-own `README.md`/`LICENSE`/`CITATION.cff`, those are kept alongside the generated ones
-under a `SOURCE_` prefix (e.g. `SOURCE_README.md`) rather than being silently
-overwritten.
+From there, publishing a software application always generates a `README.md`, a
+machine-readable `CITATION.cff`, a `LICENSE` file, and a checksums manifest — but
+whether the source code itself is copied depends on the mode (Zenodo/B2SHARE's own
+"Mode" choice, same setting every other product type has, just relabeled here since
+there's no Hugging Face Hub to link to):
+
+- **Mirror** (self-contained): copies the whole cloned tree (minus `.git/`) and bundles
+  it into a single zip alongside the generated files — everything needed to use the
+  software offline, in one archive. If the repository already had its own
+  `README.md`/`LICENSE`/`CITATION.cff`, those are kept alongside the generated ones
+  under a `SOURCE_` prefix (e.g. `SOURCE_README.md`) rather than being silently
+  overwritten.
+- **Reference only**: no source code is copied at all — only the generated
+  `README.md`/`CITATION.cff`/`LICENSE`/checksums are published, citing the repository
+  directly (its `homepage`). Gives the software a permanent, citable DOI/PID without
+  duplicating code that already has a canonical home on GitHub/GitLab/etc.
 
 ## 4. Where it can be published
 

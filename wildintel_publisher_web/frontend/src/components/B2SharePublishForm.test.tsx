@@ -105,6 +105,25 @@ describe('B2SharePublishForm', () => {
       mirrorImages: false, outputMode: 'prepared', outputDir: '/b2share/output',
     })
   })
+
+  it('uses Camtrap DP wording for the Mode section when productType is omitted', async () => {
+    const onOutputDirChange = vi.fn()
+    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
+
+    expect(screen.getByText(/bundles them inside B2SHARE's own camtrapdp\.zip/i)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^link/i })).toBeInTheDocument()
+  })
+
+  it('uses reference-only wording for the Mode section for a Software Application', async () => {
+    const onOutputDirChange = vi.fn()
+    render(<B2SharePublishForm productType="software" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
+
+    expect(screen.getByText(/bundles the whole repository/i)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^reference only/i })).toBeInTheDocument()
+    expect(screen.queryByText(/camtrapdp\.zip/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('SyncPidSection', () => {

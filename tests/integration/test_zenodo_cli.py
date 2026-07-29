@@ -2,7 +2,9 @@
 Zenodo REST API and image downloads are mocked out (no real network)."""
 import csv
 import json
+import subprocess
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import yaml
@@ -11,6 +13,19 @@ from typer.testing import CliRunner
 from wildintel_publisher.main import app
 
 runner = CliRunner()
+
+
+def _init_software_repo(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (root / "CITATION.cff").write_text(yaml.safe_dump({
+        "cff-version": "1.2.0", "title": "my-app", "version": "1.0.0", "license": "MIT",
+        "authors": [{"given-names": "Jane", "family-names": "Doe"}],
+        "repository-code": "https://github.com/example/my-app",
+    }), encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/my-app.git"], cwd=root, check=True)
+    return root
 
 
 def _fake_httpx_get_image(self, url, *args, **kwargs):
@@ -168,6 +183,36 @@ def _prepared_zenodo_export(camtrapdp_dir, tmp_path):
     result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
     assert result.exit_code == 0, result.output
     return output_dir
+
+
+def test_zenodo_upload_never_uploads_metadata_json(camtrapdp_dir, tmp_path, monkeypatch):
+    """metadata.json is internal pipeline bookkeeping (product_type,
+    publish_history...) — kept in output_dir for chaining/re-reading, but
+    must never reach Zenodo itself."""
+    monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
+    output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
+    assert (output_dir / "metadata.json").is_file()
+
+    draft_deposition = {"id": 555, "links": {"bucket": "https://sandbox.zenodo.org/api/files/bucket-abc"}, "metadata": {"prereserve_doi": {"doi": "10.5281/zenodo.555"}}}
+    uploaded_filenames = []
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/deposit/depositions"):
+            return _fake_response(201, draft_deposition)
+        raise AssertionError(f"unexpected POST {url}")
+
+    def fake_put(url, **kwargs):
+        if url.endswith("/deposit/depositions/555"):
+            return _fake_response(200, draft_deposition)
+        uploaded_filenames.append(url.rsplit("/", 1)[-1])
+        return _fake_response(201, {})  # file upload to bucket
+
+    with patch("httpx.post", side_effect=fake_post), patch("httpx.put", side_effect=fake_put):
+        result = runner.invoke(app, ["zenodo", "upload", "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "metadata.json" not in uploaded_filenames
+    assert "README.md" in uploaded_filenames
 
 
 def test_zenodo_upload_then_release_then_sync_doi(camtrapdp_dir, tmp_path, monkeypatch):
@@ -334,3 +379,28 @@ def test_zenodo_sync_doi_fails_when_not_yet_published(camtrapdp_dir, tmp_path):
     result = runner.invoke(app, ["zenodo", "sync-doi", "--zenodo-output-dir", str(output_dir), "--hfh-output-dir", str(tmp_path / "hfh_out")])
 
     assert result.exit_code == 1
+
+
+# ── software application: reference-only ("link") mode ──────────────────────
+
+def test_zenodo_prepare_software_reference_mode_copies_no_source_and_cites_the_repo(tmp_path):
+    """Software has no HFH target — "link" mode (self_contained=False, no
+    --hfh-repo-id) must cite the repository itself, not a Hugging Face Hub
+    placeholder, and must not copy any source files (see
+    SoftwareAdapter.prepare's own mirror=False branch)."""
+    input_dir = _init_software_repo(tmp_path / "repo")
+    generate = runner.invoke(app, [
+        "product", "generate-metadata", "--input-dir", str(input_dir), "--product-type", "software",
+    ])
+    assert generate.exit_code == 0, generate.output
+
+    output_dir = tmp_path / "zenodo_out"
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir), "--hfh-repo-id", "",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert not (output_dir / "main.py").exists()
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
+    assert "https://github.com/example/my-app" in readme
+    assert "REPLACE_WITH_HF_USER/dataset" not in readme

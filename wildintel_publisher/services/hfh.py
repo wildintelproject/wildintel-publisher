@@ -231,7 +231,10 @@ def upload_to_huggingface(
     """Sube todo `output_dir` (README.md, CITATION.cff, LICENSE, datapackage.json,
     deployments.csv, media.csv, observations.csv, y en modo mirror también
     images/ y camtrapdp-local.zip, checksums-sha256.txt) a un repositorio
-    dataset de HuggingFace Hub. NO etiqueta el commit todavía (ver
+    dataset de HuggingFace Hub — menos metadata.json, bookkeeping interno
+    del pipeline (product_type, publish_history...) que se queda en
+    output_dir para el propio encadenado entre repos, pero nunca se publica.
+    NO etiqueta el commit todavía (ver
     tag_release_on_huggingface) — así se puede, entre medias, hacer un
     "populate" de DOI cruzados con otros repos (ver services.doi_populate)
     antes de bloquear la versión con su tag; llamar a esta función una
@@ -315,6 +318,10 @@ def upload_to_huggingface(
             repo_type="dataset",
             token=token,
             commit_message="Publish Camtrap DP dataset via wildintel-publisher",
+            # metadata.json is internal pipeline bookkeeping (product_type,
+            # publish_history...), kept locally for chaining/re-reading —
+            # never meant to be part of the published dataset itself.
+            ignore_patterns=[product.METADATA_FILENAME],
         )
     except Exception as exc:
         raise RuntimeError(f"Could not upload the export to {repo_id}: {exc}") from exc

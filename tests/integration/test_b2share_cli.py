@@ -10,7 +10,9 @@ images/, and removes the loose files — B2SHARE's API caps each record at
 100 files, so uploading one file per image the old way isn't viable)."""
 import csv
 import json
+import subprocess
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import yaml
@@ -19,6 +21,19 @@ from typer.testing import CliRunner
 from wildintel_publisher.main import app
 
 runner = CliRunner()
+
+
+def _init_software_repo(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (root / "CITATION.cff").write_text(yaml.safe_dump({
+        "cff-version": "1.2.0", "title": "my-app", "version": "1.0.0", "license": "MIT",
+        "authors": [{"given-names": "Jane", "family-names": "Doe"}],
+        "repository-code": "https://github.com/example/my-app",
+    }), encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/my-app.git"], cwd=root, check=True)
+    return root
 
 
 def _fake_httpx_get_image(self, url, *args, **kwargs):
@@ -303,8 +318,10 @@ def test_b2share_upload_self_contained_uploads_only_the_zip_and_metadata_files(c
         result = runner.invoke(app, ["b2share", "upload", "--output-dir", str(output_dir), "--community-id", "uuid-1"])
 
     assert result.exit_code == 0, result.output
-    assert set(uploaded_filenames) == expected_filenames  # never per-image uploads
+    # metadata.json stays local (internal pipeline bookkeeping) — never uploaded.
+    assert set(uploaded_filenames) == expected_filenames - {"metadata.json"}
     assert "m1.jpg" not in uploaded_filenames
+    assert "metadata.json" not in uploaded_filenames
 
     # the DOI, reserved before any file was uploaded, is already baked into
     # the CITATION.cff/README.md that actually got uploaded above.
@@ -350,3 +367,28 @@ def test_b2share_sync_pid_reports_pending_when_no_pid_yet(camtrapdp_dir, tmp_pat
 
     assert result.exit_code == 0
     assert "pending approval" in result.output
+
+
+# ── software application: reference-only ("link") mode ──────────────────────
+
+def test_b2share_prepare_software_reference_mode_copies_no_source_and_cites_the_repo(tmp_path):
+    """Software has no HFH target — "link" mode (self_contained=False, no
+    --hfh-repo-id) must cite the repository itself, not a Hugging Face Hub
+    placeholder, and must not copy any source files (see
+    SoftwareAdapter.prepare's own mirror=False branch)."""
+    input_dir = _init_software_repo(tmp_path / "repo")
+    generate = runner.invoke(app, [
+        "product", "generate-metadata", "--input-dir", str(input_dir), "--product-type", "software",
+    ])
+    assert generate.exit_code == 0, generate.output
+
+    output_dir = tmp_path / "b2share_out"
+    result = runner.invoke(app, [
+        "b2share", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir), "--hfh-repo-id", "",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert not (output_dir / "main.py").exists()
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
+    assert "https://github.com/example/my-app" in readme
+    assert "REPLACE_WITH_HF_USER/dataset" not in readme

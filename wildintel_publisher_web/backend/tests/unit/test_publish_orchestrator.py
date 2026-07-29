@@ -415,6 +415,28 @@ def test_publish_all_requires_gbif_credentials():
     assert response.status_code == 400
 
 
+def test_publish_all_requires_hfh_before_gbif_when_both_selected():
+    """The wizard's own toggleRepo already forces this order client-side —
+    enforced again here so a request bypassing the wizard UI can't silently
+    end up with a stale/wrong GBIF registration (see publish_orchestrator's
+    own input_dirs chaining, which only picks up Hugging Face Hub's
+    mirror-mode metadata.json updates if it already had its turn)."""
+    with _client() as client:
+        response = client.post("/api/publish/start", json={
+            "input_dir": "/tmp/camtrapdp",
+            "repos": [
+                {
+                    "repo": "gbif", "archive_url": "https://example.org/camtrapdp-remote.zip",
+                    "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                    "username": "alice", "password": "s3cret",
+                },
+                {"repo": "hfh", "repo_id": "alice/dataset", "token": "hf_x"},
+            ],
+        })
+    assert response.status_code == 400
+    assert "before GBIF" in response.json()["detail"]
+
+
 def test_publish_all_single_gbif_repo_registers_dataset(tmp_path):
     """GBIF never prepares/uploads files of its own (see the module's own
     docstring) — its one real network call happens directly in the lock
@@ -536,6 +558,62 @@ def test_publish_all_hfh_then_gbif_auto_syncs_doi_into_hfh_citation(tmp_path):
         gbif_output_dir=gbif_output_dir, hfh_output_dir=hfh_output_dir,
         hfh_repo_id="alice/dataset", hfh_token="hf_x",
     )
+
+
+def test_publish_all_hfh_then_gbif_registers_the_homepage_hfh_just_set(tmp_path):
+    """GBIF's own build_dir is never populated (see _upload_one), so its
+    _lock_one reads metadata.json for title/description/homepage from this
+    repo's own input_dir in the chain — NOT the publish task's original
+    input_dir. If HFH just published in mirror mode ahead of it, HFH's own
+    upload_to_huggingface already updated metadata.json's "homepage" to its
+    real dataset URL (see product.write_homepage) — GBIF's registration must
+    see that update, not the stale/missing value the original input_dir
+    still has."""
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_hfh(output_dir, **kwargs):
+        # Simulates upload_to_huggingface's own product.write_homepage call.
+        meta_path = output_dir / "metadata.json"
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+        data["homepage"] = "https://huggingface.co/datasets/alice/dataset"
+        meta_path.write_text(json.dumps(data), encoding="utf-8")
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)  # homepage=None here — the ORIGINAL, pre-HFH state
+    hfh_output_dir = _tmp(tmp_path, "hfh")
+    gbif_output_dir = _tmp(tmp_path, "gbif")
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", return_value=None),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch(
+            "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+            return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/xyz", "doi": None},
+        ) as mock_register,
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(hfh_output_dir), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {
+                        "repo": "gbif", "output_dir": str(gbif_output_dir),
+                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip",
+                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                        "username": "alice", "password": "s3cret", "environment": "sandbox",
+                    },
+                ],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert mock_register.call_args.kwargs["homepage"] == "https://huggingface.co/datasets/alice/dataset"
 
 
 def test_publish_all_hfh_then_gbif_auto_sync_failure_does_not_fail_the_whole_run(tmp_path):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import shutil
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 from wildintel_publisher.services import common, product
 
@@ -42,6 +43,9 @@ class CamtrapDPAdapter:
             "authors": authors,
             "homepage": datapackage_meta.get("homepage"),
         }
+
+    def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> None:
+        pass  # Camtrap DP's raw source isn't a git checkout in this pipeline's sense
 
     def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
         for filename in common.CORE_CAMTRAPDP_FILES:
