@@ -18,6 +18,9 @@ Prebuilt binaries — no Python or Node installation required.
 1. Go to the [Releases page](https://github.com/wildintelproject/wildintel-publisher/releases)
    and pick the latest stable release (or the `web-dev` pre-release for the latest
    development build).
+
+   ![The GitHub Releases page](img/web/github-releases.png)
+
 2. Download the asset for your OS:
    - **Linux**: `wildintel-publisher-web-X.Y.Z-linux-x86_64`
    - **macOS** (Apple Silicon): `wildintel-publisher-web-X.Y.Z-macos-arm64`
@@ -25,10 +28,16 @@ Prebuilt binaries — no Python or Node installation required.
 3. Run it.
 
    Linux/macOS — make it executable first:
-   ```bash
-   chmod +x wildintel-publisher-web-X.Y.Z-linux-x86_64
-   ./wildintel-publisher-web-X.Y.Z-linux-x86_64
+
+   <div class="termy">
+
+   ```console
+   $ chmod +x wildintel-publisher-web-X.Y.Z-linux-x86_64
+   $ ./wildintel-publisher-web-X.Y.Z-linux-x86_64
+   // Starts a local server and opens your default browser automatically
    ```
+
+   </div>
 
    Windows — run it from a terminal (or double-click):
    ```powershell
@@ -37,6 +46,8 @@ Prebuilt binaries — no Python or Node installation required.
 
 It starts a local server and opens your default browser automatically (falling back to
 the next free port if its default one is busy) — no separate step needed.
+
+![The welcome screen](img/web/welcome.png)
 
 ---
 
@@ -52,11 +63,10 @@ click through to its page:
 - [Hugging Face Hub](guide-web-hfh.md)
 - [Zenodo](guide-web-zenodo.md)
 - [B2SHARE](guide-web-b2share.md)
-- [GBIF](guide-web-gbif.md) — additionally needs a gbif.org username/password and an
-  organization/installation UUID pair, obtained in advance by hand.
+- [GBIF](guide-web-gbif.md)
 
 If you've already saved any tokens via the CLI's `config set` commands, the wizard
-pre-fills its forms with those same saved values (both share the same `settings.toml`).
+pre-fills its forms with those same saved values.
 
 ---
 
