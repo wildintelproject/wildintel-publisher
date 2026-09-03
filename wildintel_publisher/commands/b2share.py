@@ -94,14 +94,15 @@ def prepare(
             "Hub URL of each file."
         ),
     ),
-    self_contained: bool = typer.Option(
-        False, "--self-contained",
+    self_contained: Optional[bool] = typer.Option(
+        None, "--self-contained/--no-self-contained",
         help=(
             "Same as 'zenodo prepare' --self-contained: downloads the public images and bundles "
             "datapackage.json/CSVs plus images/ into a single camtrapdp.zip (filePath relative to "
             "images/ inside it), removing the loose files afterwards. Needed because B2SHARE caps "
             "each record at 100 files — uploading one file per image would exceed that for most "
-            "datasets. Takes precedence over --hfh-repo-id for the filePath rewrite."
+            "datasets. Takes precedence over --hfh-repo-id for the filePath rewrite. Defaults to "
+            "enabled (mirror) for Camtrap DP when --hfh-repo-id isn't also given, disabled otherwise."
         ),
     ),
     version: str = typer.Option(
@@ -118,9 +119,10 @@ def prepare(
     ),
 ) -> None:
     """Prepares the B2SHARE record: copies the Camtrap DP from Trapper (public media only), and
-    generates README.md, CITATION.cff, LICENSE and checksums-sha256.txt. By default media.csv's
-    filePath is left untouched; use --hfh-repo-id to point it at HuggingFace Hub, or
-    --self-contained to also host the images on B2SHARE itself (exactly like 'hfh prepare')."""
+    generates README.md, CITATION.cff, LICENSE and checksums-sha256.txt. Defaults to
+    --self-contained (hosting the images on B2SHARE itself) for Camtrap DP, unless --hfh-repo-id
+    is given (which points media.csv at HuggingFace Hub instead) — pass --no-self-contained to
+    leave media.csv's filePath untouched instead."""
     resolved_input_dir = Path(input_dir) if input_dir else get_trapper_output_dir()
     resolved_output_dir = Path(output_dir) if output_dir else get_b2share_output_dir()
     try:

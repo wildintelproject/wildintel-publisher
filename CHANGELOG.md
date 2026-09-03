@@ -106,6 +106,21 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   clone, since a whole-repo mirror has nothing product-specific for `prepare()` to
   transform first (unlike Camtrap DP's private-media filtering/image download, which must
   still run before anything gets zipped there).
+- CLI: `zenodo prepare --self-contained`/`b2share prepare --self-contained` now produce a
+  Camtrap DP archive directly usable as GBIF's own `--archive-url`, without needing
+  Hugging Face Hub published in the same run — the self-contained `camtrapdp.zip` nests
+  its files inside a single root folder and gets `gbifIngestion.observationLevel`
+  injected into its own copy of `datapackage.json` (the same two fixes
+  `camtrapdp-remote.zip` already has for Hugging Face Hub). Their own **Link** mode
+  (`--hfh-repo-id`) now also generates a `camtrapdp-remote.zip` alongside the loose
+  tables — no images embedded, since `media.csv` already points at real Hugging Face Hub
+  URLs by that point.
+- CLI/Web: GBIF's own **Validate archive** check (`gbif.validate_camtrap_dp_archive`) now
+  also rejects a Camtrap DP archive whose `media.csv` has any `filePath` that isn't an
+  absolute `http(s)://` URL — a relative or local filesystem path (valid Camtrap DP on its
+  own, e.g. a self-contained package) never resolves to anything once GBIF's crawler has
+  decompressed and discarded the archive, silently leaving every occurrence record with no
+  working media link.
 
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four
@@ -247,6 +262,11 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   the archive itself existing and being fetchable by GBIF's crawler. The wizard's own
   Archive URL auto-fill/lock now applies whenever Hugging Face Hub is selected at all, no
   longer conditional on its publishing mode.
+- CLI: `zenodo prepare`/`b2share prepare` now default `--self-contained` to enabled
+  (mirror) for Camtrap DP whenever `--hfh-repo-id` isn't also given, instead of leaving
+  `media.csv` untouched (Plain mode) — pass `--no-self-contained` explicitly for the old
+  behavior. Other product types (e.g. AI Dataset/Software Application) are unaffected,
+  still defaulting to disabled.
 
 ## Released
 

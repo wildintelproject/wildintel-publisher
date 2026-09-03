@@ -770,13 +770,25 @@ def write_local_zip(
     Si `embed_images` es False (por defecto, uso de hfh), el zip asume que
     `output_dir`/<images_dirname>/ ya vive físicamente al lado del zip — para
     usar el paquete en local junto a esa carpeta ya descargada, sin depender
-    de red. Si `embed_images` es True (uso de zenodo/b2share --self-contained),
-    la carpeta de imágenes se empaqueta DENTRO del propio zip, de forma que un
+    de red. Los ficheros van sueltos en la raíz del zip.
+
+    Si `embed_images` es True (uso de zenodo/b2share --self-contained), la
+    carpeta de imágenes se empaqueta DENTRO del propio zip, de forma que un
     único fichero (el zip) contenga todo lo necesario — imprescindible en
     Zenodo (que no aloja estructuras de carpetas, solo ficheros sueltos) y,
     desde la migración de B2SHARE a InvenioRDM, también en B2SHARE (que limita
     cada record a 100 ficheros — un fichero por imagen suelta lo agotaría en
-    cualquier dataset mediano)."""
+    cualquier dataset mediano). Al ser ya autocontenido, en este caso el zip
+    queda además listo para usarse como GBIF's --archive-url (ver
+    services.gbif/write_remote_zip, cuyas mismas dos correcciones se aplican
+    aquí):
+      - Los cuatro ficheros y la carpeta de imágenes se anidan dentro de una
+        única carpeta raíz (el propio nombre del zip) — GBIF exige
+        exactamente un directorio raíz al descomprimir, o trata el dataset
+        entero como vacío sin ningún error visible.
+      - El datapackage.json empaquetado recibe el campo
+        `gbifIngestion.observationLevel` (detectado en observations.csv),
+        sin el cual GBIF filtraría silenciosamente todas las observaciones."""
     fieldnames, rows = read_csv(output_dir / MEDIA_CSV_FILENAME)
     images_dir = output_dir / images_dirname
     if FILE_PATH_COLUMN in fieldnames and FILE_NAME_COLUMN in fieldnames:
@@ -791,21 +803,33 @@ def write_local_zip(
     writer.writerows(rows)
 
     zip_path = output_dir / zip_filename
+    root_dirname = zip_path.stem if embed_images else None
+    observation_level = _detect_observation_level(output_dir) if embed_images else None
+
+    def arcname(name: str) -> str:
+        return f"{root_dirname}/{name}" if root_dirname else name
+
     with ZipFile(zip_path, "w") as zf:
-        zf.write(output_dir / DATAPACKAGE_FILENAME, DATAPACKAGE_FILENAME)
+        datapackage_path = output_dir / DATAPACKAGE_FILENAME
+        if observation_level:
+            datapackage = json.loads(datapackage_path.read_text(encoding="utf-8"))
+            datapackage.setdefault("gbifIngestion", {})["observationLevel"] = observation_level
+            zf.writestr(arcname(DATAPACKAGE_FILENAME), json.dumps(datapackage, indent=2))
+        else:
+            zf.write(datapackage_path, arcname(DATAPACKAGE_FILENAME))
         deployments_path = output_dir / DEPLOYMENTS_CSV_FILENAME
         if deployments_path.is_file():
-            zf.write(deployments_path, DEPLOYMENTS_CSV_FILENAME)
-        zf.writestr(MEDIA_CSV_FILENAME, media_csv_buffer.getvalue())
+            zf.write(deployments_path, arcname(DEPLOYMENTS_CSV_FILENAME))
+        zf.writestr(arcname(MEDIA_CSV_FILENAME), media_csv_buffer.getvalue())
         observations_path = output_dir / OBSERVATIONS_CSV_FILENAME
         if observations_path.is_file():
-            zf.write(observations_path, OBSERVATIONS_CSV_FILENAME)
+            zf.write(observations_path, arcname(OBSERVATIONS_CSV_FILENAME))
         if embed_images and images_dir.is_dir():
             for image_path in sorted(images_dir.iterdir()):
                 if image_path.is_file():
-                    zf.write(image_path, f"{images_dirname}/{image_path.name}")
+                    zf.write(image_path, arcname(f"{images_dirname}/{image_path.name}"))
 
-    note = " (images embedded)" if embed_images else ""
+    note = " (images embedded, GBIF-ready)" if embed_images else ""
     console.print(f"  {zip_filename}: created with filePath relative to {images_dirname}/{note}.")
     return zip_path
 

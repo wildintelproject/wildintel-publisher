@@ -1,5 +1,6 @@
 """Unit tests for services.common.rewrite_media_filepaths_to_hfh/write_local_zip/checksums."""
 import csv
+import json
 import zipfile
 from pathlib import Path
 
@@ -85,13 +86,45 @@ def test_write_local_zip_with_embed_images_bundles_the_image_bytes(camtrapdp_dir
 
     zip_path = write_local_zip(output_dir, zip_filename="camtrapdp.zip", embed_images=True)
 
+    # embed_images=True nests everything under one root folder (the zip's
+    # own stem) so the same archive also works as GBIF's --archive-url — see
+    # write_remote_zip's own "single root directory" requirement.
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
-        assert "images/m1.jpg" in names
-        assert zf.read("images/m1.jpg") == b"fake-bytes"
-        with zf.open("media.csv") as mf:
+        assert "camtrapdp/images/m1.jpg" in names
+        assert zf.read("camtrapdp/images/m1.jpg") == b"fake-bytes"
+        with zf.open("camtrapdp/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
     assert rows[0]["filePath"] == "images/m1.jpg"
+
+
+def test_write_local_zip_with_embed_images_injects_gbif_ingestion_field(camtrapdp_dir):
+    output_dir = camtrapdp_dir("pkg", include_private_media=False)
+    (output_dir / "images").mkdir()
+    (output_dir / "images" / "m1.jpg").write_bytes(b"fake-bytes")
+    with (output_dir / "observations.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["observationID", "mediaID", "observationLevel"])
+        writer.writeheader()
+        writer.writerow({"observationID": "o1", "mediaID": "m1", "observationLevel": "media"})
+
+    zip_path = write_local_zip(output_dir, zip_filename="camtrapdp.zip", embed_images=True)
+
+    with zipfile.ZipFile(zip_path) as zf:
+        datapackage = json.loads(zf.read("camtrapdp/datapackage.json"))
+    assert datapackage["gbifIngestion"]["observationLevel"] == "media"
+
+
+def test_write_local_zip_without_embed_images_stays_flat_at_zip_root(camtrapdp_dir):
+    output_dir = camtrapdp_dir("pkg", include_private_media=False)
+    (output_dir / "images").mkdir()
+    (output_dir / "images" / "m1.jpg").write_bytes(b"fake-bytes")
+
+    zip_path = write_local_zip(output_dir, zip_filename="camtrapdp-local.zip")
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+    assert "media.csv" in names
+    assert "camtrapdp-local/media.csv" not in names
 
 
 def test_write_local_zip_keeps_remote_filepath_when_file_never_downloaded(camtrapdp_dir):

@@ -46,12 +46,31 @@ def test_zenodo_prepare_plain_mode_leaves_filepath_untouched(camtrapdp_dir, tmp_
     input_dir = camtrapdp_dir("trapper_out", include_private_media=True)
     output_dir = tmp_path / "zenodo_out"
 
-    result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+        "--no-self-contained",
+    ])
 
     assert result.exit_code == 0, result.output
     assert not (output_dir / "images").exists()
     assert not (output_dir / "camtrapdp.zip").exists()
     assert _media_filepaths(output_dir) == ["https://trapper.example/m1.jpg?rt=tok1"]
+
+
+def test_zenodo_prepare_defaults_to_self_contained_for_camtrapdp(camtrapdp_dir, tmp_path):
+    # No --self-contained/--no-self-contained/--hfh-repo-id given at all —
+    # Camtrap DP now defaults to mirror (self-contained), unlike Plain
+    # above, which needs --no-self-contained to opt back into the old
+    # behavior.
+    input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
+    output_dir = tmp_path / "zenodo_out"
+
+    with patch("httpx.Client.get", _fake_httpx_get_image):
+        result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert (output_dir / "camtrapdp.zip").is_file()
+    assert not (output_dir / "media.csv").exists()  # bundled into the zip, loose copy cleaned up
 
 
 def test_zenodo_prepare_excludes_stale_raw_camtrapdp_zip(camtrapdp_dir, tmp_path):
@@ -62,7 +81,10 @@ def test_zenodo_prepare_excludes_stale_raw_camtrapdp_zip(camtrapdp_dir, tmp_path
     (input_dir / "camtrapdp.zip").write_bytes(b"stale-zip-with-private-media-still-inside")
     output_dir = tmp_path / "zenodo_out"
 
-    result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+        "--no-self-contained",
+    ])
 
     assert result.exit_code == 0, result.output
     assert not (output_dir / "camtrapdp.zip").exists()
@@ -84,6 +106,24 @@ def test_zenodo_prepare_hfh_repo_id_mode_rewrites_to_predictable_hfh_url(camtrap
     assert "metadata-only" in readme
     assert "someuser/somedataset" in readme
 
+    # Link mode also gets a camtrapdp-remote.zip (same shape as HFH's own —
+    # see common.write_remote_zip): no images embedded (media.csv already
+    # points at real HFH URLs), single root folder, ready as GBIF's own
+    # --archive-url without needing Hugging Face Hub published in this run.
+    zip_path = output_dir / "camtrapdp-remote.zip"
+    assert zip_path.is_file()
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        assert names == [
+            "camtrapdp-remote/datapackage.json", "camtrapdp-remote/deployments.csv",
+            "camtrapdp-remote/media.csv", "camtrapdp-remote/observations.csv",
+        ]
+        with zf.open("camtrapdp-remote/media.csv") as mf:
+            rows = list(csv.DictReader(line.decode() for line in mf))
+    assert rows[0]["filePath"] == "https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"
+    # the loose tables (with the same rewritten URL) still stay alongside it too
+    assert (output_dir / "media.csv").is_file()
+
 
 def test_zenodo_prepare_self_contained_mode_downloads_images_and_bundles_zip(camtrapdp_dir, tmp_path):
     input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
@@ -97,11 +137,13 @@ def test_zenodo_prepare_self_contained_mode_downloads_images_and_bundles_zip(cam
     assert result.exit_code == 0, result.output
     zip_path = output_dir / "camtrapdp.zip"
     assert zip_path.is_file()
+    # nested under a single root folder (the zip's own stem) so this same
+    # archive also works as GBIF's --archive-url — see write_local_zip.
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
-        assert "images/m1.jpg" in names
-        assert zf.read("images/m1.jpg") == b"fake-image-bytes"
-        with zf.open("media.csv") as mf:
+        assert "camtrapdp/images/m1.jpg" in names
+        assert zf.read("camtrapdp/images/m1.jpg") == b"fake-image-bytes"
+        with zf.open("camtrapdp/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
     assert rows[0]["filePath"] == "images/m1.jpg"
 
@@ -132,7 +174,7 @@ def test_zenodo_prepare_self_contained_takes_precedence_over_hfh_repo_id(camtrap
     assert (output_dir / "camtrapdp.zip").is_file()
     assert not (output_dir / "media.csv").exists()  # cleaned up, not rewritten to HFH either
     with zipfile.ZipFile(output_dir / "camtrapdp.zip") as zf:
-        with zf.open("media.csv") as mf:
+        with zf.open("camtrapdp/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
     assert rows[0]["filePath"] == "images/m1.jpg"  # embedded + relative, not the HFH URL
 
@@ -162,7 +204,10 @@ def test_zenodo_prepare_reuses_non_empty_output_dir_with_overwrite(camtrapdp_dir
     output_dir.mkdir()
     (output_dir / "leftover.txt").write_text("x", encoding="utf-8")
 
-    result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir), "--overwrite"])
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+        "--overwrite", "--no-self-contained",
+    ])
 
     assert result.exit_code == 0, result.output
     assert (output_dir / "README.md").is_file()
@@ -180,7 +225,10 @@ def _fake_response(status_code=200, json_data=None):
 def _prepared_zenodo_export(camtrapdp_dir, tmp_path):
     input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
     output_dir = tmp_path / "zenodo_out"
-    result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+        "--no-self-contained",
+    ])
     assert result.exit_code == 0, result.output
     return output_dir
 

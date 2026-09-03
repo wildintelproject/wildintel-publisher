@@ -291,7 +291,10 @@ Publishing deposition 1234567 ...
 </div>
 
 Prefer a fully self-contained record instead (no link to Hugging Face Hub)? Use
-`--self-contained` instead of `--hfh-repo-id` at the `prepare` step.
+`--self-contained` instead of `--hfh-repo-id` at the `prepare` step — for Camtrap DP,
+this is already the default whenever `--hfh-repo-id` isn't given, so leaving both flags
+out has the same effect; pass `--no-self-contained` if you want the old "leave
+`media.csv` untouched" (Plain) behavior instead.
 
 ### 5. Publish to B2SHARE, linked to Hugging Face Hub
 

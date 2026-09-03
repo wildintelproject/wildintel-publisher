@@ -69,7 +69,7 @@ def prepare_zenodo_export(
     output_dir: Path,
     metadata: ZenodoSettings,
     hfh_repo_id: Optional[str] = None,
-    self_contained: bool = False,
+    self_contained: Optional[bool] = None,
     version: str = DEFAULT_VERSION,
     image_timeout: int = common.DEFAULT_IMAGE_TIMEOUT,
     overwrite: bool = False,
@@ -92,6 +92,13 @@ def prepare_zenodo_export(
     - Ninguno de los dos: la referencia se deja tal cual traía `input_dir`,
       sin modificar.
 
+    `self_contained=None` (por defecto) resuelve su propio valor según el
+    tipo de producto en cuanto se lee metadata.json: `True` (mirror) para
+    Camtrap DP siempre que no se haya dado ya `hfh_repo_id` (que por sí solo
+    ya indica la intención de usar modo Link); `False` para cualquier otro
+    tipo — sin cambios respecto al comportamiento anterior. Pasar
+    explícitamente `True`/`False` siempre tiene prioridad sobre este cálculo.
+
     title/description/version/licencia/autores salen siempre de
     metadata.json, igual que en 'hfh prepare' — sin fallback aquí (ya se
     validaron una vez al generarlo).
@@ -110,6 +117,13 @@ def prepare_zenodo_export(
             f"{input_dir} does not exist — generate the package first with 'trapper download' "
             "(or pass --input-dir pointing to where you downloaded it)."
         )
+
+    product_meta = product.read_metadata_json(input_dir)
+    adapter = product.get_adapter(product_meta["product_type"])
+
+    if self_contained is None:
+        self_contained = adapter.product_type == product.CAMTRAPDP and not hfh_repo_id
+
     if self_contained and hfh_repo_id:
         console.print(
             "[yellow]⚠ Both --self-contained and --hfh-repo-id were given — --self-contained "
@@ -118,9 +132,6 @@ def prepare_zenodo_export(
         )
 
     common.ensure_output_dir(output_dir, overwrite=overwrite)
-
-    product_meta = product.read_metadata_json(input_dir)
-    adapter = product.get_adapter(product_meta["product_type"])
 
     console.print(f"Copying the product from {input_dir} to {output_dir} ...")
     adapter.prepare(input_dir, output_dir, mirror=self_contained, image_timeout=image_timeout)
@@ -158,6 +169,15 @@ def prepare_zenodo_export(
         zip_filename = _self_contained_zip_filename(adapter.product_type)
         adapter.bundle_local_zip(input_dir, output_dir, output_dir / zip_filename, embed_images=True)
         common.cleanup_self_contained_sources(output_dir, adapter, product_meta, zip_filename)
+    elif hfh_repo_id and adapter.product_type == product.CAMTRAPDP:
+        # Link mode: media.csv already points to real, permanent Hugging
+        # Face Hub URLs (rewritten above by link_media_to_hfh) — no images
+        # to embed, but the same camtrapdp-remote.zip HFH itself generates
+        # (see hfh.upload_to_huggingface/common.write_remote_zip) is built
+        # here too, alongside the loose tables, so this Zenodo record is
+        # directly usable as GBIF's --archive-url on its own, without
+        # needing Hugging Face Hub published in the same run.
+        common.write_remote_zip(output_dir)
     common.write_checksums(output_dir)
 
     console.print(f"[green]✔  Zenodo record prepared in {output_dir}[/green]")

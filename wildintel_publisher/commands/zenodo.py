@@ -72,12 +72,14 @@ def prepare(
             "Hub URL of each file."
         ),
     ),
-    self_contained: bool = typer.Option(
-        False, "--self-contained",
+    self_contained: Optional[bool] = typer.Option(
+        None, "--self-contained/--no-self-contained",
         help=(
             "Downloads the public images and bundles datapackage.json/CSVs + the images/ folder "
             "into a single self-contained camtrapdp.zip (filePath relative to images/), instead of "
-            "linking to HuggingFace Hub. Takes precedence over --hfh-repo-id for the filePath rewrite."
+            "linking to HuggingFace Hub. Takes precedence over --hfh-repo-id for the filePath rewrite. "
+            "Defaults to enabled (mirror) for Camtrap DP when --hfh-repo-id isn't also given, disabled "
+            "otherwise."
         ),
     ),
     version: str = typer.Option(
@@ -94,9 +96,10 @@ def prepare(
     ),
 ) -> None:
     """Prepares the Zenodo record: copies the Camtrap DP from Trapper (public media only), and
-    generates README.md, CITATION.cff, LICENSE and checksums-sha256.txt. By default media.csv's
-    filePath is left untouched; use --hfh-repo-id to point it at HuggingFace Hub, or
-    --self-contained to bundle the images into the record itself."""
+    generates README.md, CITATION.cff, LICENSE and checksums-sha256.txt. Defaults to
+    --self-contained (bundling the images into the record itself) for Camtrap DP, unless
+    --hfh-repo-id is given (which points media.csv at HuggingFace Hub instead) — pass
+    --no-self-contained to leave media.csv's filePath untouched instead."""
     resolved_input_dir = Path(input_dir) if input_dir else get_trapper_output_dir()
     resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
     try:

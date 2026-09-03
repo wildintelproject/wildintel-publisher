@@ -86,10 +86,19 @@ class CamtrapDPAdapter:
         if zip_path is None:
             return
         with zipfile.ZipFile(zip_path) as zf:
-            for name in zf.namelist():
-                if name.endswith("/"):
-                    continue
-                destination = target_dir / name
+            names = [name for name in zf.namelist() if not name.endswith("/")]
+            # write_local_zip(embed_images=True) nests everything under a
+            # single root folder (the zip's own stem) so the same archive
+            # also works as GBIF's --archive-url — strip that one common
+            # prefix back off here so target_dir ends up flat again, same as
+            # every other branch of this method.
+            root_prefix = ""
+            if names:
+                first_root = names[0].split("/", 1)[0] + "/"
+                if all(name.startswith(first_root) for name in names):
+                    root_prefix = first_root
+            for name in names:
+                destination = target_dir / name[len(root_prefix):]
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(zf.read(name))
 
