@@ -121,6 +121,16 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   own, e.g. a self-contained package) never resolves to anything once GBIF's crawler has
   decompressed and discarded the archive, silently leaving every occurrence record with no
   working media link.
+- CLI: `zenodo prepare --self-contained`/`b2share prepare --self-contained` (Camtrap DP
+  only) now resize the already-downloaded images uniformly before bundling them into
+  `camtrapdp.zip`, whenever their combined size would otherwise exceed the repository's
+  own per-file upload cap (50 GiB on Zenodo, 20 GiB on B2SHARE) — a single, upfront scale
+  factor keeps the whole dataset at one consistent resolution, never shrinking an image's
+  longest edge below `--min-image-edge` (640px by default). `camtrapdp.zip`'s final size
+  is still checked against the limit afterwards regardless (`--max-zip-file` to override
+  it, `--no-fit-archive-size` to disable resizing) — `prepare` now fails with a clear
+  error instead of letting the much later upload silently fail once it hits the platform's
+  own cap.
 
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four

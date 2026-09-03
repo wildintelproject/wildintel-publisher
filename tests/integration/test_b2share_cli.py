@@ -9,13 +9,16 @@ them inside a single camtrapdp.zip with media.csv's filePath relative to
 images/, and removes the loose files — B2SHARE's API caps each record at
 100 files, so uploading one file per image the old way isn't viable)."""
 import csv
+import io
 import json
+import os
 import subprocess
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import yaml
+from PIL import Image
 from typer.testing import CliRunner
 
 from wildintel_publisher.main import app
@@ -171,6 +174,56 @@ def test_b2share_prepare_self_contained_downloads_and_bundles_zip(camtrapdp_dir,
     assert "B2SHARE" in readme
     assert "metadata-only" not in readme
     assert "camtrapdp.zip" in readme
+
+
+def _fake_httpx_get_real_jpeg(width: int, height: int):
+    # Random noise compresses poorly (unlike a solid color), so file size
+    # scales predictably with resolution — needed to force "over budget"
+    # deterministically, and Image.open (used by fit_images_to_size) needs
+    # a real JPEG, unlike the plain b"fake-image-bytes" used elsewhere.
+    def _fake_get(self, url, *args, **kwargs):
+        buffer = io.BytesIO()
+        Image.frombytes("RGB", (width, height), os.urandom(width * height * 3)).save(buffer, format="JPEG", quality=95)
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.content = buffer.getvalue()
+        return response
+
+    return _fake_get
+
+
+def test_b2share_prepare_self_contained_resizes_images_to_fit_max_zip_file(camtrapdp_dir, tmp_path):
+    input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
+    output_dir = tmp_path / "b2share_out"
+
+    with patch("httpx.Client.get", _fake_httpx_get_real_jpeg(800, 600)):
+        result = runner.invoke(app, [
+            "b2share", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+            "--self-contained", "--max-zip-file", "0.0001", "--min-image-edge", "50",
+        ])
+
+    assert result.exit_code == 0, result.output
+    zip_path = output_dir / "camtrapdp.zip"
+    assert zip_path.stat().st_size <= round(0.0001 * 1024 ** 3)
+    with zipfile.ZipFile(zip_path) as zf:
+        with zf.open("camtrapdp/images/m1.jpg") as f:
+            with Image.open(io.BytesIO(f.read())) as img:
+                assert max(img.size) < 800  # smaller than the original 800x600
+
+
+def test_b2share_prepare_self_contained_fails_when_still_over_max_zip_file(camtrapdp_dir, tmp_path, caplog):
+    input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
+    output_dir = tmp_path / "b2share_out"
+
+    with patch("httpx.Client.get", _fake_httpx_get_real_jpeg(800, 600)):
+        result = runner.invoke(app, [
+            "b2share", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+            "--self-contained", "--max-zip-file", "0.0001", "--min-image-edge", "700",
+        ])
+
+    assert result.exit_code == 1
+    assert "over B2SHARE's own" in caplog.text
+    assert "GiB per-file upload limit" in caplog.text
 
 
 def test_b2share_prepare_self_contained_takes_precedence_over_hfh_repo_id(camtrapdp_dir, tmp_path):

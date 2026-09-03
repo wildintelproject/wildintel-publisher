@@ -49,3 +49,11 @@ Like Zenodo, this is the opposite of how [Hugging Face Hub](publishing-hfh-camtr
 stores the same product: there, public images travel one by one, as real files, with
 `media.csv` pointing at real per-file URLs. Here, self-contained publishing compresses
 everything into one zip and the media reference becomes a path *inside* that zip.
+
+## Keeping `camtrapdp.zip` under B2SHARE's own size limit
+
+Same mechanism as [Zenodo](publishing-zenodo-camtrapdp.md#keeping-camtrapdpzip-under-zenodos-own-size-limit),
+just against B2SHARE's own (lower) real per-file limit — `DEFAULT_MAX_ZIP_BYTES` defaults
+to 20 GiB here instead of Zenodo's 50 GiB. Same flags: `--fit-archive-size`/
+`--no-fit-archive-size` (default: enabled), `--max-zip-file` (GiB), `--min-image-edge`
+(pixels, default 640) — all Camtrap DP + `--self-contained` only.

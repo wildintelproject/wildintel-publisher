@@ -50,3 +50,27 @@ same product: there, public images travel one by one, as real files in the repos
 with `media.csv` pointing at real per-file URLs. Here, self-contained publishing
 compresses everything into one zip and the media reference becomes a path *inside* that
 zip, not a URL at all.
+
+## Keeping `camtrapdp.zip` under Zenodo's own size limit
+
+Zenodo caps how big a single uploaded file can be (`DEFAULT_MAX_ZIP_BYTES`, 50 GiB by
+default — matches Zenodo's own real limit). Once the images are already downloaded to
+`output_dir/images/`, and only for Camtrap DP, `zenodo prepare --self-contained` checks
+their combined size before bundling them into `camtrapdp.zip`:
+
+- If they already fit comfortably, nothing changes.
+- Otherwise every image is downscaled **uniformly** (same scale factor for all of them,
+  computed once from how much over budget they are — not a "build, measure, halve,
+  rebuild" loop) so the whole dataset ends up at one consistent resolution, rather than
+  some images sharper than others depending on download order. An image's longest edge
+  is never shrunk below `--min-image-edge` (640px by default) — past that point,
+  shrinking further trades away more identifiability (species, individual markings) than
+  it saves in bytes. Non-image files (e.g. video, if any) are never touched.
+- `camtrapdp.zip`'s final size is checked against the limit regardless — even with
+  `--no-fit-archive-size` — and `prepare` fails with a clear error instead of letting the
+  much later upload to Zenodo fail on its own.
+
+Flags: `--fit-archive-size`/`--no-fit-archive-size` (default: enabled), `--max-zip-file`
+(the budget itself, in GiB — defaults to Zenodo's real 50 GiB cap; only useful to lower,
+e.g. for a stricter personal quota), `--min-image-edge` (the floor, in pixels, default
+640). All three are ignored outside `--self-contained` Camtrap DP.

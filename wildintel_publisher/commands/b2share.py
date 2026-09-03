@@ -117,6 +117,23 @@ def prepare(
         False, "--overwrite",
         help="Allows reusing --output-dir even if it already exists and has content (overwriting it).",
     ),
+    fit_archive_size: bool = typer.Option(
+        True, "--fit-archive-size/--no-fit-archive-size",
+        help=(
+            "Camtrap DP + --self-contained only: before bundling, resize the already-downloaded "
+            "images uniformly (never below --min-image-edge) if their combined size threatens to "
+            "exceed --max-zip-file — camtrapdp.zip's final size is still checked against that limit "
+            "either way, raising an error rather than letting the later upload to B2SHARE fail."
+        ),
+    ),
+    max_zip_file: float = typer.Option(
+        b2share_service.DEFAULT_MAX_ZIP_BYTES / 1024 ** 3, "--max-zip-file",
+        help="Camtrap DP + --self-contained only: camtrapdp.zip's own size budget, in GiB. Defaults to B2SHARE's own per-file upload limit.",
+    ),
+    min_image_edge: int = typer.Option(
+        b2share_service.DEFAULT_MIN_IMAGE_EDGE, "--min-image-edge",
+        help="Camtrap DP + --self-contained only: never resize an image's longest edge below this many pixels, even if --max-zip-file is still exceeded.",
+    ),
 ) -> None:
     """Prepares the B2SHARE record: copies the Camtrap DP from Trapper (public media only), and
     generates README.md, CITATION.cff, LICENSE and checksums-sha256.txt. Defaults to
@@ -135,6 +152,9 @@ def prepare(
             version=version,
             image_timeout=timeout,
             overwrite=overwrite,
+            fit_archive_size=fit_archive_size,
+            max_zip_bytes=round(max_zip_file * 1024 ** 3),
+            min_image_edge=min_image_edge,
         )
     except Exception as exc:
         logging.error("Could not prepare the B2SHARE record: %s", exc)

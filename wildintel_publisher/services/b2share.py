@@ -96,6 +96,16 @@ def _self_contained_zip_filename(product_type: str) -> str:
     Camtrap DP."""
     return SELF_CONTAINED_ZIP_FILENAME if product_type == product.CAMTRAPDP else f"{product_type}.zip"
 
+# B2SHARE's own per-file upload cap, enforced on `camtrapdp.zip` once
+# --self-contained bundles a Camtrap DP's images inside it — same shape as
+# Zenodo's own DEFAULT_MAX_ZIP_BYTES, just B2SHARE's lower real limit.
+# common.fit_images_to_size resizes images to try to stay under this before
+# the zip is even built; the final zip size is still checked against it
+# afterwards regardless, in case resizing alone (or --no-fit-archive-size)
+# wasn't enough.
+DEFAULT_MAX_ZIP_BYTES = 20 * 1024 ** 3
+DEFAULT_MIN_IMAGE_EDGE = 640
+
 # Marcador del CITATION.cff/README.md de --self-contained (link mode ya
 # apunta a una URL real, la de HuggingFace Hub, así que no necesita
 # marcador) — sustituido por la URL del resolver del DOI en cuanto
@@ -114,6 +124,9 @@ def prepare_b2share_export(
     version: str = DEFAULT_VERSION,
     image_timeout: int = DEFAULT_IMAGE_TIMEOUT,
     overwrite: bool = False,
+    fit_archive_size: bool = True,
+    max_zip_bytes: Optional[int] = None,
+    min_image_edge: int = DEFAULT_MIN_IMAGE_EDGE,
 ) -> Path:
     """Copia el producto de `input_dir` a `output_dir` (vía el ProductAdapter
     de su tipo, leído de `input_dir`/metadata.json) — mismos tres modos que
@@ -138,6 +151,17 @@ def prepare_b2share_export(
     'zenodo prepare': `True` (mirror) para Camtrap DP salvo que ya se haya
     dado `hfh_repo_id`; `False` para cualquier otro tipo, sin cambios.
     Pasar explícitamente `True`/`False` siempre tiene prioridad.
+
+    Para Camtrap DP en modo self-contained, `fit_archive_size=True` (por
+    defecto) hace que las imágenes ya descargadas se reescalen uniformemente
+    (nunca por debajo de `min_image_edge` píxeles de lado largo) antes de
+    empaquetarlas, si su tamaño combinado amenaza con superar
+    `max_zip_bytes` (por defecto `DEFAULT_MAX_ZIP_BYTES`, el límite real de
+    B2SHARE) — ver `common.fit_images_to_size`. Tras construir el zip, su
+    tamaño final se comprueba contra `max_zip_bytes` de todas formas
+    (incluso con `fit_archive_size=False`): si lo supera, se lanza
+    `RuntimeError` en vez de dejar que la subida falle más tarde en B2SHARE
+    sin previo aviso. No aplica a otros tipos de producto (p.ej. YOLO).
 
     title/description/version/licencia/autores salen siempre de
     metadata.json — sin fallback aquí, igual que en 'hfh prepare'/'zenodo
@@ -207,8 +231,23 @@ def prepare_b2share_export(
     )
     if self_contained:
         zip_filename = _self_contained_zip_filename(adapter.product_type)
+        zip_size_limit = max_zip_bytes or DEFAULT_MAX_ZIP_BYTES
+        if adapter.product_type == product.CAMTRAPDP and fit_archive_size:
+            common.fit_images_to_size(
+                output_dir / common.IMAGES_DIRNAME, target_bytes=zip_size_limit, min_edge=min_image_edge,
+            )
         adapter.bundle_local_zip(input_dir, output_dir, output_dir / zip_filename, embed_images=True)
         common.cleanup_self_contained_sources(output_dir, adapter, product_meta, zip_filename)
+        if adapter.product_type == product.CAMTRAPDP:
+            zip_size = (output_dir / zip_filename).stat().st_size
+            if zip_size > zip_size_limit:
+                raise RuntimeError(
+                    f"{zip_filename} is {zip_size / 1024**3:.2f} GiB, over B2SHARE's own "
+                    f"{zip_size_limit / 1024**3:.2f} GiB per-file upload limit"
+                    + (" even after resizing images" if fit_archive_size else "")
+                    + f" — try a smaller --min-image-edge, or use --hfh-repo-id (Link mode) instead, "
+                    "which doesn't bundle any image into the record itself."
+                )
     elif hfh_repo_id and adapter.product_type == product.CAMTRAPDP:
         # Link mode: media.csv already points to real, permanent Hugging
         # Face Hub URLs (rewritten above by link_media_to_hfh) — no images

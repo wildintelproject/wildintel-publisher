@@ -19,6 +19,7 @@ import httpx
 import yaml
 from frictionless import validate as frictionless_validate
 from jinja2 import Environment, FileSystemLoader
+from PIL import Image
 from rich.console import Console
 from rich.progress import track
 
@@ -755,6 +756,89 @@ def download_public_images(
     console.print(
         f"[green]✔  Images: {downloaded} downloaded, {copied} copied locally, "
         f"{skipped} already existed, {failed} failed.[/green]"
+    )
+
+
+_FIT_SIZE_NOOP_THRESHOLD = 0.9   # skip resizing entirely if already under this fraction of target_bytes
+_FIT_SIZE_TARGET_MARGIN = 0.85   # scale for this fraction of target_bytes, not 100% (zip/tables overhead, rounding)
+
+
+def fit_images_to_size(images_dir: Path, *, target_bytes: int, min_edge: int = 640, quality: int = 85) -> None:
+    """Downscales every image under `images_dir` in place, uniformly, so
+    their combined size fits within `target_bytes` — meant to run right
+    after download_public_images (mirror mode) and before write_local_zip
+    bundles them into --self-contained's own zip, so Zenodo's/B2SHARE's own
+    per-file upload cap doesn't get hit with no way to recover other than
+    dropping media entirely (see each module's own DEFAULT_MAX_ZIP_BYTES).
+
+    A no-op whenever what's already on disk fits under
+    `target_bytes * _FIT_SIZE_NOOP_THRESHOLD` — no resizing, no re-encoding,
+    images untouched. Otherwise computes a single scale factor up front —
+    `sqrt(target_bytes * _FIT_SIZE_TARGET_MARGIN / current_size)`, since a
+    JPEG's size roughly scales with its pixel count, which scales with
+    scale² — and applies it to every image the same way, so the whole
+    dataset ends up at one consistent resolution rather than some images
+    sharper than others depending on download order. This is a single pass:
+    no build-the-zip-then-measure-then-redo loop, since the images are
+    already local at this point and their combined size is measured
+    directly, not estimated.
+
+    Never shrinks an image's longest edge below `min_edge` pixels, and never
+    upscales one already smaller than that — past that floor, shrinking
+    further trades away more identifiability (species, individual markings)
+    than it saves in bytes, so a still-oversized result is left for the
+    caller's own final size check to catch and report, rather than silently
+    degraded further here.
+
+    Only files Pillow can open as images are touched, each re-saved in its
+    own original format (JPEG stays JPEG at `quality`, PNG stays PNG, ...) —
+    video files (if any) are left exactly as they were, and still count
+    fully toward whatever the final zip ends up weighing.
+    """
+    image_paths = [p for p in images_dir.iterdir() if p.is_file()] if images_dir.is_dir() else []
+    if not image_paths:
+        return
+
+    current_size = sum(p.stat().st_size for p in image_paths)
+    if current_size <= target_bytes * _FIT_SIZE_NOOP_THRESHOLD:
+        return
+
+    scale = min(1.0, (target_bytes * _FIT_SIZE_TARGET_MARGIN / current_size) ** 0.5)
+    console.print(
+        f"  Images: {current_size / 1024**3:.2f} GiB would exceed the archive's "
+        f"{target_bytes / 1024**3:.2f} GiB budget — resizing to ~{scale:.0%} of original "
+        f"dimensions (never below {min_edge}px on the longest edge)..."
+    )
+
+    resized = skipped = failed = 0
+    for image_path in track(image_paths, description="Resizing images"):
+        try:
+            with Image.open(image_path) as img:
+                width, height = img.size
+                longest_edge = max(width, height)
+                target_longest_edge = min(longest_edge, max(min_edge, round(longest_edge * scale)))
+                if target_longest_edge == longest_edge:
+                    skipped += 1
+                    continue
+                image_scale = target_longest_edge / longest_edge
+                new_size = (max(1, round(width * image_scale)), max(1, round(height * image_scale)))
+                save_format = img.format or "JPEG"
+                resized_img = img.resize(new_size, Image.LANCZOS)
+                save_kwargs: dict[str, Any] = {"optimize": True}
+                if save_format == "JPEG":
+                    if resized_img.mode not in ("RGB", "L"):
+                        resized_img = resized_img.convert("RGB")
+                    save_kwargs["quality"] = quality
+                resized_img.save(image_path, format=save_format, **save_kwargs)
+            resized += 1
+        except Exception as exc:
+            console.print(f"  [red]✘  Could not resize {image_path.name}: {exc}[/red]")
+            failed += 1
+
+    new_size_bytes = sum(p.stat().st_size for p in images_dir.iterdir() if p.is_file())
+    console.print(
+        f"[green]✔  Images: {resized} resized, {skipped} already small enough, {failed} failed "
+        f"— now {new_size_bytes / 1024**3:.2f} GiB.[/green]"
     )
 
 
