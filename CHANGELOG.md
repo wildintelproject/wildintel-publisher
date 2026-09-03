@@ -277,6 +277,15 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   `media.csv` untouched (Plain mode) — pass `--no-self-contained` explicitly for the old
   behavior. Other product types (e.g. AI Dataset/Software Application) are unaffected,
   still defaulting to disabled.
+- Web: Zenodo and B2SHARE are now selectable for Camtrap DP in the wizard too, alongside
+  Hugging Face Hub and GBIF (reversing the earlier "restrict the Camtrap DP wizard to
+  Hugging Face Hub and GBIF only" entry above) — the backend already fully supported this
+  combination; only the wizard's own repository picker was narrower. GBIF's Archive URL
+  still only auto-fills/locks from Hugging Face Hub (its user-chosen repository name is
+  known upfront, unlike Zenodo/B2SHARE's own deposition/record id, only assigned once
+  they actually upload) — selecting Zenodo/B2SHARE without Hugging Face Hub leaves the
+  field blank and editable, with a note explaining why and pointing at registering GBIF
+  in a separate run afterward instead.
 
 ## Released
 

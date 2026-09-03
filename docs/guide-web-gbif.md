@@ -27,15 +27,25 @@ you to fill in the following fields:
   points at real Hugging Face Hub URLs in Mirror mode, or whatever the original source
   gave it in Link mode (see [Publishing to Hugging Face
   Hub](publishing-hfh-camtrapdp.md)); either way, the zip itself lives at a permanent
-  Hugging Face Hub URL. Two cases:
+  Hugging Face Hub URL. Three cases:
     - **Hugging Face Hub is also selected**: this field is pre-filled *and locked*
       (read-only) to
       `https://huggingface.co/datasets/<repo>/resolve/main/camtrapdp-remote.zip`, derived
       from what you typed into the Hugging Face Hub form — there's no other valid value
       once both are selected together, so it can't be edited.
-    - **Otherwise** (no Hugging Face Hub in this run at all): the field is empty and
-      editable — type in the URL of a separate, already-public Camtrap DP archive
-      yourself (e.g. hosted outside this tool, or from an earlier publish). Use
+    - **Zenodo and/or B2SHARE are selected instead, no Hugging Face Hub**: both now also
+      produce a Camtrap DP archive of their own usable here (see
+      [Zenodo](publishing-zenodo-camtrapdp.md#keeping-camtrapdpzip-under-zenodos-own-size-limit)) —
+      but unlike Hugging Face Hub's user-chosen repository name, their own deposition/
+      record isn't assigned until they actually upload, so this field can't be
+      auto-filled/locked from them the way it is from Hugging Face Hub. It's left empty
+      and editable instead, with a note explaining this — either register GBIF in a
+      separate run afterward, once you know the resulting URL from Zenodo's/B2SHARE's own
+      result screen, or type it in by hand if you already know it (e.g. from an earlier
+      publish).
+    - **Otherwise** (no Hugging Face Hub/Zenodo/B2SHARE in this run at all): the field is
+      empty and editable — type in the URL of a separate, already-public Camtrap DP
+      archive yourself (e.g. hosted outside this tool, or from an earlier publish). Use
       **Validate archive** to check upfront that the URL really is a zip
       containing a valid Camtrap DP, before registering it with GBIF.
 - **Environment** — **Sandbox** (`gbif-test.org`, testing — its own separate account) or

@@ -59,14 +59,13 @@ DOI for the code itself.
 
 ✅ available today · 🔜 planned · ❌ not applicable
 
-!!! note "The web wizard narrows Camtrap DP further, to Hugging Face Hub + GBIF only"
+!!! note "GBIF is mandatory for Camtrap DP in the web wizard"
     The table above reflects what each repository integration actually supports — the
     CLI's `hfh`/`zenodo`/`b2share`/`gbif` commands stay generic across product types (see
-    the [Developer Guide](developer-guide.md)). The web app's own wizard, however, only
-    lets a Camtrap DP package be published to Hugging Face Hub and GBIF, keeping
-    Zenodo/B2SHARE reserved for AI Datasets and software applications in that flow. GBIF
-    is **mandatory** there — pre-selected and not deselectable, so a Camtrap DP dataset
-    always ends up registered with GBIF (Hugging Face Hub stays optional alongside it).
+    the [Developer Guide](developer-guide.md)), and the web app's own wizard now offers
+    the same four repositories for Camtrap DP. GBIF is **mandatory** there — pre-selected
+    and not deselectable, so a Camtrap DP dataset always ends up registered with GBIF;
+    Hugging Face Hub, Zenodo, and B2SHARE are all optional alongside it, any combination.
 
 See the [Publishing Guide](publishing-guide.md) for how the publishing process itself
 works, and each repository's own guide (linked above) for what publishing a given

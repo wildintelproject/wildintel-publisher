@@ -79,9 +79,6 @@ interface RepoOption {
   implemented: boolean
 }
 
-// Zenodo and B2SHARE are fully implemented — Camtrap DP still only offers
-// Hugging Face Hub + GBIF through this wizard (see REPOS_BY_PRODUCT_TYPE's
-// own comment), but Software Application genuinely uses both.
 const REPO_OPTIONS: RepoOption[] = [
   { value: 'hfh', emoji: '🤗', title: 'Hugging Face Hub', description: 'Publish as a dataset repository on Hugging Face Hub.', implemented: true },
   { value: 'zenodo', emoji: '📚', title: 'Zenodo', description: 'Archive the package with a DOI on Zenodo.', implemented: true },
@@ -91,17 +88,18 @@ const REPO_OPTIONS: RepoOption[] = [
 
 // Which repositories accept which product type. GBIF only ever accepts
 // Camtrap DP (biodiversity occurrence data) — YOLO training datasets/models
-// aren't a fit (see docs/publishing-gbif.md). Camtrap DP itself is
-// deliberately narrowed to Hugging Face Hub + GBIF only through this wizard
-// (Zenodo/B2SHARE stay available for it via the CLI). A software
-// application has no biodiversity/media content to speak of, so HFH and
-// GBIF aren't a fit for it either — it only ever goes to Zenodo/B2SHARE
-// (see MANDATORY_REPOS_BY_PRODUCT_TYPE: Zenodo is required for it, since
-// its DOI is always the one that ends up citing the software). The other
-// product types aren't selectable yet, so they have no supported
-// repositories of their own for now.
+// aren't a fit (see docs/publishing-gbif.md). Camtrap DP itself now offers
+// all four repositories (Zenodo/B2SHARE joined Hugging Face Hub + GBIF here
+// — see GBIFPublishForm's own suggestedArchiveUrl wiring below for how its
+// Archive URL behaves when Zenodo/B2SHARE publish without Hugging Face Hub
+// in the same run). A software application has no biodiversity/media
+// content to speak of, so HFH and GBIF aren't a fit for it either — it only
+// ever goes to Zenodo/B2SHARE (see MANDATORY_REPOS_BY_PRODUCT_TYPE: Zenodo
+// is required for it, since its DOI is always the one that ends up citing
+// the software). The other product types aren't selectable yet, so they
+// have no supported repositories of their own for now.
 const REPOS_BY_PRODUCT_TYPE: Record<ProductType, RepoId[]> = {
-  camtrapdp: ['hfh', 'gbif'],
+  camtrapdp: ['hfh', 'zenodo', 'b2share', 'gbif'],
   yolo: ['hfh', 'zenodo', 'b2share'],
   software: ['zenodo', 'b2share'],
   ai_model: [],
@@ -254,9 +252,11 @@ export default function WizardPage() {
   const allConfigured = publishStarted && configureIndex >= publishOrder.length
   const needsPrimaryDoiChoice = publishOrder.includes('hfh') && publishOrder.includes('zenodo') && publishOrder.includes('b2share')
   const readyToConfirm = allConfigured && (!needsPrimaryDoiChoice || primaryDoiSource !== null)
-  // HFH+GBIF is the only pair Camtrap DP ever offers (see REPOS_BY_PRODUCT_TYPE)
-  // and toggleRepo already forces HFH first whenever both are selected — so
-  // there's genuinely nothing to reorder for this specific pair.
+  // When HFH+GBIF are the only two repos selected, toggleRepo already forces
+  // HFH first — so there's genuinely nothing to reorder for that specific
+  // pair. Once Zenodo/B2SHARE join the selection too, the general reorder
+  // UI below takes over instead (toggleRepo still keeps HFH ahead of GBIF
+  // within it).
   const hfhGbifOrderLocked = publishOrder.length === 2 && publishOrder.includes('hfh') && publishOrder.includes('gbif')
   // Rendered by each PublishForm itself, next to its own Continue button —
   // spread as-is (empty object for the first repository in the order,
@@ -1104,8 +1104,16 @@ export default function WizardPage() {
             // whatever the original source gave it in Link). toggleRepo
             // always forces HFH before GBIF whenever both are selected, so
             // repoConfigs.hfh is already collected by the time GBIF's own
-            // form renders.
+            // form renders. Zenodo/B2SHARE also produce a camtrapdp-remote.zip
+            // of their own now (Link mode) or a GBIF-ready camtrapdp.zip
+            // (--self-contained) — but unlike HFH's user-chosen repo_id,
+            // their own deposition/record id (and so the file's own public
+            // URL) is only assigned by Zenodo/B2SHARE once THEY actually
+            // upload, which hasn't happened yet at this configure step — so
+            // there's nothing to suggest/lock from them here, only from HFH.
             const hfhWillProduceRemoteZip = publishOrder.includes('hfh')
+            const zenodoOrB2shareWithoutHfh = !hfhWillProduceRemoteZip
+              && (publishOrder.includes('zenodo') || publishOrder.includes('b2share'))
             return publishOrder[configureIndex] === 'gbif' && (
               <GBIFPublishForm
                 dryRun={dryRun}
@@ -1127,7 +1135,8 @@ export default function WizardPage() {
                 // The "this isn't the local copy" note only makes sense for a
                 // local/Trapper source — a Public URL source IS already the
                 // real archive, nothing to clarify.
-                standaloneRegistration={!hfhWillProduceRemoteZip && sourceType !== 'archive'}
+                standaloneRegistration={!hfhWillProduceRemoteZip && !zenodoOrB2shareWithoutHfh && sourceType !== 'archive'}
+                pendingFromOtherRepo={zenodoOrB2shareWithoutHfh}
                 initialConfig={repoConfigs.gbif}
                 onConfigured={(config) => handleConfigured('gbif', config)}
               />

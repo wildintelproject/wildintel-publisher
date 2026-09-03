@@ -281,11 +281,11 @@ async function reachPublishStep() {
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
 
-// Camtrap DP is now restricted to HFH+GBIF only (see REPOS_BY_PRODUCT_TYPE)
-// — tests that need Zenodo/B2SHARE available reach the publish step via a
-// YOLO dataset instead, which still supports all three of HFH/Zenodo/
-// B2SHARE. Only the repo mechanics (config forms, ordering, DOI-primary
-// choice) are under test in those cases, not anything Camtrap DP-specific.
+// Camtrap DP also supports Zenodo/B2SHARE now (see REPOS_BY_PRODUCT_TYPE),
+// but several tests below still reach the publish step via a YOLO dataset
+// instead, to keep GBIF (Camtrap DP-only, mandatory) out of the way when
+// only the generic repo mechanics (config forms, ordering, DOI-primary
+// choice) are under test, not anything Camtrap DP-specific.
 async function reachPublishStepYolo() {
   mockedApi.generateProductMetadata.mockResolvedValue({
     title: 'My YOLO Dataset', description: 'A local dataset.', version: '1.0',
@@ -550,18 +550,20 @@ describe('WizardPage publish step', () => {
     expect(screen.getByText('Where do you want to publish it?')).toBeInTheDocument()
   })
 
-  it('shows only Hugging Face Hub and GBIF enabled for Camtrap DP, with GBIF pre-selected as required', async () => {
+  it('shows all four repositories enabled for Camtrap DP, with GBIF pre-selected as required', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     // GBIF is always registered for Camtrap DP — pre-selected and not
     // deselectable, same mandatory-repo mechanism Software Application's
-    // own Zenodo uses (see MANDATORY_REPOS_BY_PRODUCT_TYPE).
+    // own Zenodo uses (see MANDATORY_REPOS_BY_PRODUCT_TYPE). Hugging Face
+    // Hub, Zenodo, and B2SHARE are all optional alongside it (see
+    // REPOS_BY_PRODUCT_TYPE).
     expect(screen.getByRole('button', { name: /hugging face hub/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /gbif/i })).toBeDisabled()
     expect(screen.getByText('Required')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /zenodo/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /b2share/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /zenodo/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /b2share/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
   })
 
@@ -702,8 +704,7 @@ async function configureHfhAndContinue() {
 // Fills in everything GBIF needs beyond the archive URL (already prefilled
 // from an earlier Hugging Face Hub step in the same order — see WizardPage's
 // suggestedArchiveUrl) — used as the "second repo" in multi-repo mechanics
-// tests (ordering, back-navigation, retry...) now that Zenodo/B2SHARE are
-// temporarily unavailable in the wizard (see REPO_OPTIONS's own comment).
+// tests (ordering, back-navigation, retry...).
 async function configureGbifAndContinue() {
   await act(async () => {})
   await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
@@ -879,6 +880,27 @@ describe('WizardPage publish order', () => {
       'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip',
     )
     expect(screen.getByLabelText('Archive URL')).toHaveAttribute('readonly')
+  })
+
+  it('leaves the GBIF archive URL blank and unlocked when Zenodo publishes without Hugging Face Hub', async () => {
+    // Unlike Hugging Face Hub's user-chosen repo_id, Zenodo's own deposition
+    // id (and so its file's own public URL) is only assigned once it
+    // actually uploads — nothing to prefill/lock from it here. GBIF is
+    // mandatory and pre-selected the moment Camtrap DP is picked, so it's
+    // already Step 1 here — Zenodo (added afterward by clicking it) ends up
+    // Step 2, but that ordering doesn't matter for this assertion, since
+    // nothing is derived live from Zenodo either way.
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    await screen.findByRole('heading', { name: /configure gbif/i })
+    await act(async () => {})
+    expect(screen.getByLabelText('Archive URL')).toHaveValue('')
+    expect(screen.getByLabelText('Archive URL')).not.toHaveAttribute('readonly')
+    expect(screen.getByText(/their own record isn't assigned until they actually upload/i)).toBeInTheDocument()
   })
 
   it('asks which DOI is primary for HFH only when hfh + zenodo + b2share are all selected, then passes the choice along', async () => {

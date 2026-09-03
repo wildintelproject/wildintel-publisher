@@ -110,6 +110,21 @@ describe('GBIFPublishForm', () => {
     expect(screen.queryByText(/the local copy you just fetched/i)).not.toBeInTheDocument()
   })
 
+  it('explains the archive URL is pending when Zenodo/B2SHARE publish without Hugging Face Hub', async () => {
+    render(<GBIFPublishForm pendingFromOtherRepo onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.getByText(/their own record isn't assigned until they actually upload/i)).toBeInTheDocument()
+    expect(screen.queryByText(/the local copy you just fetched/i)).not.toBeInTheDocument()
+  })
+
+  it('does not show the pending-from-other-repo note otherwise', async () => {
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.queryByText(/their own record isn't assigned until they actually upload/i)).not.toBeInTheDocument()
+  })
+
   it('does not require credentials or keys for a dry run', async () => {
     render(<GBIFPublishForm dryRun onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))

@@ -78,6 +78,15 @@ interface Props {
    * it's clear a different, already-public copy needs to be pointed at by
    * hand. */
   standaloneRegistration?: boolean
+  /** True when Zenodo and/or B2SHARE are selected in this same run instead
+   * of Hugging Face Hub (see WizardPage) — both now also produce a
+   * camtrapdp-remote.zip/camtrapdp.zip of their own, but unlike Hugging Face
+   * Hub's user-chosen repo_id, their deposition/record id (and so the
+   * file's own public URL) is only assigned once THEY actually upload,
+   * which hasn't happened yet at this step. Shown instead of
+   * standaloneRegistration's more generic note, since the archive isn't
+   * really "unrelated" here — it just isn't known yet. */
+  pendingFromOtherRepo?: boolean
   /** A previously-collected config for this same repository — given when
    * the user goes Back to re-visit a step they already configured (see
    * WizardPage's Back button in the "configuring one repository at a time"
@@ -98,7 +107,8 @@ interface Props {
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 export default function GBIFPublishForm({
-  dryRun, suggestedArchiveUrl, archiveUrlLocked, archiveNotPublishedYet, standaloneRegistration, initialConfig, onBack, backLabel, onConfigured,
+  dryRun, suggestedArchiveUrl, archiveUrlLocked, archiveNotPublishedYet, standaloneRegistration,
+  pendingFromOtherRepo, initialConfig, onBack, backLabel, onConfigured,
 }: Props) {
   const [form, setForm] = useState(() => initialConfig ?? {
     outputDir: '', archiveUrl: '', environment: 'sandbox',
@@ -232,6 +242,15 @@ export default function GBIFPublishForm({
             Hugging Face Hub either if it's not publishing a self-contained archive in this run (Link
             mode never creates one). This URL must point to a completely separate, already-public copy
             of the same Camtrap DP (e.g. hosted outside this tool, or from an earlier publish).
+          </p>
+        )}
+        {pendingFromOtherRepo && (
+          <p className={hintClass}>
+            Zenodo/B2SHARE will also publish a Camtrap DP archive in this same run, but their own
+            record isn't assigned until they actually upload — its URL isn't known yet, unlike Hugging
+            Face Hub's predictable one. Either leave GBIF's own registration for a separate run
+            afterward (once you have that URL, register it standalone — see "Where is it located?" →
+            Public URL), or, if you already know it from an earlier publish, enter it here by hand.
           </p>
         )}
         {archiveNotPublishedYet && (
