@@ -1830,6 +1830,10 @@ published actually matches the version being cited rather than whatever unreleas
 commits happen to sit on the default branch. If neither tag exists (or the repository
 doesn't tag releases at all), the default branch's latest commit is used, same as
 before — this is entirely best-effort and never fails the flow.</p>
+<p>Either way, the outcome is visible: the CLI's <code>product generate-metadata</code> prints which
+tag was checked out (or that none matched), and the web wizard shows the same as a note
+right on the package confirmation screen — a green confirmation when the tag matched, or
+an amber warning when it didn't, so a version/commit mismatch is never silent.</p>
 <h2 id="3-what-gets-published">3. What gets published</h2>
 <p>Before a software application can be published anywhere, it's given a common
 description — the same envelope every product type carries, regardless of its own
@@ -1868,12 +1872,13 @@ whether the source code itself is copied depends on the mode (Zenodo/B2SHARE's o
 "Mode" choice, same setting every other product type has, just relabeled here since
 there's no Hugging Face Hub to link to):</p>
 <ul>
-<li><strong>Mirror</strong> (self-contained): copies the whole cloned tree (minus <code>.git/</code>) and bundles
-  it into a single zip alongside the generated files — everything needed to use the
-  software offline, in one archive. If the repository already had its own
-  <code>README.md</code>/<code>LICENSE</code>/<code>CITATION.cff</code>, those are kept alongside the generated ones
-  under a <code>SOURCE_</code> prefix (e.g. <code>SOURCE_README.md</code>) rather than being silently
-  overwritten.</li>
+<li><strong>Mirror</strong> (self-contained): bundles the whole cloned tree (minus <code>.git/</code>), under its
+  own real file names, into a single zip — everything needed to use the software
+  offline, in one archive. If the repository already had its own
+  <code>README.md</code>/<code>LICENSE</code>/<code>CITATION.cff</code>, those travel inside the zip exactly as the
+  repository had them; the generated <code>README.md</code>/<code>LICENSE</code>/<code>CITATION.cff</code>/checksums sit
+  alongside the zip itself (not inside it), so nothing gets silently overwritten either
+  way.</li>
 <li><strong>Reference only</strong>: no source code is copied at all — only the generated
   <code>README.md</code>/<code>CITATION.cff</code>/<code>LICENSE</code>/checksums are published, citing the repository
   directly (its <code>homepage</code>). Gives the software a permanent, citable DOI/PID without

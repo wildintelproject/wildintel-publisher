@@ -1843,12 +1843,13 @@ required (title, description, version, license, authors) is still missing, a for
 for exactly that; once complete, a summary card shows the title, version, license,
 authors, and homepage.</p>
 <p><img alt="Confirming the package's description" src="../img/web/confirm-package-software.png" /></p>
-<p>Right after this step, the wizard also tries to switch the local clone to the git tag
-matching <code>CITATION.cff</code>'s own <code>version</code> (<code>1.2.0</code>, then <code>v1.2.0</code>) — so what ends up
-published matches the cited release rather than whatever commit happened to be on the
-repository's default branch. If no matching tag exists, it silently proceeds with the
-default branch's latest commit instead; nothing here blocks you from continuing either
-way.</p>
+<p>Before this screen ever renders, the wizard already tried to switch the local clone to
+the git tag matching <code>CITATION.cff</code>'s own <code>version</code> (<code>1.2.0</code>, then <code>v1.2.0</code>) — so what
+ends up published matches the cited release rather than whatever commit happened to be on
+the repository's default branch. The outcome is shown right here, below the summary
+card: a green confirmation naming the tag if one matched, or an amber warning if none did
+(publishing from the default branch's latest commit instead) — either way, nothing here
+blocks you from continuing.</p>
 <h2 id="4-choose-repositories">4. Choose repositories</h2>
 <p>Hugging Face Hub and GBIF are shown greyed out — a software application has no
 media/biodiversity content, so neither is a fit for it (see <a href="../product-software/#4-where-it-can-be-published">Software
@@ -1864,10 +1865,11 @@ configuration form — see <a href="../guide-web-zenodo/">Zenodo</a>/<a href="..
 for the full form, field-by-field. The <strong>Mode</strong> section reads a bit differently here than
 in those pages' own screenshots (captured for Camtrap DP): for a software application it
 reads <strong>Mirror</strong> ("bundles the whole repository, at the version cited in <code>CITATION.cff</code>,
-into a single zip") and <strong>Reference only</strong> instead of Link ("only <code>README.md</code> and
-<code>CITATION.cff</code> are uploaded, citing the repository directly — the source code itself is
-not copied here"). Everything else about these forms (token, environment, communities/
-community UUID, <strong>Test connection</strong>) works exactly the same.</p>
+into a single zip") and <strong>Reference only</strong> instead of Link ("only the generated
+<code>README.md</code>/<code>LICENSE</code>/<code>CITATION.cff</code>/checksums are uploaded, citing the repository
+directly — the source code itself is not copied here"). Everything else about these
+forms (token, environment, communities/community UUID, <strong>Test connection</strong>) works
+exactly the same.</p>
 <p><img alt="Configuring Zenodo for a Software Application" src="../img/web/zenodo-configure-software.png" /></p>
 <p>There's no "primary DOI" question to answer here — that only comes up when Hugging Face
 Hub, Zenodo, and B2SHARE are all selected together, which a software application never

@@ -1727,7 +1727,19 @@ you to fill in the following fields:</p>
 <li><strong>Mode</strong> — <strong>Mirror</strong> (default) downloads the public images and bundles them inside
   Zenodo's own <code>camtrapdp.zip</code> (self-contained). <strong>Link</strong> doesn't download anything — the
   repository stores links to where the images already live on Hugging Face Hub instead
-  (only meaningful if Hugging Face Hub precedes Zenodo in the publish order).</li>
+  (only meaningful if Hugging Face Hub precedes Zenodo in the publish order).<ul>
+<li>For Camtrap DP in <strong>Mirror</strong> mode, a <strong>Resize images to fit the archive size
+  limit</strong> checkbox appears (checked by default) — if the downloaded images would
+  push <code>camtrapdp.zip</code> over Zenodo's own 50 GiB per-file upload cap, they're all
+  downscaled uniformly (same scale for every image, computed once) before bundling.
+  <strong>Archive size limit (GiB)</strong> overrides that cap (leave blank for the real 50 GiB
+  one), and <strong>Minimum image edge (px)</strong> sets the floor an image's longest edge is
+  never shrunk below (640px by default) — past that point, publishing fails with a
+  clear error instead of silently producing an unusable image or a still-oversized
+  zip. See <a href="../publishing-zenodo-camtrapdp/#keeping-camtrapdpzip-under-zenodos-own-size-limit">Zenodo — Camtrap
+  DP</a>.</li>
+</ul>
+</li>
 <li><strong>Flow mode</strong> — what you get back once publishing finishes, only relevant if another
   repository comes after this one in the publish order: the <strong>prepared</strong> package plus the
   Zenodo record data needed to sync the DOI later (default), the <strong>same as input</strong>

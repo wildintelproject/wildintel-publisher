@@ -2330,7 +2330,10 @@ moving on.</p>
 </div>
 
 <p>Prefer a fully self-contained record instead (no link to Hugging Face Hub)? Use
-<code>--self-contained</code> instead of <code>--hfh-repo-id</code> at the <code>prepare</code> step.</p>
+<code>--self-contained</code> instead of <code>--hfh-repo-id</code> at the <code>prepare</code> step — for Camtrap DP,
+this is already the default whenever <code>--hfh-repo-id</code> isn't given, so leaving both flags
+out has the same effect; pass <code>--no-self-contained</code> if you want the old "leave
+<code>media.csv</code> untouched" (Plain) behavior instead.</p>
 <h3 id="5-publish-to-b2share-linked-to-hugging-face-hub">5. Publish to B2SHARE, linked to Hugging Face Hub</h3>
 <div class="termy">
 

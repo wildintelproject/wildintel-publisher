@@ -1855,20 +1855,27 @@ version, license, authors), a form prompts for exactly what's missing; once comp
 summary card shows the title, version, license, authors, and homepage.</p>
 <p><img alt="Confirming the package's description" src="../img/web/confirm-package.png" /></p>
 <h2 id="4-choose-repositories-and-publish-order">4. Choose repositories and publish order</h2>
-<p>For Camtrap DP, the wizard only offers <strong>Hugging Face Hub</strong> and <strong>GBIF</strong> (Zenodo/B2SHARE
-stay available for it via the CLI only). <strong>GBIF is mandatory</strong> here — pre-selected and
-not deselectable, so a Camtrap DP dataset always ends up registered with GBIF; Hugging
-Face Hub is optional alongside it.</p>
-<p>If both are selected, Hugging Face Hub always publishes first — this isn't a choice you
-make (there's no manual reordering for this pair): GBIF's own configuration form depends
-on knowing what Hugging Face Hub already did. <strong>Archive URL</strong> is the public URL of the
-zip GBIF will download and crawl to build the dataset. This field auto-fills and locks to
-Hugging Face Hub's own copy of it: if Hugging Face Hub was configured as <strong>Mirror</strong>, the
-images inside point to Hugging Face Hub itself; if configured as <strong>Link</strong>, they point
-back to the original repository instead. Only when GBIF is the only one selected is the
-field left unlocked instead, with a note that you need to provide a separate,
-already-public archive URL by hand (see
-<a href="../guide-web-gbif/">GBIF</a>).</p>
+<p>For Camtrap DP, the wizard offers all four repositories: <strong>Hugging Face Hub</strong>, <strong>Zenodo</strong>,
+<strong>B2SHARE</strong>, and <strong>GBIF</strong>. <strong>GBIF is mandatory</strong> here — pre-selected and not
+deselectable, so a Camtrap DP dataset always ends up registered with GBIF; the other
+three are all optional alongside it, any combination.</p>
+<p>If Hugging Face Hub is selected, it always publishes first — this isn't a choice you
+make (there's no manual reordering for that pair with GBIF): GBIF's own configuration
+form depends on knowing what Hugging Face Hub already did. <strong>Archive URL</strong> is the public
+URL of the zip GBIF will download and crawl to build the dataset. This field auto-fills
+and locks to Hugging Face Hub's own copy of it: if Hugging Face Hub was configured as
+<strong>Mirror</strong>, the images inside point to Hugging Face Hub itself; if configured as
+<strong>Link</strong>, they point back to the original repository instead.</p>
+<p>Zenodo/B2SHARE now also generate a Camtrap DP archive of their own usable as GBIF's
+archive URL (see <a href="../publishing-zenodo-camtrapdp/#keeping-camtrapdpzip-under-zenodos-own-size-limit">Zenodo</a>) —
+but unlike Hugging Face Hub's user-chosen repository name, their own record isn't
+assigned until they actually upload, so this field can't be auto-filled/locked from them
+the way it is from Hugging Face Hub. If Zenodo/B2SHARE are selected without Hugging Face
+Hub, the field is left unlocked with a note explaining this — either come back and
+register GBIF in a separate run afterward, once you know the resulting URL (see
+<a href="../guide-web-gbif/">GBIF</a>), or type it in by hand if you already know it from an earlier
+publish. Only when GBIF is the only repository selected at all is the field left
+unlocked with the more generic "standalone" note instead.</p>
 <p><img alt="Choosing repositories and publish order" src="../img/web/repo-selection.png" /></p>
 <h2 id="5-configure-each-selected-repository">5. Configure each selected repository</h2>
 <p>The wizard walks through your selected repositories one at a time, each with its own

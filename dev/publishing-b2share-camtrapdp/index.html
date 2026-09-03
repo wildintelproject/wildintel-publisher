@@ -993,6 +993,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#keeping-camtrapdpzip-under-b2shares-own-size-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping camtrapdp.zip under B2SHARE's own size limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1664,6 +1675,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#keeping-camtrapdpzip-under-b2shares-own-size-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping camtrapdp.zip under B2SHARE's own size limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1696,8 +1718,15 @@ documentation (<code>README.md</code>, <code>LICENSE</code>, <code>CITATION.cff<
 once uploaded, a local <code>b2share_record.json</code>. Storage of the Camtrap DP tables and
 images themselves works exactly like <a href="../publishing-zenodo-camtrapdp/">Zenodo</a>, with one
 difference driven by B2SHARE's own <strong>100-files-per-record cap</strong>:</p>
+<div class="admonition note">
+<p class="admonition-title">Self-contained is the default for Camtrap DP</p>
+<p><code>b2share prepare</code> defaults <code>--self-contained</code> to enabled for Camtrap DP whenever
+<code>--hfh-repo-id</code> isn't also given — pass <code>--no-self-contained</code> explicitly for the old
+"leave <code>media.csv</code> untouched" (Plain) behavior instead. This default doesn't apply to
+other product types (e.g. YOLO), which still default to <code>--no-self-contained</code>.</p>
+</div>
 <ul>
-<li><strong>Self-contained</strong> — the four core tables (<code>datapackage.json</code>, <code>deployments.csv</code>,
+<li><strong>Self-contained</strong> (the default) — the four core tables (<code>datapackage.json</code>, <code>deployments.csv</code>,
   <code>media.csv</code>, <code>observations.csv</code>) and the downloaded <code>images/</code> folder are bundled
   together into a single <code>camtrapdp.zip</code>, with <code>media.csv</code>'s <code>filePath</code> rewritten to a
   <strong>local, relative path</strong> (<code>images/&lt;file&gt;</code>) rather than any URL. The loose copies are
@@ -1705,18 +1734,31 @@ difference driven by B2SHARE's own <strong>100-files-per-record cap</strong>:</p
   files than B2SHARE's per-record cap allows would fail outright, so bundling into one
   zip is what makes publishing any camera-trap dataset with more than a handful of
   images possible at all.</li>
-<li><strong>Link</strong> (<code>--hfh-repo-id</code>) — no images are downloaded, and the four core tables stay
+</ul>
+<p>Same as Zenodo's own <code>camtrapdp.zip</code>, this one is also nested inside a single
+  top-level root folder and has <code>gbifIngestion.observationLevel</code> injected into its own
+  copy of <code>datapackage.json</code> — see <a href="../publishing-zenodo-camtrapdp/">Zenodo</a> — so it's
+  directly usable as GBIF's <code>--archive-url</code> too, without needing Hugging Face Hub in the
+  same run.
+- <strong>Link</strong> (<code>--hfh-repo-id</code>) — no images are downloaded, and the four core tables stay
   loose (not zipped). <code>media.csv</code>'s <code>filePath</code> is rewritten to the real Hugging Face Hub
   URL of each image, assuming that repository is (or will be) published there. The
   B2SHARE record itself never holds any image — just the tables plus a pointer to where
-  the images actually live.</li>
-<li><strong>Plain</strong> — same as link mode, but <code>filePath</code> is left as Trapper's own one-shot URL,
-  which expires — not meant for a lasting, citable record.</li>
-</ul>
+  the images actually live. A <code>camtrapdp-remote.zip</code> is generated alongside the loose
+  tables too — see <a href="../publishing-zenodo-camtrapdp/">Zenodo</a> — so this record is also
+  directly usable as GBIF's <code>--archive-url</code> on its own.
+- <strong>Plain</strong> — same as link mode, but <code>filePath</code> is left as Trapper's own one-shot URL,
+  which expires — not meant for a lasting, citable record.</p>
 <p>Like Zenodo, this is the opposite of how <a href="../publishing-hfh-camtrapdp/">Hugging Face Hub</a>
 stores the same product: there, public images travel one by one, as real files, with
 <code>media.csv</code> pointing at real per-file URLs. Here, self-contained publishing compresses
 everything into one zip and the media reference becomes a path <em>inside</em> that zip.</p>
+<h2 id="keeping-camtrapdpzip-under-b2shares-own-size-limit">Keeping <code>camtrapdp.zip</code> under B2SHARE's own size limit</h2>
+<p>Same mechanism as <a href="../publishing-zenodo-camtrapdp/#keeping-camtrapdpzip-under-zenodos-own-size-limit">Zenodo</a>,
+just against B2SHARE's own (lower) real per-file limit — <code>DEFAULT_MAX_ZIP_BYTES</code> defaults
+to 20 GiB here instead of Zenodo's 50 GiB. Same flags: <code>--fit-archive-size</code>/
+<code>--no-fit-archive-size</code> (default: enabled), <code>--max-zip-file</code> (GiB), <code>--min-image-edge</code>
+(pixels, default 640) — all Camtrap DP + <code>--self-contained</code> only.</p>
 
 
 

@@ -854,6 +854,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#keeping-camtrapdpzip-under-zenodos-own-size-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping camtrapdp.zip under Zenodo's own size limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1664,6 +1675,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#keeping-camtrapdpzip-under-zenodos-own-size-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping camtrapdp.zip under Zenodo's own size limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1695,26 +1717,65 @@ description, the public images, and the generated documentation — to
 documentation (<code>README.md</code>, <code>LICENSE</code>, <code>CITATION.cff</code>, <code>checksums-sha256.txt</code>), and,
 once uploaded, a local <code>zenodo_record.json</code>. How the Camtrap DP tables and images
 themselves end up stored depends entirely on the publishing mode:</p>
+<div class="admonition note">
+<p class="admonition-title">Self-contained is the default for Camtrap DP</p>
+<p><code>zenodo prepare</code> defaults <code>--self-contained</code> to enabled for Camtrap DP whenever
+<code>--hfh-repo-id</code> isn't also given — pass <code>--no-self-contained</code> explicitly for the old
+"leave <code>media.csv</code> untouched" (Plain) behavior instead. This default doesn't apply to
+other product types (e.g. YOLO), which still default to <code>--no-self-contained</code>.</p>
+</div>
 <ul>
-<li><strong>Self-contained</strong> — the four core tables (<code>datapackage.json</code>, <code>deployments.csv</code>,
+<li><strong>Self-contained</strong> (the default) — the four core tables (<code>datapackage.json</code>, <code>deployments.csv</code>,
   <code>media.csv</code>, <code>observations.csv</code>) and the downloaded <code>images/</code> folder are bundled
   together into a single <code>camtrapdp.zip</code>, with <code>media.csv</code>'s <code>filePath</code> rewritten to a
   <strong>local, relative path</strong> (<code>images/&lt;file&gt;</code>) rather than any URL. The loose copies are
   deleted once the zip is built, so the record itself ends up with just that one zip
   alongside the documentation files — never one file per image.</li>
-<li><strong>Link</strong> (<code>--hfh-repo-id</code>) — no images are downloaded, and the four core tables stay
+</ul>
+<p>This zip is nested inside a single top-level root folder (its own stem, <code>camtrapdp/</code>)
+  and has <code>gbifIngestion.observationLevel</code> injected into its own copy of
+  <code>datapackage.json</code> — the same two fixes <a href="../publishing-hfh-camtrapdp/"><code>camtrapdp-remote.zip</code></a>
+  needs for GBIF (see <a href="../publishing-gbif/">Publishing to GBIF</a>) — so this same zip is
+  also directly usable as GBIF's <code>--archive-url</code> when publishing to Zenodo without
+  Hugging Face Hub in the same run.
+- <strong>Link</strong> (<code>--hfh-repo-id</code>) — no images are downloaded, and the four core tables stay
   loose (not zipped). <code>media.csv</code>'s <code>filePath</code> is rewritten to the real Hugging Face Hub
   URL of each image, assuming that repository is (or will be) published there. The
   Zenodo record itself never holds any image — just the tables plus a pointer to where
-  the images actually live.</li>
-<li><strong>Plain</strong> — same as link mode, but <code>filePath</code> is left as Trapper's own one-shot URL,
-  which expires — not meant for a lasting, citable record.</li>
-</ul>
+  the images actually live. A <code>camtrapdp-remote.zip</code> is generated alongside the loose
+  tables too — the same shape <a href="../publishing-hfh-camtrapdp/">Hugging Face Hub's own</a>
+  generates, with no images embedded (since <code>filePath</code> already points at real URLs) —
+  so this record is also directly usable as GBIF's <code>--archive-url</code> on its own, without
+  needing Hugging Face Hub published in the same run.
+- <strong>Plain</strong> — same as link mode, but <code>filePath</code> is left as Trapper's own one-shot URL,
+  which expires — not meant for a lasting, citable record.</p>
 <p>This is the opposite of how <a href="../publishing-hfh-camtrapdp/">Hugging Face Hub</a> stores the
 same product: there, public images travel one by one, as real files in the repository,
 with <code>media.csv</code> pointing at real per-file URLs. Here, self-contained publishing
 compresses everything into one zip and the media reference becomes a path <em>inside</em> that
 zip, not a URL at all.</p>
+<h2 id="keeping-camtrapdpzip-under-zenodos-own-size-limit">Keeping <code>camtrapdp.zip</code> under Zenodo's own size limit</h2>
+<p>Zenodo caps how big a single uploaded file can be (<code>DEFAULT_MAX_ZIP_BYTES</code>, 50 GiB by
+default — matches Zenodo's own real limit). Once the images are already downloaded to
+<code>output_dir/images/</code>, and only for Camtrap DP, <code>zenodo prepare --self-contained</code> checks
+their combined size before bundling them into <code>camtrapdp.zip</code>:</p>
+<ul>
+<li>If they already fit comfortably, nothing changes.</li>
+<li>Otherwise every image is downscaled <strong>uniformly</strong> (same scale factor for all of them,
+  computed once from how much over budget they are — not a "build, measure, halve,
+  rebuild" loop) so the whole dataset ends up at one consistent resolution, rather than
+  some images sharper than others depending on download order. An image's longest edge
+  is never shrunk below <code>--min-image-edge</code> (640px by default) — past that point,
+  shrinking further trades away more identifiability (species, individual markings) than
+  it saves in bytes. Non-image files (e.g. video, if any) are never touched.</li>
+<li><code>camtrapdp.zip</code>'s final size is checked against the limit regardless — even with
+  <code>--no-fit-archive-size</code> — and <code>prepare</code> fails with a clear error instead of letting the
+  much later upload to Zenodo fail on its own.</li>
+</ul>
+<p>Flags: <code>--fit-archive-size</code>/<code>--no-fit-archive-size</code> (default: enabled), <code>--max-zip-file</code>
+(the budget itself, in GiB — defaults to Zenodo's real 50 GiB cap; only useful to lower,
+e.g. for a stricter personal quota), <code>--min-image-edge</code> (the floor, in pixels, default
+640). All three are ignored outside <code>--self-contained</code> Camtrap DP.</p>
 
 
 
