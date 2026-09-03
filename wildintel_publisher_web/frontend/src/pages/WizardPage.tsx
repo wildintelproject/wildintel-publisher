@@ -365,6 +365,7 @@ export default function WizardPage() {
       return {
         repo: 'zenodo' as const, outputDir: cfg.outputDir, token: cfg.token,
         mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communities: cfg.communities,
+        fitArchiveSize: cfg.fitArchiveSize, maxZipFile: cfg.maxZipFile, minImageEdge: cfg.minImageEdge,
       }
     }
     if (repo === 'b2share') {
@@ -372,6 +373,7 @@ export default function WizardPage() {
       return {
         repo: 'b2share' as const, outputDir: cfg.outputDir, token: cfg.token,
         mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communityId: cfg.communityId,
+        fitArchiveSize: cfg.fitArchiveSize, maxZipFile: cfg.maxZipFile, minImageEdge: cfg.minImageEdge,
       }
     }
     const cfg = repoConfigs.gbif!

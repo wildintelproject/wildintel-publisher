@@ -153,6 +153,63 @@ def test_publish_all_uploads_every_repo_before_locking_any(tmp_path):
     assert calls.index("upload-zenodo") < calls.index("tag-hfh")
 
 
+def test_publish_all_passes_archive_size_options_through_to_zenodo_and_b2share(tmp_path):
+    captured = {}
+
+    def fake_prepare_zenodo(*, input_dir, output_dir, **kwargs):
+        captured["zenodo"] = kwargs
+        _write_product_files(output_dir)
+
+    def fake_upload_zenodo(output_dir, **kwargs):
+        (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": None}), encoding="utf-8")
+
+    def fake_release_zenodo(output_dir, *, token):
+        return {"doi": None, "record_url": "https://zenodo.org/records/1"}
+
+    def fake_prepare_b2share(*, input_dir, output_dir, **kwargs):
+        captured["b2share"] = kwargs
+        _write_product_files(output_dir)
+
+    def fake_upload_b2share(output_dir, **kwargs):
+        (output_dir / "b2share_record.json").write_text(json.dumps({"pid": None}), encoding="utf-8")
+
+    def fake_release_b2share(output_dir, *, token):
+        return {"pid": None, "record_url": "https://b2share.eudat.eu/records/1"}
+
+    with (
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=fake_upload_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.release_on_zenodo", side_effect=fake_release_zenodo),
+        patch("services.publish_orchestrator.b2share_cli.prepare_b2share_export", side_effect=fake_prepare_b2share),
+        patch("services.publish_orchestrator.b2share_cli.upload_to_b2share", side_effect=fake_upload_b2share),
+        patch("services.publish_orchestrator.b2share_cli.release_on_b2share", side_effect=fake_release_b2share),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [
+                    {
+                        "repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x",
+                        "environment": "sandbox", "fit_archive_size": False, "max_zip_file": 10, "min_image_edge": 800,
+                    },
+                    {
+                        "repo": "b2share", "output_dir": str(_tmp(tmp_path, "b2share")), "token": "b2_x",
+                        "environment": "sandbox", "community_id": "comm-1",
+                        # left at defaults — fit_archive_size True, max_zip_file unset
+                    },
+                ],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done"
+    assert captured["zenodo"]["fit_archive_size"] is False
+    assert captured["zenodo"]["max_zip_bytes"] == 10 * 1024 ** 3
+    assert captured["zenodo"]["min_image_edge"] == 800
+    assert captured["b2share"]["fit_archive_size"] is True
+    assert captured["b2share"]["max_zip_bytes"] is None
+    assert captured["b2share"]["min_image_edge"] == 640
+
+
 def _tmp(tmp_path, name):
     return tmp_path / name
 

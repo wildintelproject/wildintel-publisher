@@ -40,6 +40,13 @@ export interface ZenodoPublishConfig {
   mirrorImages: boolean
   outputMode: OutputMode
   outputDir: string
+  /** Camtrap DP + Mirror only — see common.fit_images_to_size. Ignored
+   * (no-op) for any other product type or mode. */
+  fitArchiveSize: boolean
+  /** GiB budget for camtrapdp.zip — undefined means "Zenodo's own real
+   * per-file upload cap" (50 GiB). */
+  maxZipFile?: number
+  minImageEdge: number
 }
 
 interface Props {
@@ -82,6 +89,9 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
   }))
   const [mirrorImages, setMirrorImages] = useState(initialConfig?.mirrorImages ?? true)
   const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'prepared')
+  const [fitArchiveSize, setFitArchiveSize] = useState(initialConfig?.fitArchiveSize ?? true)
+  const [maxZipFile, setMaxZipFile] = useState(initialConfig?.maxZipFile?.toString() ?? '')
+  const [minImageEdge, setMinImageEdge] = useState(initialConfig?.minImageEdge?.toString() ?? '640')
   const [hasSavedToken, setHasSavedToken] = useState(false)
 
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
@@ -146,8 +156,17 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
     onConfigured({
       token: form.token, environment: form.environment, communities: form.communities,
       mirrorImages, outputMode, outputDir: form.outputDir,
+      fitArchiveSize, maxZipFile: maxZipFile !== '' ? Number(maxZipFile) : undefined,
+      minImageEdge: minImageEdge !== '' ? Number(minImageEdge) : 640,
     })
   }
+
+  // Only Camtrap DP's own self-contained camtrapdp.zip risks hitting
+  // Zenodo's per-file upload cap — Software's whole-repo mirror and YOLO's
+  // already-local images/ tree are both a no-op here either way (see
+  // common.fit_images_to_size/zenodo.prepare_zenodo_export), so there's
+  // nothing useful to show for them.
+  const showArchiveSizeOptions = mirrorImages && productType === 'camtrapdp'
 
   return (
     <div>
@@ -262,6 +281,50 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
           </label>
         </div>
       </div>
+
+      {showArchiveSizeOptions && (
+        <div className="mb-4">
+          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer mb-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={fitArchiveSize}
+              onChange={(e) => setFitArchiveSize(e.target.checked)}
+            />
+            <span><strong>Resize images to fit the archive size limit</strong> - if the downloaded
+              images would push camtrapdp.zip over the limit below, downscale them all uniformly
+              (never below the minimum edge) before bundling. Zenodo's own upload still fails
+              (with a clear error, before anything is sent) if the result is still too big.</span>
+          </label>
+          {fitArchiveSize && (
+            <div className="grid grid-cols-2 gap-4 pl-6">
+              <div>
+                <label className={labelClass} htmlFor="zenodo-max-zip-file">Archive size limit (GiB)</label>
+                <input
+                  id="zenodo-max-zip-file"
+                  type="number" min="0.01" step="any"
+                  className={inputClass}
+                  placeholder="50 (Zenodo's own limit)"
+                  value={maxZipFile}
+                  onChange={(e) => setMaxZipFile(e.target.value)}
+                />
+                <p className={hintClass}>Leave blank to use Zenodo's own real per-file upload cap (50 GiB).</p>
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="zenodo-min-image-edge">Minimum image edge (px)</label>
+                <input
+                  id="zenodo-min-image-edge"
+                  type="number" min="1" step="1"
+                  className={inputClass}
+                  value={minImageEdge}
+                  onChange={(e) => setMinImageEdge(e.target.value)}
+                />
+                <p className={hintClass}>Never shrink an image's longest edge below this.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mb-4">
         <span className={labelClass}>Flow mode</span>

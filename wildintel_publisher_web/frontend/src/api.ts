@@ -317,6 +317,10 @@ export const api = {
       environment?: string
       communities?: string
       communityId?: string
+      // zenodo/b2share, Camtrap DP + mirror only — see common.fit_images_to_size
+      fitArchiveSize?: boolean
+      maxZipFile?: number
+      minImageEdge?: number
       // gbif-only
       archiveUrl?: string
       publishingOrganizationKey?: string
@@ -343,6 +347,9 @@ export const api = {
         environment: r.environment,
         communities: r.communities,
         community_id: r.communityId,
+        fit_archive_size: r.fitArchiveSize,
+        max_zip_file: r.maxZipFile,
+        min_image_edge: r.minImageEdge,
         archive_url: r.archiveUrl,
         publishing_organization_key: r.publishingOrganizationKey,
         installation_key: r.installationKey,

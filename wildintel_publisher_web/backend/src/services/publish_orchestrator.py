@@ -234,10 +234,14 @@ async def _upload_one(
 
     if repo == "zenodo":
         repo_status["stage"] = "preparing"
+        max_zip_file = cfg.get("max_zip_file")
         await asyncio.to_thread(
             zenodo_cli.prepare_zenodo_export, input_dir=input_dir, output_dir=build_dir, metadata=settings.ZENODO,
             hfh_repo_id=hfh_repo_id, self_contained=cfg["mirror_images"],
             version=version or zenodo_cli.DEFAULT_VERSION, image_timeout=timeout, overwrite=True,
+            fit_archive_size=cfg.get("fit_archive_size", True),
+            max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
+            min_image_edge=cfg.get("min_image_edge") or zenodo_cli.DEFAULT_MIN_IMAGE_EDGE,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -250,10 +254,14 @@ async def _upload_one(
             )
     elif repo == "b2share":
         repo_status["stage"] = "preparing"
+        max_zip_file = cfg.get("max_zip_file")
         await asyncio.to_thread(
             b2share_cli.prepare_b2share_export, input_dir=input_dir, output_dir=build_dir, metadata=settings.B2SHARE,
             hfh_repo_id=hfh_repo_id, self_contained=cfg["mirror_images"],
             version=version or b2share_cli.DEFAULT_VERSION, image_timeout=timeout, overwrite=True,
+            fit_archive_size=cfg.get("fit_archive_size", True),
+            max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
+            min_image_edge=cfg.get("min_image_edge") or b2share_cli.DEFAULT_MIN_IMAGE_EDGE,
         )
         repo_status["stage"] = "uploading"
         if dry_run:

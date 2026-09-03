@@ -286,6 +286,12 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   they actually upload) — selecting Zenodo/B2SHARE without Hugging Face Hub leaves the
   field blank and editable, with a note explaining why and pointing at registering GBIF
   in a separate run afterward instead.
+- Web: the Zenodo/B2SHARE forms now also expose the CLI's own `--fit-archive-size`/
+  `--max-zip-file`/`--min-image-edge` (see the "resize images to fit Zenodo/B2SHARE's own
+  per-file upload cap" entry above) as a checkbox + two fields, shown only for Camtrap DP
+  in **Mirror** mode — resizing was already happening by default even from the web app
+  (the backend always defaulted to it regardless of UI), but there was previously no way
+  to see, disable, or tune it from the wizard itself.
 
 ## Released
 

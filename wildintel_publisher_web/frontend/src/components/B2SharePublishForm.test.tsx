@@ -103,6 +103,7 @@ describe('B2SharePublishForm', () => {
     expect(onConfigured).toHaveBeenCalledWith({
       token: 'b2_x', environment: 'sandbox', communityId: 'uuid-1',
       mirrorImages: false, outputMode: 'prepared', outputDir: '/b2share/output',
+      fitArchiveSize: true, maxZipFile: undefined, minImageEdge: 640,
     })
   })
 
@@ -123,6 +124,38 @@ describe('B2SharePublishForm', () => {
     expect(screen.getByText(/bundles the whole repository/i)).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /^reference only/i })).toBeInTheDocument()
     expect(screen.queryByText(/camtrapdp\.zip/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the archive-size options for Camtrap DP in Mirror mode, and reports them on Continue', async () => {
+    const onConfigured = vi.fn()
+    const onOutputDirChange = vi.fn()
+    render(<B2SharePublishForm productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
+
+    expect(screen.getByText(/resize images to fit the archive size limit/i)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Archive size limit (GiB)'), '5')
+    await userEvent.clear(screen.getByLabelText('Minimum image edge (px)'))
+    await userEvent.type(screen.getByLabelText('Minimum image edge (px)'), '800')
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({
+      fitArchiveSize: true, maxZipFile: 5, minImageEdge: 800,
+    }))
+  })
+
+  it('hides the archive-size options once Link mode is picked, or for a non-Camtrap-DP product', async () => {
+    const onOutputDirChange = vi.fn()
+    render(<B2SharePublishForm productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
+
+    await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
+    expect(screen.queryByText(/resize images to fit the archive size limit/i)).not.toBeInTheDocument()
+
+    render(<B2SharePublishForm productType="yolo" onOutputDirChange={vi.fn()} onConfigured={vi.fn()} />)
+    expect(screen.queryByText(/resize images to fit the archive size limit/i)).not.toBeInTheDocument()
   })
 })
 

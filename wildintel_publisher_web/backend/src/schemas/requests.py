@@ -244,6 +244,12 @@ class RepoPublishConfig(BaseModel):
     environment: Optional[str] = None
     communities: Optional[str] = None  # zenodo
     community_id: Optional[str] = None  # b2share
+    # zenodo/b2share, Camtrap DP + mirror_images only — see
+    # common.fit_images_to_size/zenodo.DEFAULT_MAX_ZIP_BYTES. Ignored (no-op)
+    # for any other product type or publishing mode.
+    fit_archive_size: bool = True
+    max_zip_file: Optional[float] = None  # GiB — None means "the repo's own real cap"
+    min_image_edge: int = 640
     # gbif-only — see services.gbif_service/wildintel_publisher.services.gbif
     archive_url: Optional[str] = None
     publishing_organization_key: Optional[str] = None

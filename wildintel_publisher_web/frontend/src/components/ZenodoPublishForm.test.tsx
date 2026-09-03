@@ -94,6 +94,7 @@ describe('ZenodoPublishForm', () => {
     expect(onConfigured).toHaveBeenCalledWith({
       token: 'zen_x', environment: 'sandbox', communities: 'wildintel',
       mirrorImages: false, outputMode: 'prepared', outputDir: '/zenodo/output',
+      fitArchiveSize: true, maxZipFile: undefined, minImageEdge: 640,
     })
   })
 
@@ -114,6 +115,37 @@ describe('ZenodoPublishForm', () => {
     expect(screen.getByText(/bundles the whole repository/i)).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /^reference only/i })).toBeInTheDocument()
     expect(screen.queryByText(/camtrapdp\.zip/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the archive-size options for Camtrap DP in Mirror mode, and reports them on Continue', async () => {
+    const onConfigured = vi.fn()
+    const onOutputDirChange = vi.fn()
+    render(<ZenodoPublishForm productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
+
+    expect(screen.getByText(/resize images to fit the archive size limit/i)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Archive size limit (GiB)'), '10')
+    await userEvent.clear(screen.getByLabelText('Minimum image edge (px)'))
+    await userEvent.type(screen.getByLabelText('Minimum image edge (px)'), '800')
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({
+      fitArchiveSize: true, maxZipFile: 10, minImageEdge: 800,
+    }))
+  })
+
+  it('hides the archive-size options once Link mode is picked, or for a non-Camtrap-DP product', async () => {
+    const onOutputDirChange = vi.fn()
+    render(<ZenodoPublishForm productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
+
+    await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
+    expect(screen.queryByText(/resize images to fit the archive size limit/i)).not.toBeInTheDocument()
+
+    render(<ZenodoPublishForm productType="yolo" onOutputDirChange={vi.fn()} onConfigured={vi.fn()} />)
+    expect(screen.queryByText(/resize images to fit the archive size limit/i)).not.toBeInTheDocument()
   })
 })
 
