@@ -17,6 +17,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from rich.console import Console
@@ -230,6 +231,51 @@ def register_gbif_dataset(
     return record
 
 
+def _validate_media_filepaths_are_urls(root_dir: Path) -> None:
+    """GBIF never hosts the media itself — it only crawls/decompresses the
+    archive once and, from then on, treats media.csv's own filePath as the
+    permanent, independently resolvable location of each file (turned into
+    a Darwin Core Multimedia extension entry pointing at filePath as-is).
+
+    A relative path (e.g. 'images/m1.jpg', valid inside a self-contained
+    Camtrap DP package on its own) or a local filesystem path never
+    resolves to anything once GBIF's crawler has moved past the archive —
+    even if the file actually sits right next to it, inside that very same
+    zip. Same failure shape as every other check in this module: nothing
+    errors visibly anywhere (this project, the GBIF Registry API, or the
+    dataset's own page) — GBIF just ends up with occurrence records that
+    have no working media link.
+
+    Raises:
+        RuntimeError: if media.csv has any filePath value that isn't an
+        absolute http(s) URL.
+    """
+    media_csv_path = root_dir / common.MEDIA_CSV_FILENAME
+    if not media_csv_path.is_file():
+        return
+    fieldnames, rows = common.read_csv(media_csv_path)
+    if common.FILE_PATH_COLUMN not in fieldnames:
+        return
+
+    invalid = []
+    for row in rows:
+        file_path = row.get(common.FILE_PATH_COLUMN) or ""
+        parsed = urlparse(file_path)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            invalid.append(file_path)
+
+    if invalid:
+        shown = ", ".join(repr(path) for path in invalid[:5])
+        remaining = f" (+{len(invalid) - 5} more)" if len(invalid) > 5 else ""
+        raise RuntimeError(
+            f"media.csv has {len(invalid)} filePath value(s) that aren't a public http(s) URL: "
+            f"{shown}{remaining}. GBIF never hosts the media itself, so every filePath must "
+            "already be an absolute URL that resolves on its own — a relative path (e.g. "
+            "'images/m1.jpg') or a local filesystem path never does, once GBIF's crawler has "
+            "decompressed and discarded the archive, even if the file is right there inside it."
+        )
+
+
 def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
     """Downloads `url` (expected to be a zip archive containing a whole
     Camtrap DP package — what GBIF's own CAMTRAP_DP crawler actually
@@ -249,9 +295,10 @@ def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
 
     Raises:
         RuntimeError: if `url` isn't http(s), can't be downloaded, isn't a
-        real zip archive, or the extracted content doesn't pass Camtrap DP
-        validation (frictionless, including a missing "profile") — the
-        message identifies which.
+        real zip archive, the extracted content doesn't pass Camtrap DP
+        validation (frictionless, including a missing "profile"), or
+        media.csv has any filePath that isn't an absolute http(s) URL (see
+        _validate_media_filepaths_are_urls) — the message identifies which.
     """
     if not (url.startswith("http://") or url.startswith("https://")):
         raise RuntimeError(f"Archive URL must be a public http(s) URL, got: {url}")
@@ -282,7 +329,9 @@ def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(extract_dir)
 
-        common.validate_camtrap_dp(common.find_camtrap_dp_root(extract_dir), patch_missing_profile=False)
+        camtrap_dp_root = common.find_camtrap_dp_root(extract_dir)
+        common.validate_camtrap_dp(camtrap_dp_root, patch_missing_profile=False)
+        _validate_media_filepaths_are_urls(camtrap_dp_root)
 
 
 def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path) -> str:

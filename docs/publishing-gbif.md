@@ -40,9 +40,10 @@ after publishing a new version is always safe.
     but its `media.csv` uses paths relative to a sibling `images/` folder — meaningless
     once GBIF extracts the zip on its own, in isolation. Use `camtrapdp-remote.zip`
     instead — built right after the images have real Hugging Face Hub URLs, so
-    `media.csv` resolves correctly with nothing else needed alongside it. `gbif register`/
-    the web wizard's **Validate archive** button checks this upfront (see
-    `gbif.validate_camtrap_dp_archive`).
+    `media.csv` resolves correctly with nothing else needed alongside it. The web
+    wizard's **Validate archive** button checks this upfront (see
+    `gbif.validate_camtrap_dp_archive`) — `gbif register` itself never downloads or
+    inspects the archive, so this is only ever caught if you run that check first.
 
     `camtrapdp-remote.zip` also nests its four files inside a single top-level folder,
     rather than at the zip's own root — GBIF's crawler requires exactly one root
@@ -66,6 +67,20 @@ after publishing a new version is always safe.
     fixes above, it's only added to this zip, never to the on-disk `datapackage.json`
     every other repository also copies as-is (it's a GBIF-only vendor extension, not part
     of the Camtrap DP standard itself).
+
+!!! warning "Every `media.csv` filePath must already be a public http(s) URL"
+    GBIF never hosts the media itself — once its crawler decompresses and discards the
+    archive, `media.csv`'s own `filePath` is the only thing left describing where each
+    file lives, turned as-is into a Darwin Core Multimedia extension entry. A relative
+    path (e.g. `images/m1.jpg`, valid for a self-contained Camtrap DP package on its
+    own) or a local filesystem path never resolves to anything once the archive is gone
+    — even if the file sits right next to it inside that very same zip — silently
+    leaving every occurrence record with no working media link. The web wizard's
+    **Validate archive** button now checks this upfront, the same way it already checks
+    the archive's structure and `gbifIngestion` field above (see
+    `gbif.validate_camtrap_dp_archive`/`gbif._validate_media_filepaths_are_urls`) —
+    `gbif register` itself never downloads/inspects the archive, same as the other two
+    checks above, so this is only ever caught if you run **Validate archive** first.
 
 Registering an already-published Camtrap DP that this tool didn't just publish itself?
 The web wizard's **Public URL** source (see [Camtrap DP](product-camtrapdp.md#1-what-is-camtrap-dp))

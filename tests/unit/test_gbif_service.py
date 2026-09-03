@@ -178,6 +178,44 @@ def test_validate_camtrap_dp_archive_passes_for_a_zip_nested_in_a_single_top_lev
         validate_camtrap_dp_archive("https://example.org/camtrapdp-remote.zip")  # must not raise
 
 
+def test_validate_camtrap_dp_archive_rejects_relative_media_filepaths(camtrapdp_dir, tmp_path):
+    # A self-contained package's own filePath convention (relative to a
+    # sibling images/ folder) is valid Camtrap DP on its own, but useless to
+    # GBIF — it never hosts the media itself, so every filePath must already
+    # be an absolute, independently resolvable URL.
+    input_dir = camtrapdp_dir()
+    (input_dir / "media.csv").write_text(
+        "mediaID,deploymentID,filePath,fileName,filePublic\n"
+        "m1,d1,images/m1.jpg,m1.jpg,true\n",
+        encoding="utf-8",
+    )
+    zip_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for filename in ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]:
+            zf.write(input_dir / filename, filename)
+
+    with patch("httpx.stream", return_value=_fake_stream_response(200, zip_path.read_bytes())):
+        with pytest.raises(RuntimeError, match="filePath value.*http\\(s\\) URL"):
+            validate_camtrap_dp_archive("https://example.org/camtrapdp.zip")
+
+
+def test_validate_camtrap_dp_archive_rejects_local_absolute_media_filepaths(camtrapdp_dir, tmp_path):
+    input_dir = camtrapdp_dir()
+    (input_dir / "media.csv").write_text(
+        "mediaID,deploymentID,filePath,fileName,filePublic\n"
+        "m1,d1,/home/user/images/m1.jpg,m1.jpg,true\n",
+        encoding="utf-8",
+    )
+    zip_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for filename in ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]:
+            zf.write(input_dir / filename, filename)
+
+    with patch("httpx.stream", return_value=_fake_stream_response(200, zip_path.read_bytes())):
+        with pytest.raises(RuntimeError, match="filePath value.*http\\(s\\) URL"):
+            validate_camtrap_dp_archive("https://example.org/camtrapdp.zip")
+
+
 def test_validate_camtrap_dp_archive_disables_profile_patching(camtrapdp_dir, tmp_path, monkeypatch):
     # This is a throwaway extraction of a URL this project doesn't control —
     # patching a missing "profile" here would only fix a copy that's about
