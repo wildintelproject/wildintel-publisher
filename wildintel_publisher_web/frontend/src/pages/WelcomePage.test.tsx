@@ -8,10 +8,10 @@ describe('WelcomePage', () => {
     render(<WelcomePage onStart={() => {}} />)
 
     expect(screen.getByText('WildINTEL Publisher')).toBeInTheDocument()
-    expect(screen.getByText('Trapper')).toBeInTheDocument()
     expect(screen.getByText('HuggingFace Hub')).toBeInTheDocument()
     expect(screen.getByText('Zenodo')).toBeInTheDocument()
     expect(screen.getByText('B2SHARE (EUDAT)')).toBeInTheDocument()
+    expect(screen.getByText('GBIF')).toBeInTheDocument()
   })
 
   it('calls onStart when the Get Started button is clicked', async () => {
