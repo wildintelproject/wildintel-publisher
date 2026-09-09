@@ -22,8 +22,11 @@ from PIL import Image
 from typer.testing import CliRunner
 
 from wildintel_publisher.main import app
+from wildintel_publisher.services.common import _image_bucket
 
 runner = CliRunner()
+
+_M1_BUCKET = _image_bucket("m1.jpg")
 
 
 def _init_software_repo(root: Path) -> Path:
@@ -120,7 +123,9 @@ def test_b2share_prepare_hfh_repo_id_mode_rewrites_to_predictable_hfh_url(camtra
 
     assert result.exit_code == 0, result.output
     assert not (output_dir / "images").exists()
-    assert _media_filepaths(output_dir) == ["https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"]
+    assert _media_filepaths(output_dir) == [
+        f"https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/{_M1_BUCKET}/m1.jpg"
+    ]
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
     assert "metadata-only" in readme
     assert "someuser/somedataset" in readme
@@ -134,7 +139,9 @@ def test_b2share_prepare_hfh_repo_id_mode_rewrites_to_predictable_hfh_url(camtra
     with zipfile.ZipFile(zip_path) as zf:
         with zf.open("camtrapdp-remote/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
-    assert rows[0]["filePath"] == "https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"
+    assert rows[0]["filePath"] == (
+        f"https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/{_M1_BUCKET}/m1.jpg"
+    )
     assert (output_dir / "media.csv").is_file()
 
 
@@ -160,11 +167,11 @@ def test_b2share_prepare_self_contained_downloads_and_bundles_zip(camtrapdp_dir,
     # archive also works as GBIF's --archive-url — see write_local_zip.
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
-        assert "camtrapdp/images/m1.jpg" in names
-        assert zf.read("camtrapdp/images/m1.jpg") == b"fake-image-bytes"
+        assert f"camtrapdp/images/{_M1_BUCKET}/m1.jpg" in names
+        assert zf.read(f"camtrapdp/images/{_M1_BUCKET}/m1.jpg") == b"fake-image-bytes"
         with zf.open("camtrapdp/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
-    assert rows[0]["filePath"] == "images/m1.jpg"  # 2nd (private) row filtered out beforehand
+    assert rows[0]["filePath"] == f"images/{_M1_BUCKET}/m1.jpg"  # 2nd (private) row filtered out beforehand
 
     # the loose datapackage.json/CSVs/images/ are removed once bundled into the zip
     assert sorted(p.name for p in output_dir.iterdir()) == [
@@ -206,7 +213,7 @@ def test_b2share_prepare_self_contained_resizes_images_to_fit_max_zip_file(camtr
     zip_path = output_dir / "camtrapdp.zip"
     assert zip_path.stat().st_size <= round(0.0001 * 1024 ** 3)
     with zipfile.ZipFile(zip_path) as zf:
-        with zf.open("camtrapdp/images/m1.jpg") as f:
+        with zf.open(f"camtrapdp/images/{_M1_BUCKET}/m1.jpg") as f:
             with Image.open(io.BytesIO(f.read())) as img:
                 assert max(img.size) < 800  # smaller than the original 800x600
 
@@ -243,7 +250,7 @@ def test_b2share_prepare_self_contained_takes_precedence_over_hfh_repo_id(camtra
     with zipfile.ZipFile(output_dir / "camtrapdp.zip") as zf:
         with zf.open("camtrapdp/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
-    assert rows[0]["filePath"] == "images/m1.jpg"  # embedded + relative, not the HFH URL
+    assert rows[0]["filePath"] == f"images/{_M1_BUCKET}/m1.jpg"  # embedded + relative, not the HFH URL
 
 
 def test_b2share_prepare_fails_when_input_dir_missing(tmp_path):

@@ -58,6 +58,20 @@ LOCAL_ZIP_FILENAME = "camtrapdp-local.zip"
 REMOTE_ZIP_FILENAME = "camtrapdp-remote.zip"
 DEFAULT_IMAGE_TIMEOUT = 60
 
+# Hugging Face Hub rejects a git push with more than 10,000 files in any one
+# directory (its own repo-level limit, not ours) — sharding images/ into 256
+# subfolders (2 hex chars) keeps up to ~2.56M images under that cap without
+# ever needing to grow the scheme. The bucket is a pure hash of the file
+# name, so it's computable from media.csv alone (no directory listing
+# needed) and stable across runs — see _image_bucket.
+IMAGE_SHARD_HEX_CHARS = 2
+
+
+def _image_bucket(file_name: str) -> str:
+    """Deterministic 2-hex-char shard for `file_name`, used to spread
+    images/ across subfolders — see IMAGE_SHARD_HEX_CHARS."""
+    return hashlib.sha1(file_name.encode("utf-8")).hexdigest()[:IMAGE_SHARD_HEX_CHARS]
+
 # Los 4 ficheros que de verdad componen un camtrapdp (datapackage.json + sus
 # 3 tablas) — usado por servicios que copian de un input_dir que puede traer
 # de más (ej. si input_dir fuera la salida ya procesada de 'hfh prepare',
@@ -880,13 +894,14 @@ def patch_readme_citation_url(readme_path: Path, url: str) -> bool:
 def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dirname: str = IMAGES_DIRNAME) -> int:
     """Rewrites filePath in media.csv to the predictable HuggingFace Hub URL
     for each file (https://huggingface.co/datasets/{repo_id}/resolve/main/
-    {images_dirname}/{fileName}) — the same predictable pattern used by
-    'hfh upload'. If `output_dir`/<images_dirname>/ exists locally (images
-    were downloaded here), only rows whose file is actually present there
-    are rewritten (the rest keep their original filePath, with a warning);
-    if it doesn't exist (e.g. 'zenodo prepare --hfh-repo-id' without
-    downloading anything locally), every row is rewritten unconditionally,
-    trusting that the file already lives on HuggingFace Hub.
+    {images_dirname}/{bucket}/{fileName}, bucket = _image_bucket(fileName))
+    — the same predictable, sharded pattern used by 'hfh upload'. If
+    `output_dir`/<images_dirname>/ exists locally (images were downloaded
+    here), only rows whose file is actually present there are rewritten
+    (the rest keep their original filePath, with a warning); if it doesn't
+    exist (e.g. 'zenodo prepare --hfh-repo-id' without downloading anything
+    locally), every row is rewritten unconditionally, trusting that the
+    file already lives on HuggingFace Hub.
 
     Returns:
         Number of rewritten rows.
@@ -904,10 +919,13 @@ def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dir
         file_name = row.get(FILE_NAME_COLUMN)
         if not file_name:
             continue
-        if check_local and not (images_dir / file_name).is_file():
+        bucket = _image_bucket(file_name)
+        if check_local and not (images_dir / bucket / file_name).is_file():
             missing.append(file_name)
             continue
-        row[FILE_PATH_COLUMN] = f"https://huggingface.co/datasets/{repo_id}/resolve/main/{images_dirname}/{file_name}"
+        row[FILE_PATH_COLUMN] = (
+            f"https://huggingface.co/datasets/{repo_id}/resolve/main/{images_dirname}/{bucket}/{file_name}"
+        )
         rewritten += 1
 
     write_csv(media_csv, fieldnames, rows)
@@ -935,7 +953,13 @@ def download_public_images(
     un directorio local ya autocontenido, con el mismo convenio que genera
     write_local_zip) — y simplemente se copia de ahí. Ya presentes en
     destino (mismo nombre) se saltan; los fallos de un fichero concreto no
-    abortan el resto."""
+    abortan el resto.
+
+    Cada fichero se guarda bajo un subdirectorio de 2 caracteres hex
+    (`_image_bucket(fileName)`), no suelto en la raíz de <images_dirname>/
+    — HuggingFace Hub rechaza el push si algún directorio del repo supera
+    los 10 000 ficheros, y un dataset grande de cámaras trampa lo supera
+    con facilidad."""
     media_csv = output_dir / MEDIA_CSV_FILENAME
     fieldnames, rows = read_csv(media_csv)
     if FILE_PATH_COLUMN not in fieldnames:
@@ -959,7 +983,9 @@ def download_public_images(
                 failed += 1
                 continue
 
-            destination = images_dir / file_name
+            bucket_dir = images_dir / _image_bucket(file_name)
+            bucket_dir.mkdir(exist_ok=True)
+            destination = bucket_dir / file_name
             if destination.exists():
                 skipped += 1
                 continue
@@ -1025,7 +1051,7 @@ def fit_images_to_size(images_dir: Path, *, target_bytes: int, min_edge: int = 6
     video files (if any) are left exactly as they were, and still count
     fully toward whatever the final zip ends up weighing.
     """
-    image_paths = [p for p in images_dir.iterdir() if p.is_file()] if images_dir.is_dir() else []
+    image_paths = [p for p in images_dir.rglob("*") if p.is_file()] if images_dir.is_dir() else []
     if not image_paths:
         return
 
@@ -1065,7 +1091,7 @@ def fit_images_to_size(images_dir: Path, *, target_bytes: int, min_edge: int = 6
             console.print(f"  [red]✘  Could not resize {image_path.name}: {exc}[/red]")
             failed += 1
 
-    new_size_bytes = sum(p.stat().st_size for p in images_dir.iterdir() if p.is_file())
+    new_size_bytes = sum(p.stat().st_size for p in images_dir.rglob("*") if p.is_file())
     console.print(
         f"[green]✔  Images: {resized} resized, {skipped} already small enough, {failed} failed "
         f"— now {new_size_bytes / 1024**3:.2f} GiB.[/green]"
@@ -1079,7 +1105,9 @@ def write_local_zip(
     """Crea <zip_filename>: datapackage.json, deployments.csv, media.csv y
     observations.csv ya presentes en `output_dir` (solo media pública), pero
     con filePath de media.csv reescrito a una ruta relativa
-    (<images_dirname>/<fichero>) en vez de la URL remota.
+    (<images_dirname>/<bucket>/<fichero>, bucket = _image_bucket(fichero),
+    mismo esquema de sharding que download_public_images) en vez de la URL
+    remota.
 
     Si `embed_images` es False (por defecto, uso de hfh), el zip asume que
     `output_dir`/<images_dirname>/ ya vive físicamente al lado del zip — para
@@ -1108,8 +1136,8 @@ def write_local_zip(
     if FILE_PATH_COLUMN in fieldnames and FILE_NAME_COLUMN in fieldnames:
         for row in rows:
             file_name = row.get(FILE_NAME_COLUMN)
-            if file_name and (images_dir / file_name).is_file():
-                row[FILE_PATH_COLUMN] = f"{images_dirname}/{file_name}"
+            if file_name and (images_dir / _image_bucket(file_name) / file_name).is_file():
+                row[FILE_PATH_COLUMN] = f"{images_dirname}/{_image_bucket(file_name)}/{file_name}"
 
     media_csv_buffer = io.StringIO()
     writer = csv.DictWriter(media_csv_buffer, fieldnames=fieldnames)
@@ -1139,9 +1167,10 @@ def write_local_zip(
         if observations_path.is_file():
             zf.write(observations_path, arcname(OBSERVATIONS_CSV_FILENAME))
         if embed_images and images_dir.is_dir():
-            for image_path in sorted(images_dir.iterdir()):
+            for image_path in sorted(images_dir.rglob("*")):
                 if image_path.is_file():
-                    zf.write(image_path, arcname(f"{images_dirname}/{image_path.name}"))
+                    relative = image_path.relative_to(images_dir).as_posix()
+                    zf.write(image_path, arcname(f"{images_dirname}/{relative}"))
 
     note = " (images embedded, GBIF-ready)" if embed_images else ""
     console.print(f"  {zip_filename}: created with filePath relative to {images_dirname}/{note}.")

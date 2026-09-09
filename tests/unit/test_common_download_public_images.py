@@ -8,7 +8,7 @@ import csv
 from pathlib import Path
 from unittest.mock import patch
 
-from wildintel_publisher.services.common import download_public_images
+from wildintel_publisher.services.common import _image_bucket, download_public_images
 
 
 def _write_media_csv(output_dir: Path, *, file_path: str, file_name: str = "m1.jpg") -> None:
@@ -36,7 +36,7 @@ def test_download_public_images_fetches_absolute_urls_over_http(tmp_path):
         download_public_images(output_dir, input_dir=input_dir)
 
     mock_get.assert_called_once_with("https://trapper.example/m1.jpg?rt=tok1")
-    assert (output_dir / "images" / "m1.jpg").read_bytes() == b"remote-bytes"
+    assert (output_dir / "images" / _image_bucket("m1.jpg") / "m1.jpg").read_bytes() == b"remote-bytes"
 
 
 def test_download_public_images_copies_relative_filepath_from_input_dir(tmp_path):
@@ -55,7 +55,7 @@ def test_download_public_images_copies_relative_filepath_from_input_dir(tmp_path
         download_public_images(output_dir, input_dir=input_dir)
 
     mock_get.assert_not_called()
-    assert (output_dir / "images" / "m1.jpg").read_bytes() == b"local-bytes"
+    assert (output_dir / "images" / _image_bucket("m1.jpg") / "m1.jpg").read_bytes() == b"local-bytes"
 
 
 def test_download_public_images_reports_a_missing_local_file_as_failed(tmp_path):
@@ -65,18 +65,19 @@ def test_download_public_images_reports_a_missing_local_file_as_failed(tmp_path)
 
     download_public_images(output_dir, input_dir=input_dir)  # must not raise
 
-    assert not (output_dir / "images" / "missing.jpg").exists()
+    assert not (output_dir / "images" / _image_bucket("missing.jpg") / "missing.jpg").exists()
 
 
 def test_download_public_images_skips_files_already_present_in_destination(tmp_path):
     output_dir = tmp_path / "output"
     input_dir = tmp_path / "input"
-    (output_dir / "images").mkdir(parents=True)
-    (output_dir / "images" / "m1.jpg").write_bytes(b"already-there")
+    bucket_dir = output_dir / "images" / _image_bucket("m1.jpg")
+    bucket_dir.mkdir(parents=True)
+    (bucket_dir / "m1.jpg").write_bytes(b"already-there")
     _write_media_csv(output_dir, file_path="https://trapper.example/m1.jpg?rt=tok1")
 
     with patch("httpx.Client.get") as mock_get:
         download_public_images(output_dir, input_dir=input_dir)
 
     mock_get.assert_not_called()
-    assert (output_dir / "images" / "m1.jpg").read_bytes() == b"already-there"
+    assert (bucket_dir / "m1.jpg").read_bytes() == b"already-there"

@@ -5,11 +5,14 @@ import zipfile
 from pathlib import Path
 
 from wildintel_publisher.services.common import (
+    _image_bucket,
     rewrite_media_filepaths_to_hfh,
     sha256_file,
     write_checksums,
     write_local_zip,
 )
+
+_M1_BUCKET = _image_bucket("m1.jpg")
 
 
 def test_rewrite_media_filepaths_to_hfh_unconditional_when_no_local_images_dir(camtrapdp_dir):
@@ -23,7 +26,9 @@ def test_rewrite_media_filepaths_to_hfh_unconditional_when_no_local_images_dir(c
     assert rewritten == 1
     with (output_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert rows[0]["filePath"] == "https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"
+    assert rows[0]["filePath"] == (
+        f"https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/{_M1_BUCKET}/m1.jpg"
+    )
 
 
 def test_rewrite_media_filepaths_to_hfh_skips_rows_missing_local_file(camtrapdp_dir):
@@ -44,9 +49,9 @@ def test_rewrite_media_filepaths_to_hfh_skips_rows_missing_local_file(camtrapdp_
 
 def test_rewrite_media_filepaths_to_hfh_rewrites_when_local_file_present(camtrapdp_dir):
     output_dir = camtrapdp_dir("pkg", include_private_media=False)
-    images_dir = output_dir / "images"
-    images_dir.mkdir()
-    (images_dir / "m1.jpg").write_bytes(b"fake")
+    bucket_dir = output_dir / "images" / _M1_BUCKET
+    bucket_dir.mkdir(parents=True)
+    (bucket_dir / "m1.jpg").write_bytes(b"fake")
 
     rewritten = rewrite_media_filepaths_to_hfh(output_dir, "someuser/somedataset")
 
@@ -61,18 +66,19 @@ def test_rewrite_media_filepaths_to_hfh_returns_zero_when_columns_missing(tmp_pa
 
 def test_write_local_zip_without_embed_images_leaves_relative_path_for_downloaded_files(camtrapdp_dir):
     output_dir = camtrapdp_dir("pkg", include_private_media=False)
-    (output_dir / "images").mkdir()
-    (output_dir / "images" / "m1.jpg").write_bytes(b"fake-bytes")
+    bucket_dir = output_dir / "images" / _M1_BUCKET
+    bucket_dir.mkdir(parents=True)
+    (bucket_dir / "m1.jpg").write_bytes(b"fake-bytes")
 
     zip_path = write_local_zip(output_dir, zip_filename="camtrapdp-local.zip")
 
     assert zip_path.name == "camtrapdp-local.zip"
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
-        assert "images/m1.jpg" not in names  # NOT embedded by default
+        assert f"images/{_M1_BUCKET}/m1.jpg" not in names  # NOT embedded by default
         with zf.open("media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
-    assert rows[0]["filePath"] == "images/m1.jpg"
+    assert rows[0]["filePath"] == f"images/{_M1_BUCKET}/m1.jpg"
     # the media.csv on disk (outside the zip) keeps its original remote filePath
     with (output_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         disk_rows = list(csv.DictReader(f))
@@ -81,8 +87,9 @@ def test_write_local_zip_without_embed_images_leaves_relative_path_for_downloade
 
 def test_write_local_zip_with_embed_images_bundles_the_image_bytes(camtrapdp_dir):
     output_dir = camtrapdp_dir("pkg", include_private_media=False)
-    (output_dir / "images").mkdir()
-    (output_dir / "images" / "m1.jpg").write_bytes(b"fake-bytes")
+    bucket_dir = output_dir / "images" / _M1_BUCKET
+    bucket_dir.mkdir(parents=True)
+    (bucket_dir / "m1.jpg").write_bytes(b"fake-bytes")
 
     zip_path = write_local_zip(output_dir, zip_filename="camtrapdp.zip", embed_images=True)
 
@@ -91,11 +98,11 @@ def test_write_local_zip_with_embed_images_bundles_the_image_bytes(camtrapdp_dir
     # write_remote_zip's own "single root directory" requirement.
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
-        assert "camtrapdp/images/m1.jpg" in names
-        assert zf.read("camtrapdp/images/m1.jpg") == b"fake-bytes"
+        assert f"camtrapdp/images/{_M1_BUCKET}/m1.jpg" in names
+        assert zf.read(f"camtrapdp/images/{_M1_BUCKET}/m1.jpg") == b"fake-bytes"
         with zf.open("camtrapdp/media.csv") as mf:
             rows = list(csv.DictReader(line.decode() for line in mf))
-    assert rows[0]["filePath"] == "images/m1.jpg"
+    assert rows[0]["filePath"] == f"images/{_M1_BUCKET}/m1.jpg"
 
 
 def test_write_local_zip_with_embed_images_injects_gbif_ingestion_field(camtrapdp_dir):

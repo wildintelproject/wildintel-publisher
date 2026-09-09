@@ -13,8 +13,11 @@ from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from typer.testing import CliRunner
 
 from wildintel_publisher.main import app
+from wildintel_publisher.services.common import _image_bucket
 
 runner = CliRunner()
+
+_M1_BUCKET = _image_bucket("m1.jpg")
 
 
 def _fake_httpx_get(self, url, *args, **kwargs):
@@ -34,7 +37,7 @@ def test_hfh_prepare_produces_full_export(camtrapdp_dir, tmp_path):
     assert result.exit_code == 0, result.output
     for filename in ("README.md", "CITATION.cff", "LICENSE", "checksums-sha256.txt", "datapackage.json", "camtrapdp-local.zip"):
         assert (output_dir / filename).is_file(), filename
-    assert (output_dir / "images" / "m1.jpg").read_bytes() == b"fake-image-bytes"
+    assert (output_dir / "images" / _M1_BUCKET / "m1.jpg").read_bytes() == b"fake-image-bytes"
 
     with (output_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -204,7 +207,9 @@ def test_hfh_upload_rewrites_media_csv_and_calls_upload_folder(camtrapdp_dir, tm
 
     with (output_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert rows[0]["filePath"] == "https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"
+    assert rows[0]["filePath"] == (
+        f"https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/{_M1_BUCKET}/m1.jpg"
+    )
 
     metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["homepage"] == "https://huggingface.co/datasets/someuser/somedataset"
@@ -254,14 +259,16 @@ def test_hfh_upload_writes_a_gbif_archive_with_real_media_urls(camtrapdp_dir, tm
         }
         with zf.open("camtrapdp-remote/media.csv") as f:
             rows = list(csv.DictReader(io.TextIOWrapper(f, encoding="utf-8")))
-    assert rows[0]["filePath"] == "https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/m1.jpg"
+    assert rows[0]["filePath"] == (
+        f"https://huggingface.co/datasets/someuser/somedataset/resolve/main/images/{_M1_BUCKET}/m1.jpg"
+    )
 
     # camtrapdp-local.zip keeps its own, deliberately different, relative-path
     # media.csv — the two archives serve different purposes (see docs/publishing-gbif.md).
     with zipfile.ZipFile(output_dir / "camtrapdp-local.zip") as zf:
         with zf.open("media.csv") as f:
             local_rows = list(csv.DictReader(io.TextIOWrapper(f, encoding="utf-8")))
-    assert local_rows[0]["filePath"] == "images/m1.jpg"
+    assert local_rows[0]["filePath"] == f"images/{_M1_BUCKET}/m1.jpg"
 
 
 def test_hfh_upload_link_mode_still_writes_gbif_archive_with_original_filepath(camtrapdp_dir, tmp_path):
