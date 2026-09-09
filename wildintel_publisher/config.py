@@ -134,21 +134,30 @@ class TrapperSettings(BaseModel):
             "from — can be overridden with --project-id. (TRAPPER.project_id)"
         ),
     )
+    # WildINTEL project policy: every dataset is published under CC-BY-NC-4.0
+    # (Attribution-NonCommercial), never plain CC-BY — deliberately fixed,
+    # not something to vary per project/dataset. Used to patch any scope
+    # (data/media) Trapper has left as "private" in datapackage.json (known
+    # bug in Trapper's web license selector) — see
+    # camtrapdp_source._fix_license_from_trapper_settings/
+    # trapper.fetch_camtrapdp_package, applied regardless of which of the
+    # three Camtrap DP sources (Trapper, Local Directory, Public URL) the
+    # package came in through.
     license_id: Optional[str] = Field(
-        default="CC-BY-4.0",
+        default="CC-BY-NC-4.0",
         description=(
-            "License identifier, e.g. CC-BY-4.0 — used by 'trapper download' to patch "
+            "License identifier, e.g. CC-BY-NC-4.0 — used by 'trapper download' to patch "
             "any scope (data/media) that Trapper has left as \"private\" in "
             "datapackage.json (known bug in Trapper's web license selector). "
             "(TRAPPER.license_id)"
         ),
     )
     license_name: Optional[str] = Field(
-        default="Creative Commons Attribution 4.0 International",
+        default="Creative Commons Attribution-NonCommercial 4.0 International",
         description="Full license name, for the same patch. (TRAPPER.license_name)",
     )
     license_url: Optional[str] = Field(
-        default="https://creativecommons.org/licenses/by/4.0/",
+        default="https://creativecommons.org/licenses/by-nc/4.0/",
         description="License URL, for the same patch. (TRAPPER.license_url)",
     )
     dataset_slug: Optional[str] = Field(

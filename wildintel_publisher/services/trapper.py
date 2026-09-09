@@ -7,7 +7,6 @@ paquete ya cacheado) y devuelve una URL de descarga absoluta en
 (``?rt=...``), así que se descarga tal cual con ``client.make_request()``,
 sin pasar por la cabecera Authorization del cliente.
 """
-import json
 from pathlib import Path
 from typing import Optional
 from zipfile import ZipFile
@@ -22,9 +21,6 @@ from wildintel_publisher.services import common
 console = Console()
 
 CAMTRAPDP_ZIP_FILENAME = "camtrapdp.zip"
-DATAPACKAGE_FILENAME = "datapackage.json"
-PRIVATE_LICENSE_PLACEHOLDER = "private"
-LICENSE_SCOPES = ("data", "media")
 
 # TrapperClient por defecto usa timeout=30s (pensado para llamadas normales de
 # la API) — generar un paquete Camtrap DP nuevo (sin caché) puede tardar bastante
@@ -75,7 +71,7 @@ def fetch_camtrapdp_package(
         license_id, license_name, license_url: Si se indican, se usan para
             parchear en sitio los scopes ("data"/"media") de
             datapackage.json["licenses"] que Trapper haya dejado como
-            "private" (o vacíos) — ver _fix_datapackage_license. Arregla el
+            "private" (o vacíos) — ver common.fix_datapackage_license. Arregla el
             paquete en la fuente, en vez de dejar que cada consumidor
             (ej. 'hfh prepare') tenga que hacer su propio fallback.
         include_events: Si el paquete generado incluye observations.csv a
@@ -151,52 +147,15 @@ def fetch_camtrapdp_package(
 
     common.decompress_gzipped_tables(output_dir)
     if license_id:
-        _fix_datapackage_license(output_dir, license_id=license_id, license_name=license_name, license_url=license_url)
+        # WildINTEL project policy: every dataset is published under
+        # CC-BY-NC-4.0 (see TrapperSettings.license_id's own comment in
+        # config.py, the default `license_id` above resolves to unless the
+        # caller passed something else) — deliberately fixed, not meant to
+        # vary per project/dataset.
+        common.fix_datapackage_license(output_dir, license_id=license_id, license_name=license_name, license_url=license_url)
 
     console.print(f"[green]✔  Camtrap DP for project {project_id} ready in {output_dir}[/green]")
     return output_dir
-
-
-def _fix_datapackage_license(
-    output_dir: Path, *, license_id: str, license_name: Optional[str], license_url: Optional[str],
-) -> None:
-    """Parchea datapackage.json in situ: para cada scope ("data"/"media")
-    sin una licencia real (ausente, o el placeholder "private" que Trapper
-    añade en get_package_metadata() cuando no le llega ninguna — ver
-    apps/media_classification/tasks/data_packages.py:290-294 del servidor),
-    añade la licencia indicada. Los scopes que ya tengan una licencia real
-    no se tocan."""
-    datapackage_path = output_dir / DATAPACKAGE_FILENAME
-    if not datapackage_path.is_file():
-        return
-
-    try:
-        data = json.loads(datapackage_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-
-    licenses = data.get("licenses")
-    if not isinstance(licenses, list):
-        licenses = []
-
-    real_scopes = {
-        licence.get("scope") for licence in licenses
-        if isinstance(licence, dict) and licence.get("name") and licence.get("name") != PRIVATE_LICENSE_PLACEHOLDER
-    }
-    missing_scopes = [scope for scope in LICENSE_SCOPES if scope not in real_scopes]
-    if not missing_scopes:
-        return
-
-    licenses = [
-        licence for licence in licenses
-        if not (isinstance(licence, dict) and licence.get("name") == PRIVATE_LICENSE_PLACEHOLDER and licence.get("scope") in missing_scopes)
-    ]
-    for scope in missing_scopes:
-        licenses.append({"name": license_id, "path": license_url, "title": license_name, "scope": scope})
-
-    data["licenses"] = licenses
-    datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    console.print(f"  datapackage.json: license '{license_id}' added for scope(s) {', '.join(missing_scopes)}.")
 
 
 def test_connection(

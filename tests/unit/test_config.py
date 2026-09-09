@@ -87,7 +87,7 @@ def test_load_settings_creates_file_with_defaults_if_missing(tmp_path: Path):
     settings = load_settings(config_file)
 
     assert config_file.is_file()
-    assert settings.TRAPPER.license_id == "CC-BY-4.0"
+    assert settings.TRAPPER.license_id == "CC-BY-NC-4.0"
 
 
 def test_load_settings_round_trips_a_saved_value(tmp_path: Path):

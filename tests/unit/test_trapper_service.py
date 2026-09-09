@@ -1,68 +1,21 @@
-"""Unit tests for services.trapper's local datapackage.json patching helper
-(_fix_datapackage_license — decompress_gzipped_tables/
-_clear_datapackage_resource_compression moved to services.common, see
-test_common_decompress_gzipped_tables.py, now that resolve_local_camtrapdp_source
-reuses them too), test_connection's exception-to-RuntimeError mapping, and
-fetch_camtrapdp_package's own include_events wiring."""
+"""Unit tests for test_connection's exception-to-RuntimeError mapping and
+fetch_camtrapdp_package's own include_events wiring — its local
+datapackage.json patching helpers (fix_datapackage_license,
+decompress_gzipped_tables/_clear_datapackage_resource_compression) moved to
+services.common (see test_common_fix_datapackage_license.py/
+test_common_decompress_gzipped_tables.py), now that
+resolve_local_camtrapdp_source/fetch_camtrap_dp_archive reuse them too."""
 import io
 import json
 import zipfile
-from pathlib import Path
 
 import httpx
 import pytest
 from trapper_client import err
 from trapper_client.schemas.classifications import ResultsDataPackageData, ResultsDataPackageResponse
 
-from wildintel_publisher.services.trapper import _fix_datapackage_license, fetch_camtrapdp_package
+from wildintel_publisher.services.trapper import fetch_camtrapdp_package
 from wildintel_publisher.services.trapper import test_connection as trapper_test_connection
-
-
-def _write_datapackage(tmp_path: Path, data: dict) -> Path:
-    path = tmp_path / "datapackage.json"
-    path.write_text(json.dumps(data), encoding="utf-8")
-    return path
-
-
-def test_fix_datapackage_license_adds_missing_scopes(tmp_path):
-    _write_datapackage(tmp_path, {"licenses": [{"name": "private", "scope": "data"}, {"name": "private", "scope": "media"}]})
-
-    _fix_datapackage_license(tmp_path, license_id="CC-BY-4.0", license_name="Creative Commons Attribution 4.0", license_url="https://creativecommons.org/licenses/by/4.0/")
-
-    data = json.loads((tmp_path / "datapackage.json").read_text(encoding="utf-8"))
-    scopes = {lic["scope"]: lic for lic in data["licenses"]}
-    assert scopes["data"]["name"] == "CC-BY-4.0"
-    assert scopes["media"]["name"] == "CC-BY-4.0"
-    assert len(data["licenses"]) == 2  # private placeholders replaced, not appended
-
-
-def test_fix_datapackage_license_leaves_real_scopes_untouched(tmp_path):
-    _write_datapackage(tmp_path, {"licenses": [
-        {"name": "MIT", "scope": "data"},
-        {"name": "private", "scope": "media"},
-    ]})
-
-    _fix_datapackage_license(tmp_path, license_id="CC-BY-4.0", license_name="CC BY 4.0", license_url="https://example.org")
-
-    data = json.loads((tmp_path / "datapackage.json").read_text(encoding="utf-8"))
-    scopes = {lic["scope"]: lic["name"] for lic in data["licenses"]}
-    assert scopes["data"] == "MIT"  # untouched
-    assert scopes["media"] == "CC-BY-4.0"  # patched
-
-
-def test_fix_datapackage_license_no_op_when_all_scopes_real(tmp_path):
-    original = {"licenses": [{"name": "MIT", "scope": "data"}, {"name": "MIT", "scope": "media"}]}
-    path = _write_datapackage(tmp_path, original)
-    before = path.read_text(encoding="utf-8")
-
-    _fix_datapackage_license(tmp_path, license_id="CC-BY-4.0", license_name="CC BY 4.0", license_url="https://example.org")
-
-    assert path.read_text(encoding="utf-8") == before
-
-
-def test_fix_datapackage_license_no_op_when_datapackage_missing(tmp_path):
-    _fix_datapackage_license(tmp_path, license_id="CC-BY-4.0", license_name="CC BY 4.0", license_url="https://example.org")  # must not raise
-    assert not (tmp_path / "datapackage.json").exists()
 
 
 def test_test_connection_maps_unauthorized_to_runtime_error(monkeypatch):

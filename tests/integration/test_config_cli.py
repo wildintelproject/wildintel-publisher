@@ -44,7 +44,7 @@ def test_config_show_prints_file_path_and_section_header(group):
 def test_trapper_config_get_returns_scalar_value():
     result = runner.invoke(app, ["trapper", "config", "get", "license_id"])
     assert result.exit_code == 0
-    assert result.output.strip() == "CC-BY-4.0"
+    assert result.output.strip() == "CC-BY-NC-4.0"
 
 
 def test_config_get_unknown_field_errors():

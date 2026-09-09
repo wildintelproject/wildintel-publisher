@@ -43,6 +43,12 @@ LATITUDE_COLUMN = "latitude"
 LONGITUDE_COLUMN = "longitude"
 TRUTHY_VALUES = {"true", "1", "yes"}
 
+# Placeholder Trapper's own get_package_metadata() writes into a license
+# scope ("data"/"media") when the classification project has no real license
+# configured for it — see resolve_license/fix_datapackage_license.
+PRIVATE_LICENSE_PLACEHOLDER = "private"
+LICENSE_SCOPES = ("data", "media")
+
 # ~1.1 km at the equator — coarse enough to obscure the exact deployment
 # point, still regionally useful. See anonymize_deployment_coordinates.
 DEFAULT_COORDINATE_DECIMALS = 2
@@ -375,11 +381,12 @@ def write_homepage(output_dir: Path, url: str) -> None:
 
 def resolve_license(licenses: list) -> dict:
     """Busca la primera licencia real en datapackage.json (ignorando los
-    placeholders "private" que Trapper añade cuando no hay una real para ese
-    scope — ver get_package_metadata() en el servidor). Sin fallback: si no
-    hay ninguna, es que 'trapper download' no llegó a parchearla (o el
-    camtrapdp viene de otra vía) — hay que arreglar el camtrapdp, no
-    sustituirla aquí.
+    placeholders PRIVATE_LICENSE_PLACEHOLDER que Trapper añade cuando no hay
+    una real para ese scope — ver get_package_metadata() en el servidor).
+    Sin fallback: si no hay ninguna, es que nadie llegó a parchearla todavía
+    (ver fix_datapackage_license, que sí lo hace, en cada una de las tres
+    fuentes de un Camtrap DP — Trapper, Local Directory, Public URL) — hay
+    que arreglar el camtrapdp, no sustituirla aquí.
 
     Returns:
         {"id": ..., "name": ..., "url": ...} — id es el código corto (ej.
@@ -392,14 +399,67 @@ def resolve_license(licenses: list) -> dict:
         if not isinstance(licence, dict):
             continue
         name = licence.get("name")
-        if name and name != "private":
+        if name and name != PRIVATE_LICENSE_PLACEHOLDER:
             return {"id": name, "name": licence.get("title") or name, "url": licence.get("path") or ""}
 
     raise RuntimeError(
-        "datapackage.json has no real license (everything is \"private\" placeholders, "
-        "or the list is empty). Regenerate the package with 'trapper download' (it patches "
-        "the license automatically)."
+        f'datapackage.json has no real license (everything is "{PRIVATE_LICENSE_PLACEHOLDER}" '
+        "placeholders, or the list is empty) — fill in title/description/license/authors by hand "
+        "below, or set one explicitly at the source and regenerate the package."
     )
+
+
+def fix_datapackage_license(
+    output_dir: Path, *, license_id: str, license_name: Optional[str] = None, license_url: Optional[str] = None,
+) -> None:
+    """Parchea datapackage.json in situ: para cada scope de LICENSE_SCOPES
+    ("data"/"media") sin una licencia real (ausente, o el placeholder
+    PRIVATE_LICENSE_PLACEHOLDER que Trapper añade en get_package_metadata()
+    cuando no le llega ninguna — ver
+    apps/media_classification/tasks/data_packages.py:290-294 del servidor),
+    añade la licencia indicada. Los scopes que ya tengan una licencia real
+    no se tocan.
+
+    Llamada desde las tres fuentes de un Camtrap DP con estos mismos valores
+    por defecto (settings.TRAPPER.license_id/license_name/license_url, ver
+    config.py) — Trapper (trapper.fetch_camtrapdp_package, con
+    --license-id/--license-name/--license-url configurables por si el
+    usuario quiere otra cosa), Local Directory
+    (camtrapdp_source.resolve_local_camtrapdp_source) y Public URL
+    (camtrapdp_source.fetch_camtrap_dp_archive) — un export de Trapper
+    (que es de donde viene este placeholder) puede llegar por cualquiera de
+    las tres, no solo descargándolo directamente con 'trapper download'."""
+    datapackage_path = output_dir / DATAPACKAGE_FILENAME
+    if not datapackage_path.is_file():
+        return
+
+    try:
+        data = json.loads(datapackage_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+
+    licenses = data.get("licenses")
+    if not isinstance(licenses, list):
+        licenses = []
+
+    real_scopes = {
+        licence.get("scope") for licence in licenses
+        if isinstance(licence, dict) and licence.get("name") and licence.get("name") != PRIVATE_LICENSE_PLACEHOLDER
+    }
+    missing_scopes = [scope for scope in LICENSE_SCOPES if scope not in real_scopes]
+    if not missing_scopes:
+        return
+
+    licenses = [
+        licence for licence in licenses
+        if not (isinstance(licence, dict) and licence.get("name") == PRIVATE_LICENSE_PLACEHOLDER and licence.get("scope") in missing_scopes)
+    ]
+    for scope in missing_scopes:
+        licenses.append({"name": license_id, "path": license_url, "title": license_name, "scope": scope})
+
+    data["licenses"] = licenses
+    datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    console.print(f"  datapackage.json: license '{license_id}' added for scope(s) {', '.join(missing_scopes)}.")
 
 
 _CITATION_AUTHOR_ROLES = {"principalInvestigator", "contributor"}

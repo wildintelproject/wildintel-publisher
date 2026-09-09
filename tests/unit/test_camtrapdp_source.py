@@ -144,6 +144,37 @@ def test_resolve_local_source_decompresses_gzipped_tables(camtrapdp_dir, tmp_pat
     assert not (source_dir / "media.csv").exists()
 
 
+def test_resolve_local_source_patches_trappers_private_license_placeholder(camtrapdp_dir, tmp_path, monkeypatch):
+    """Regression test: a Trapper export that never got a real license
+    configured server-side keeps Trapper's own "private" placeholder in
+    both scopes — 'trapper download' patches that automatically (see
+    trapper.fetch_camtrapdp_package), but Local Directory never did, so
+    extract_metadata's own resolve_license found no real license at all and
+    the wizard had to ask for one by hand, even though downloading the very
+    same package with 'trapper download' directly would never have hit
+    that."""
+    from wildintel_publisher.services import camtrapdp_source
+
+    monkeypatch.setattr(camtrapdp_source.settings.TRAPPER, "license_id", "MIT")
+    monkeypatch.setattr(camtrapdp_source.settings.TRAPPER, "license_name", "MIT License")
+    monkeypatch.setattr(camtrapdp_source.settings.TRAPPER, "license_url", "https://opensource.org/license/mit")
+
+    source_dir = camtrapdp_dir()
+    datapackage_path = source_dir / "datapackage.json"
+    data = json.loads(datapackage_path.read_text(encoding="utf-8"))
+    data["licenses"] = [{"name": "private", "scope": "data"}, {"name": "private", "scope": "media"}]
+    datapackage_path.write_text(json.dumps(data), encoding="utf-8")
+
+    output_dir = tmp_path / "local-source"
+    result = resolve_local_camtrapdp_source(source_dir, output_dir)
+
+    patched = json.loads((result / "datapackage.json").read_text(encoding="utf-8"))
+    scopes = {lic["scope"]: lic["name"] for lic in patched["licenses"]}
+    assert scopes == {"data": "MIT", "media": "MIT"}
+    # the source directory itself is never touched.
+    assert json.loads(datapackage_path.read_text(encoding="utf-8"))["licenses"][0]["name"] == "private"
+
+
 def test_resolve_local_source_rejects_a_missing_directory(tmp_path):
     with pytest.raises(RuntimeError, match="does not exist"):
         resolve_local_camtrapdp_source(tmp_path / "nope", tmp_path / "output")

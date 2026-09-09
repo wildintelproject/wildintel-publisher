@@ -25,6 +25,7 @@ from pathlib import Path
 
 import httpx
 
+from wildintel_publisher.config import settings
 from wildintel_publisher.services import common
 
 DEFAULT_TIMEOUT = 300
@@ -38,6 +39,32 @@ def _slug_from_url(url: str) -> str:
     name = re.sub(r"\.zip$", "", name, flags=re.IGNORECASE)
     name = re.sub(r"[^\w.-]", "-", name).strip("-")
     return name or "camtrapdp"
+
+
+def _fix_license_from_trapper_settings(output_dir: Path) -> None:
+    """Same patch trapper.fetch_camtrapdp_package applies to Trapper's own
+    "private" license placeholder, using the exact same configured defaults
+    (settings.TRAPPER.license_id/license_name/license_url — 'trapper config
+    set license_id=...' to change them) — a Camtrap DP that reaches this
+    project via Local Directory or Public URL is very often itself a
+    Trapper export that just didn't go through 'trapper download' directly
+    (e.g. downloaded as a zip and extracted by hand), so it can carry that
+    same placeholder Trapper's own get_package_metadata() writes when no
+    real license was set at generation time. A no-op if TRAPPER.license_id
+    isn't configured, or if every scope already has a real license — see
+    common.fix_datapackage_license."""
+    if settings.TRAPPER.license_id:
+        # WildINTEL project policy: every dataset is published under
+        # CC-BY-NC-4.0 (see TrapperSettings.license_id's own comment in
+        # config.py) — this is the actual value edited into the camtrapdp's
+        # datapackage.json below, deliberately fixed rather than something
+        # meant to vary per project/dataset.
+        common.fix_datapackage_license(
+            output_dir,
+            license_id=settings.TRAPPER.license_id,
+            license_name=settings.TRAPPER.license_name,
+            license_url=settings.TRAPPER.license_url,
+        )
 
 
 def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
@@ -64,6 +91,13 @@ def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
     validating — without this, frictionless failed with a "No such file or
     directory: .../deployments.csv.gz" that never got any clearer than that.
 
+    Same reasoning for the license: if it's still Trapper's own "private"
+    placeholder, _fix_license_from_trapper_settings patches it with
+    whatever's configured for 'trapper download' — otherwise extract_metadata's
+    own resolve_license call finds no real license at all and the wizard
+    has to ask for one by hand, even though generating this same package via
+    'trapper download' directly would never have hit that.
+
     Raises:
         RuntimeError: if `source_dir` doesn't exist or isn't a directory, or
         if the copied core files don't pass Camtrap DP validation
@@ -80,6 +114,7 @@ def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
 
     common.copy_core_camtrapdp_files(source_dir, destination)
     common.decompress_gzipped_tables(destination)
+    _fix_license_from_trapper_settings(destination)
     common.validate_camtrap_dp(destination)
 
     return destination
@@ -145,6 +180,7 @@ def fetch_camtrap_dp_archive(
         # resolve_local_camtrapdp_source, same underlying failure mode
         # otherwise ("No such file or directory: .../deployments.csv.gz").
         common.decompress_gzipped_tables(camtrap_dp_root)
+        _fix_license_from_trapper_settings(camtrap_dp_root)
         common.validate_camtrap_dp(camtrap_dp_root)
 
         output_dir.mkdir(parents=True, exist_ok=True)
