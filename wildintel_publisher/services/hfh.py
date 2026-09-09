@@ -107,6 +107,8 @@ def prepare_hfh_export(
     license = product_meta["license"]
     authors = product_meta["authors"]
     contact = product_meta.get("contact") or []
+    publisher = product_meta.get("publisher")
+    copyright_holders = product_meta.get("copyright_holders") or []
     date_released = datetime.now().date().isoformat()
 
     write_readme(
@@ -122,6 +124,7 @@ def prepare_hfh_export(
         CITATION_TEMPLATE_FILE, output_dir,
         title=title, message=metadata.message, authors=authors, contact=contact, version=resolved_version,
         date_released=date_released, license_id=license["id"], repository_code=metadata.repository_code,
+        publisher=publisher, copyright_holders=copyright_holders,
     )
     if mirror_images:
         # Named per product type — the Camtrap DP adapter's own default

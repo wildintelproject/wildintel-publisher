@@ -10,6 +10,15 @@
    y se omite el bloque entero si no hay ninguno (a diferencia de authors,
    contact es opcional en CITATION.cff).
 
+   preferred_citation (Camtrap DP only, ver common.resolve_publisher/
+   resolve_copyright_holders — armado en write_citation) lleva los
+   contributors con role="publisher"/"rightsHolder": CITATION.cff no tiene
+   ningún campo "publisher"/"copyright" a nivel raíz (solo existen dentro
+   de un objeto "reference" — verificado contra el schema oficial), así
+   que se repiten title/authors/type/version/date-released dentro de un
+   bloque preferred-citation, que sí acepta ambos. None si no hay ni
+   publisher ni copyright_holders.
+
    url/doi/identifiers/notes: write_citation() solo se llama una vez, al
    preparar el export — antes de que se conozca el repo/DOI/PID de
    destino —, así que aquí siempre llegan a None/[] y estos bloques no se
@@ -20,36 +29,30 @@
    añaden esas claves directamente al YAML ya escrito (yaml.safe_load +
    safe_dump), sin volver a pasar por esta plantilla. Nunca se usa
    "repository-artifact". #}
+{% macro person_or_entity(item, indent) %}
+{% if item.given_names is defined %}
+{{ indent }}- given-names: {{ item.given_names | tojson }}
+{{ indent }}  family-names: {{ item.family_names | tojson }}
+{{ indent }}  affiliation: {{ item.affiliation | tojson }}
+{% else %}
+{{ indent }}- name: {{ item.name | tojson }}
+{% if item.affiliation %}
+{{ indent }}  affiliation: {{ item.affiliation | tojson }}
+{% endif %}
+{% endif %}
+{% endmacro %}
 cff-version: {{ cff_version | tojson }}
 title: {{ title | tojson }}
 message: {{ message | tojson }}
 type: {{ citation_type | tojson }}
 authors:
 {% for author in authors %}
-{% if author.given_names is defined %}
-  - given-names: {{ author.given_names | tojson }}
-    family-names: {{ author.family_names | tojson }}
-    affiliation: {{ author.affiliation | tojson }}
-{% else %}
-  - name: {{ author.name | tojson }}
-{% if author.affiliation %}
-    affiliation: {{ author.affiliation | tojson }}
-{% endif %}
-{% endif %}
+{{ person_or_entity(author, '  ') }}
 {% endfor %}
 {% if contact %}
 contact:
 {% for person in contact %}
-{% if person.given_names is defined %}
-  - given-names: {{ person.given_names | tojson }}
-    family-names: {{ person.family_names | tojson }}
-    affiliation: {{ person.affiliation | tojson }}
-{% else %}
-  - name: {{ person.name | tojson }}
-{% if person.affiliation %}
-    affiliation: {{ person.affiliation | tojson }}
-{% endif %}
-{% endif %}
+{{ person_or_entity(person, '  ') }}
 {% endfor %}
 {% endif %}
 version: {{ version | tojson }}
@@ -74,4 +77,28 @@ identifiers:
 {% endif %}
 {% if notes %}
 notes: {{ notes | tojson }}
+{% endif %}
+{% if preferred_citation %}
+preferred-citation:
+  type: {{ preferred_citation.type | tojson }}
+  title: {{ preferred_citation.title | tojson }}
+  authors:
+{% for author in preferred_citation.authors %}
+{{ person_or_entity(author, '    ') }}
+{% endfor %}
+  version: {{ preferred_citation.version | tojson }}
+  date-released: {{ preferred_citation.date_released | tojson }}
+{% if preferred_citation.publisher %}
+  publisher:
+    name: {{ preferred_citation.publisher.name | tojson }}
+{% if preferred_citation.publisher.website %}
+    website: {{ preferred_citation.publisher.website | tojson }}
+{% endif %}
+{% if preferred_citation.publisher.email %}
+    email: {{ preferred_citation.publisher.email | tojson }}
+{% endif %}
+{% endif %}
+{% if preferred_citation.copyright %}
+  copyright: {{ preferred_citation.copyright | tojson }}
+{% endif %}
 {% endif %}

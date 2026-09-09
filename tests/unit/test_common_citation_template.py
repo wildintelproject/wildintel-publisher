@@ -34,6 +34,12 @@ def test_url_doi_identifiers_notes_are_absent_by_default(tmp_path):
     assert "notes" not in citation
     assert "repository-artifact" not in citation
     assert "contact" not in citation
+    assert "preferred-citation" not in citation
+    # Never valid CFF fields at the document root (only inside a
+    # "reference" object, e.g. preferred-citation) — see resolve_publisher/
+    # resolve_copyright_holders's own docstrings.
+    assert "publisher" not in citation
+    assert "copyright" not in citation
 
 
 def test_contact_appears_as_its_own_field_when_given(tmp_path):
@@ -67,3 +73,46 @@ def test_identifiers_and_notes_appear_when_given(tmp_path):
 
     assert citation["identifiers"] == [{"type": "doi", "value": "10.5281/zenodo.123", "description": "Zenodo Sandbox DOI"}]
     assert citation["notes"] == "This CITATION.cff contains a Zenodo Sandbox DOI for workflow testing only."
+
+
+def test_publisher_and_copyright_render_inside_preferred_citation_not_at_root(tmp_path):
+    """CITATION.cff has no top-level "publisher"/"copyright" field (verified
+    against the real CFF JSON schema: both only exist inside a "reference"
+    object) — write_citation must never write them at the root, only nested
+    under preferred-citation, which itself must satisfy CFF's own
+    requirements for a reference (authors/title/type)."""
+    citation = _write(
+        tmp_path,
+        publisher={"name": "WildINTEL", "website": "https://wildintel.eu/", "email": "wildintelproject@gmail.com"},
+        copyright_holders=["Institute of Nature Conservation PAS"],
+    )
+
+    assert "publisher" not in citation
+    assert "copyright" not in citation
+    pref = citation["preferred-citation"]
+    assert pref["type"] == "dataset"
+    assert pref["title"] == "T"
+    assert pref["authors"] == [{"name": "Alice", "affiliation": "Org"}]
+    assert pref["version"] == "1.0"
+    assert pref["date-released"] == "2026-01-01"
+    assert pref["publisher"] == {"name": "WildINTEL", "website": "https://wildintel.eu/", "email": "wildintelproject@gmail.com"}
+    assert pref["copyright"] == "© 2026 Institute of Nature Conservation PAS"
+
+
+def test_preferred_citation_omitted_when_neither_publisher_nor_copyright_holders_given(tmp_path):
+    citation = _write(tmp_path, publisher=None, copyright_holders=[])
+
+    assert "preferred-citation" not in citation
+
+
+def test_copyright_joins_multiple_rights_holders_under_one_year(tmp_path):
+    citation = _write(tmp_path, copyright_holders=["University of Huelva", "Institute of Nature Conservation PAS"])
+
+    assert citation["preferred-citation"]["copyright"] == "© 2026 University of Huelva, Institute of Nature Conservation PAS"
+    assert "publisher" not in citation["preferred-citation"]
+
+
+def test_preferred_citation_publisher_omits_website_and_email_when_absent(tmp_path):
+    citation = _write(tmp_path, publisher={"name": "WildINTEL"})
+
+    assert citation["preferred-citation"]["publisher"] == {"name": "WildINTEL"}

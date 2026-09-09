@@ -537,6 +537,45 @@ def resolve_contact(contributors: list) -> list:
     return contacts
 
 
+def resolve_publisher(contributors: list) -> Optional[dict]:
+    """Convierte el (primer) contributor de datapackage.json cuyo role sea
+    "publisher" en una entidad CFF (name/website/email) — CITATION.cff no
+    tiene ningún campo "publisher" a nivel raíz (verificado contra el
+    schema oficial: solo existe dentro de un objeto "reference", el mismo
+    que usa preferred-citation/references), así que write_citation lo
+    coloca dentro de un bloque preferred-citation en vez de excluirlo sin
+    más (como antes). Si hubiera más de un contributor con role
+    "publisher" (no debería, con el editor del wizard — ver
+    CAMTRAPDP_PUBLISHER en WizardPage.tsx, la única fila fija con ese rol),
+    se usa el primero. None si no hay ninguno."""
+    for contributor in contributors:
+        if not isinstance(contributor, dict) or contributor.get("role") != "publisher":
+            continue
+        name = contributor.get("title")
+        if not name:
+            continue
+        publisher: dict = {"name": name}
+        if contributor.get("path"):
+            publisher["website"] = contributor["path"]
+        if contributor.get("email"):
+            publisher["email"] = contributor["email"]
+        return publisher
+    return None
+
+
+def resolve_copyright_holders(contributors: list) -> list[str]:
+    """Nombres de los contributors de datapackage.json cuyo role sea
+    "rightsHolder" — CFF's "copyright" (igual que "publisher", solo existe
+    dentro de un "reference") es un string libre, no una lista de
+    entidades, así que write_citation combina estos nombres con el año de
+    date_released ("© <año> <nombre(s)>") una vez conocido, en vez de
+    hacerlo aquí. Lista vacía si no hay ninguno."""
+    return [
+        contributor["title"] for contributor in contributors
+        if isinstance(contributor, dict) and contributor.get("role") == "rightsHolder" and contributor.get("title")
+    ]
+
+
 def keep_only_public_media(output_dir: Path) -> set:
     """Reescribe media.csv dejando solo las filas con filePublic=true.
 
@@ -755,6 +794,8 @@ def write_citation(
     title: str, message: str, authors: list, version: str, date_released: str,
     license_id: str, repository_code: str,
     contact: list | None = None,
+    publisher: dict | None = None,
+    copyright_holders: list[str] | None = None,
     url: str | None = None, doi: str | None = None,
     identifiers: list | None = None, notes: str | None = None,
 ) -> Path:
@@ -770,8 +811,37 @@ def write_citation(
 
     contact (Camtrap DP only — see resolve_contact) is CITATION.cff's own
     "contact" field, distinct from "authors" — empty/None just omits the
-    field, since it's optional there."""
+    field, since it's optional there.
+
+    publisher/copyright_holders (Camtrap DP only — see resolve_publisher/
+    resolve_copyright_holders) come from contributors whose role is
+    "publisher"/"rightsHolder". Neither has a top-level field in
+    CITATION.cff (verified against the real CFF JSON schema: "publisher"
+    and "copyright" only exist inside a "reference" object, additionalProperties
+    is false at the root) — so both are rendered inside a preferred-citation
+    block instead, which the CFF schema requires to repeat its own authors/
+    title/type regardless. copyright_holders becomes a single free-text
+    "© <year> <name(s)>" string there, the year taken from date_released.
+    The whole preferred-citation block is omitted when neither is given —
+    a bare repeat of title/authors/version/date-released adds nothing on
+    its own. A contributor can carry more than one role (e.g. a second
+    datapackage.json entry for the same person/organization with role
+    "publisher" alongside their "principalInvestigator" one) — nothing
+    here special-cases that: they simply show up wherever each of their
+    own role's entry routes them (authors AND publisher, in that example)."""
     path = output_dir / "CITATION.cff"
+    preferred_citation = None
+    if publisher or copyright_holders:
+        year = date_released.split("-")[0] if date_released else ""
+        preferred_citation = {
+            "type": "dataset",
+            "title": title,
+            "authors": authors,
+            "version": version,
+            "date_released": date_released,
+            "publisher": publisher,
+            "copyright": f"© {year} {', '.join(copyright_holders)}" if copyright_holders else None,
+        }
     text = render_text_template(
         template_file,
         cff_version="1.2.0",
@@ -780,6 +850,7 @@ def write_citation(
         citation_type="dataset",
         authors=authors,
         contact=contact,
+        preferred_citation=preferred_citation,
         version=version,
         date_released=date_released,
         license_id=license_id,

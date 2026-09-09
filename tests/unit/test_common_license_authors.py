@@ -7,7 +7,9 @@ from wildintel_publisher.services.common import (
     format_apa_citation,
     resolve_authors,
     resolve_contact,
+    resolve_copyright_holders,
     resolve_license,
+    resolve_publisher,
 )
 
 
@@ -97,6 +99,55 @@ def test_resolve_contact_returns_only_contact_role_contributors():
 def test_resolve_contact_returns_empty_list_when_none_and_never_raises():
     assert resolve_contact([{"title": "The PI", "role": "principalInvestigator"}]) == []
     assert resolve_contact([]) == []
+
+
+def test_resolve_publisher_returns_entity_with_website_and_email():
+    contributors = [{"title": "WildINTEL", "email": "wildintelproject@gmail.com", "path": "https://wildintel.eu/", "role": "publisher"}]
+    assert resolve_publisher(contributors) == {
+        "name": "WildINTEL", "website": "https://wildintel.eu/", "email": "wildintelproject@gmail.com",
+    }
+
+
+def test_resolve_publisher_omits_website_and_email_when_absent():
+    assert resolve_publisher([{"title": "WildINTEL", "role": "publisher"}]) == {"name": "WildINTEL"}
+
+
+def test_resolve_publisher_returns_none_when_no_publisher_role():
+    assert resolve_publisher([{"title": "The PI", "role": "principalInvestigator"}]) is None
+
+
+def test_resolve_publisher_returns_none_when_empty():
+    assert resolve_publisher([]) is None
+
+
+def test_resolve_copyright_holders_returns_names_of_rights_holder_role_contributors():
+    contributors = [
+        {"title": "Institute of Nature Conservation PAS", "role": "rightsHolder"},
+        {"title": "The PI", "role": "principalInvestigator"},
+    ]
+    assert resolve_copyright_holders(contributors) == ["Institute of Nature Conservation PAS"]
+
+
+def test_resolve_copyright_holders_returns_empty_list_when_none():
+    assert resolve_copyright_holders([{"title": "The PI", "role": "principalInvestigator"}]) == []
+    assert resolve_copyright_holders([]) == []
+
+
+def test_a_contributor_with_two_roles_shows_up_wherever_each_role_routes_it():
+    """datapackage.json represents "several roles for one contributor" as
+    two separate entries sharing the same title, one per role — e.g. the
+    rightsHolder institution happens to also be listed as a
+    principalInvestigator. Neither resolve_authors nor
+    resolve_copyright_holders deduplicates by identity, so that
+    organization ends up in BOTH results, exactly as it should."""
+    contributors = [
+        {"title": "University of Huelva", "role": "principalInvestigator"},
+        {"title": "University of Huelva", "role": "rightsHolder"},
+        {"title": "WildINTEL", "role": "publisher"},
+    ]
+    assert resolve_authors(contributors) == [{"name": "University of Huelva", "affiliation": ""}]
+    assert resolve_copyright_holders(contributors) == ["University of Huelva"]
+    assert resolve_publisher(contributors) == {"name": "WildINTEL"}
 
 
 def test_format_apa_author_entity_uses_name_as_is():

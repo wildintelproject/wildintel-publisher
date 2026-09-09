@@ -57,6 +57,8 @@ class CamtrapDPAdapter:
         except RuntimeError:
             authors = []
         contact = common.resolve_contact(datapackage_meta.get("contributors", []))
+        publisher = common.resolve_publisher(datapackage_meta.get("contributors", []))
+        copyright_holders = common.resolve_copyright_holders(datapackage_meta.get("contributors", []))
         return {
             "title": datapackage_meta.get("title"),
             "description": _append_description_footer(datapackage_meta.get("description")),
@@ -64,6 +66,8 @@ class CamtrapDPAdapter:
             "license": license_info,
             "authors": authors,
             "contact": contact,
+            "publisher": publisher,
+            "copyright_holders": copyright_holders,
             "homepage": datapackage_meta.get("homepage"),
         }
 

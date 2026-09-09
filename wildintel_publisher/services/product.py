@@ -196,6 +196,19 @@ class ProductAuthor(BaseModel):
     affiliation: str | None = None
 
 
+class ProductPublisher(BaseModel):
+    """Shape of metadata.json's "publisher" — matches
+    services.common.resolve_publisher's return value (a CFF "entity":
+    CITATION.cff's own preferred-citation.publisher, see
+    services.common.write_citation)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    website: str | None = None
+    email: str | None = None
+
+
 class ProductMetadata(BaseModel):
     """Schema of metadata.json — the generic envelope every ProductAdapter's
     extract_metadata() feeds into and every repo's prepare_*_export reads
@@ -217,6 +230,15 @@ class ProductMetadata(BaseModel):
     # field is exactly for these, so they're kept separate from "authors"
     # rather than credited as authors too.
     contact: list[ProductAuthor] = Field(default_factory=list)
+    # Contributor with role "publisher" (Camtrap DP only — see
+    # common.resolve_publisher) — CITATION.cff has no top-level "publisher"
+    # field (only inside a "reference" object), so write_citation renders
+    # this inside a preferred-citation block instead.
+    publisher: ProductPublisher | None = None
+    # Names of contributors with role "rightsHolder" (Camtrap DP only —
+    # see common.resolve_copyright_holders) — same reasoning as publisher
+    # above, rendered as preferred-citation.copyright's free-text string.
+    copyright_holders: list[str] = Field(default_factory=list)
     homepage: str | None = None
     publish_history: list[dict[str, Any]] = Field(default_factory=list)
 

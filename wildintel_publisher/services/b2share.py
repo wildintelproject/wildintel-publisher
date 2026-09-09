@@ -212,6 +212,8 @@ def prepare_b2share_export(
     license = product_meta["license"]
     authors = product_meta["authors"]
     contact = product_meta.get("contact") or []
+    publisher = product_meta.get("publisher")
+    copyright_holders = product_meta.get("copyright_holders") or []
     date_released = datetime.now().date().isoformat()
 
     write_readme(
@@ -230,6 +232,7 @@ def prepare_b2share_export(
         authors=authors, contact=contact, version=resolved_version, date_released=date_released,
         license_id=license["id"],
         repository_code="https://github.com/wildintelproject/wildintel-publisher",
+        publisher=publisher, copyright_holders=copyright_holders,
     )
     if self_contained:
         zip_filename = _self_contained_zip_filename(adapter.product_type)

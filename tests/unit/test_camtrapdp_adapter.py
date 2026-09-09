@@ -70,6 +70,31 @@ def test_extract_metadata_splits_contact_from_authors(tmp_path):
     assert metadata["authors"] == [{"name": "The PI", "affiliation": ""}]
 
 
+def test_extract_metadata_extracts_publisher_and_copyright_holders_from_contributors(tmp_path):
+    """publisher/copyright_holders (see common.resolve_publisher/
+    resolve_copyright_holders) end up in metadata.json alongside authors/
+    contact — a contributor with two roles (here: the same institution as
+    both principalInvestigator and rightsHolder) shows up wherever each of
+    its own role's entry routes it, with no identity deduplication."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "datapackage.json").write_text(json.dumps({
+        "title": "T",
+        "contributors": [
+            {"title": "University of Huelva", "role": "principalInvestigator"},
+            {"title": "University of Huelva", "role": "rightsHolder"},
+            {"title": "WildINTEL", "email": "wildintelproject@gmail.com", "path": "https://wildintel.eu/", "role": "publisher"},
+        ],
+    }), encoding="utf-8")
+
+    metadata = CamtrapDPAdapter().extract_metadata(tmp_path)
+
+    assert metadata["authors"] == [{"name": "University of Huelva", "affiliation": ""}]
+    assert metadata["copyright_holders"] == ["University of Huelva"]
+    assert metadata["publisher"] == {
+        "name": "WildINTEL", "website": "https://wildintel.eu/", "email": "wildintelproject@gmail.com",
+    }
+
+
 def test_checkout_release_noops(tmp_path):
     # Camtrap DP's raw source isn't a git checkout — never raises, never
     # touches the directory.
