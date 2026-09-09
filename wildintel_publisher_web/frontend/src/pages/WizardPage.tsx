@@ -16,7 +16,9 @@ import type { ZenodoPublishConfig } from '../components/ZenodoPublishForm'
 import { api } from '../api'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
-import type { DatapackageContributor, DatapackageSummary, ProductType, TrapperDownloadSelection } from '../types'
+import type {
+  DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary, TrapperDownloadSelection,
+} from '../types'
 
 const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish']
 
@@ -217,8 +219,61 @@ interface RepoConfigs {
   gbif?: GBIFPublishConfig
 }
 
-export default function WizardPage() {
-  const [step, setStep] = useState(0)
+// Pre-fills each selected repo's own configuration form from a session an
+// earlier interrupted run left on disk (see PublishSessionSummary's own
+// docstring) — every field EXCEPT token/password, which the session never
+// carries: those stay blank, so the user must retype them (or, for HFH/
+// Zenodo/B2SHARE, leave the field blank to reuse whatever token is already
+// saved in settings.toml — same fallback a fresh configure already offers).
+function repoConfigsFromSession(session: PublishSessionSummary): RepoConfigs {
+  const configs: RepoConfigs = {}
+  for (const r of session.repos) {
+    if (r.repo === 'hfh') {
+      configs.hfh = {
+        repoId: r.repo_id ?? '', token: '', priv: r.private ?? true,
+        mirrorImages: r.mirror_images ?? true, outputMode: r.output_mode ?? 'prepared',
+        outputDir: r.output_dir ?? '',
+      }
+    } else if (r.repo === 'zenodo') {
+      configs.zenodo = {
+        token: '', environment: r.environment ?? 'sandbox', communities: r.communities ?? '',
+        mirrorImages: r.mirror_images ?? true, outputMode: r.output_mode ?? 'prepared',
+        outputDir: r.output_dir ?? '', fitArchiveSize: r.fit_archive_size ?? true,
+        maxZipFile: r.max_zip_file ?? undefined, minImageEdge: r.min_image_edge ?? 640,
+      }
+    } else if (r.repo === 'b2share') {
+      configs.b2share = {
+        token: '', environment: r.environment ?? 'sandbox', communityId: r.community_id ?? '',
+        mirrorImages: r.mirror_images ?? true, outputMode: r.output_mode ?? 'prepared',
+        outputDir: r.output_dir ?? '', fitArchiveSize: r.fit_archive_size ?? true,
+        maxZipFile: r.max_zip_file ?? undefined, minImageEdge: r.min_image_edge ?? 640,
+      }
+    } else if (r.repo === 'gbif') {
+      configs.gbif = {
+        archiveUrl: r.archive_url ?? '', environment: r.environment ?? 'sandbox',
+        publishingOrganizationKey: r.publishing_organization_key ?? '',
+        installationKey: r.installation_key ?? '', registryLanguage: r.registry_language ?? 'eng',
+        username: r.username ?? '', password: '', outputDir: r.output_dir ?? '',
+      }
+    }
+  }
+  return configs
+}
+
+interface Props {
+  /** A publish session an earlier interrupted run left on disk — when
+   * given, the wizard skips straight to the publish step (0-3 are only
+   * relevant for choosing/downloading a fresh source), pre-selects the same
+   * repos in the same order, and pre-fills each one's own configuration
+   * form from it (see repoConfigsFromSession) — the user only has to
+   * retype credentials, then the whole per-repo "configure" flow works
+   * exactly as it would for a brand new publish. Never changes after the
+   * initial render (App.tsx mounts a fresh WizardPage per resume choice). */
+  resumeSession?: PublishSessionSummary
+}
+
+export default function WizardPage({ resumeSession }: Props) {
+  const [step, setStep] = useState(resumeSession ? 4 : 0)
   const [productType, setProductType] = useState<ProductType | null>(null)
   const [sourceType, setSourceType] = useState<SourceType | null>(null)
   const [trapperSelection, setTrapperSelection] = useState<TrapperDownloadSelection | null>(null)
@@ -278,7 +333,9 @@ export default function WizardPage() {
   // True while handleContinueToPreprocessing (step === 2's "Continue"
   // button) is running.
   const [preprocessing, setPreprocessing] = useState(false)
-  const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, sourcePath: null, error: null })
+  const [download, setDownload] = useState<DownloadState>(() => resumeSession
+    ? { status: 'done', path: resumeSession.input_dir, sourcePath: resumeSession.media_dir ?? resumeSession.input_dir, error: null }
+    : { status: 'idle', path: null, sourcePath: null, error: null })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
   // Set whenever generateProductMetadata itself fails (e.g. a Software
   // Application git clone with no CITATION.cff at its root — see
@@ -286,19 +343,23 @@ export default function WizardPage() {
   // Next stays silently, permanently disabled, with no indication why.
   const [metadataError, setMetadataError] = useState<string | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
-  const [selectedRepos, setSelectedRepos] = useState<Set<RepoId>>(new Set())
+  const [selectedRepos, setSelectedRepos] = useState<Set<RepoId>>(
+    () => new Set(resumeSession ? resumeSession.repos.map((r) => r.repo) : []),
+  )
   // The order in which the selected repos will be published — determines
   // each step's input: the first uses the original downloaded package, each
   // next one uses whatever the previous step wrote to its own output
   // directory (see outputDirs/getInputDirFor below).
-  const [publishOrder, setPublishOrder] = useState<RepoId[]>([])
+  const [publishOrder, setPublishOrder] = useState<RepoId[]>(
+    () => resumeSession ? resumeSession.repos.map((r) => r.repo) : [],
+  )
   const [outputDirs, setOutputDirs] = useState<Partial<Record<RepoId, string>>>({})
   // Simulates the whole publish flow with no real uploads/creations on any
   // repository — Zenodo/B2SHARE's DOI is faked so the cross-repo DOI
   // populate step still has something real to cross-reference (see
   // services.publish_orchestrator's dry-run branches). No token is required
   // in this mode.
-  const [dryRun, setDryRun] = useState(false)
+  const [dryRun, setDryRun] = useState(resumeSession?.dry_run ?? false)
 
   // Once the user starts publishing, the wizard first COLLECTS each
   // repository's configuration (token, mode, etc.), one at a time, without
@@ -306,15 +367,28 @@ export default function WizardPage() {
   // configured does a confirmation screen appear, and only after that does
   // the actual publish sequence run, automatically and without further
   // pauses, one repository after another (see runPublishSequence).
-  const [publishStarted, setPublishStarted] = useState(false)
+  const [publishStarted, setPublishStarted] = useState(!!resumeSession)
   const [configureIndex, setConfigureIndex] = useState(0)
-  const [repoConfigs, setRepoConfigs] = useState<RepoConfigs>({})
+  const [repoConfigs, setRepoConfigs] = useState<RepoConfigs>(
+    () => resumeSession ? repoConfigsFromSession(resumeSession) : {},
+  )
+  // The interrupted session's own task_id, when resuming — every publish()
+  // call for the rest of this page's lifetime goes through
+  // api.resumePublishStart instead of api.publishAllStart while this is
+  // set (see publish() below), so a retry after a SECOND failure still
+  // continues the very same backend session instead of starting a brand
+  // new (non-resumable) one.
+  const [resumeTaskId, setResumeTaskId] = useState<string | null>(resumeSession?.task_id ?? null)
+  // The version every not-yet-finished repo was originally being published
+  // as — session.json persists it per-repo (see RepoPublishConfig), but
+  // it's the same value across all of them within one run.
+  const [resumeVersion, setResumeVersion] = useState<string | undefined>(resumeSession?.repos[0]?.version ?? undefined)
   // Only relevant when hfh + zenodo + b2share are ALL selected — HFH never
   // has a DOI of its own, so with two possible DOI sources the user picks
   // which one is primary (see the "choose primary DOI" screen below).
   // Stays null (never asked) otherwise, and publishAllStart's own
   // primary_doi_source ends up undefined in that case.
-  const [primaryDoiSource, setPrimaryDoiSource] = useState<'zenodo' | 'b2share' | null>(null)
+  const [primaryDoiSource, setPrimaryDoiSource] = useState<'zenodo' | 'b2share' | null>(resumeSession?.primary_doi_source ?? null)
   const [executing, setExecuting] = useState(false)
   const [executionDone, setExecutionDone] = useState(false)
   const [executionError, setExecutionError] = useState<string | null>(null)
@@ -394,6 +468,8 @@ export default function WizardPage() {
   // "Publish again" starts from a completely clean step 0 — same as a fresh
   // page load, rather than reusing anything from the just-finished publish.
   function handlePublishAgain() {
+    setResumeTaskId(null)
+    setResumeVersion(undefined)
     setStep(0)
     setProductType(null)
     setSourceType(null)
@@ -484,17 +560,27 @@ export default function WizardPage() {
   async function publish(repos: RepoId[], inputDir: string, mediaDir?: string) {
     setExecuting(true)
     setExecutionError(null)
-    setProgress((p) => ({ ...p, ...Object.fromEntries(repos.map((repo) => [repo, IDLE_PROGRESS])) }))
+    // Resuming an interrupted session (see resumeTaskId) always replays the
+    // FULL publishOrder — the backend's resume_publish_all_task validates
+    // the resumed repo list against the original session as a whole and
+    // skips whatever it already finished on its own; unlike a fresh
+    // api.publishAllStart call, it doesn't accept a partial subset (so a
+    // retry after a SECOND failure, mid-resume, still goes through here
+    // too — see retryFailedRepos).
+    const reposThisCall = resumeTaskId ? publishOrder : repos
+    setProgress((p) => ({ ...p, ...Object.fromEntries(reposThisCall.map((repo) => [repo, IDLE_PROGRESS])) }))
     try {
-      const { task_id } = await api.publishAllStart({
-        inputDir,
-        mediaDir,
-        version: summary?.version,
-        timeout: IMAGE_TIMEOUT,
-        repos: repos.map(buildRepoPayload),
-        primaryDoiSource: primaryDoiSource ?? undefined,
-        dryRun,
-      })
+      const { task_id } = resumeTaskId
+        ? await api.resumePublishStart(resumeTaskId, reposThisCall.map(buildRepoPayload), resumeVersion, IMAGE_TIMEOUT)
+        : await api.publishAllStart({
+            inputDir,
+            mediaDir,
+            version: summary?.version,
+            timeout: IMAGE_TIMEOUT,
+            repos: reposThisCall.map(buildRepoPayload),
+            primaryDoiSource: primaryDoiSource ?? undefined,
+            dryRun,
+          })
 
       while (true) {
         await sleep(2000)
@@ -507,7 +593,7 @@ export default function WizardPage() {
         // repository in publishOrder is now actually done, not just the
         // subset this particular call covered.
         const progressAfterThisPoll = { ...progress }
-        for (const repo of repos) {
+        for (const repo of reposThisCall) {
           const r = status.repos[repo]
           if (!r) continue
           progressAfterThisPoll[repo] = {
@@ -519,7 +605,7 @@ export default function WizardPage() {
         setProgress((p) => ({ ...p, ...progressAfterThisPoll }))
         setOutputDirs((o) => {
           const next = { ...o }
-          for (const repo of repos) {
+          for (const repo of reposThisCall) {
             const outputDir = status.repos[repo]?.output_dir
             if (outputDir) next[repo] = outputDir
           }

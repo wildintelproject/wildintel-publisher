@@ -334,3 +334,18 @@ class PublishAllRequest(BaseModel):
     # token/repo_id/community_id is required in this mode, and nothing gets
     # persisted to settings.toml.
     dry_run: bool = False
+
+
+class ResumePublishRequest(BaseModel):
+    """Resumes a publish session an earlier interrupted run left on disk
+    (see services.publish_orchestrator.resume_publish_all_task) — the
+    task_id comes from the URL path, not this body. `repos` must name the
+    same repos, in the same order, as the original run; session.json never
+    stores credentials (by design — see the module docstring), so `token`/
+    `password` must always be re-supplied here. `version`/`timeout` apply
+    only to whichever repos hadn't finished uploading yet — same meaning as
+    PublishAllRequest's own fields; the frontend pre-fills them from the
+    session's own summary."""
+    repos: list[RepoPublishConfig]
+    version: Optional[str] = None
+    timeout: Optional[int] = None

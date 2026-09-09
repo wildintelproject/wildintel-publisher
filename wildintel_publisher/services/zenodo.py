@@ -453,6 +453,7 @@ def upload_to_zenodo(
         related_identifier_url=related_identifier_url,
     )
 
+    already_uploaded: set[str] = set()
     if record_path.is_file():
         record = json.loads(record_path.read_text(encoding="utf-8"))
         deposition_id = record["deposition_id"]
@@ -464,6 +465,11 @@ def upload_to_zenodo(
                 "For a new version, delete zenodo_record.json and run 'zenodo upload' again "
                 "(this will create a new deposition, unrelated to the already-published one)."
             )
+        # Resuming an interrupted upload (see services.publish_orchestrator's
+        # session persistence): whatever the deposition already lists is
+        # skipped below instead of re-uploaded — the file listing on the
+        # remote deposition is the source of truth, not any local state.
+        already_uploaded = {f["filename"] for f in deposition.get("files", [])}
     else:
         console.print("Creating a new deposition on Zenodo...")
         deposition = create_deposition(api_base_url, token)
@@ -491,8 +497,12 @@ def upload_to_zenodo(
         p for p in output_dir.iterdir()
         if p.is_file() and p.name not in (RECORD_FILENAME, product.METADATA_FILENAME)
     )
-    console.print(f"Uploading {len(files)} file(s) to deposition {deposition_id} ...")
+    to_upload = [p for p in files if p.name not in already_uploaded]
     for file_path in files:
+        if file_path.name in already_uploaded:
+            console.print(f"  [green]✓[/green] {file_path.name} (already uploaded, skipped)")
+    console.print(f"Uploading {len(to_upload)} file(s) to deposition {deposition_id} ...")
+    for file_path in to_upload:
         upload_file_to_bucket(bucket_url, token, file_path, file_path.name)
         console.print(f"  [green]✓[/green] {file_path.name}")
 

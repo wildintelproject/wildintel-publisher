@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
+import ResumeSessionsPage from './pages/ResumeSessionsPage'
 import WelcomePage from './pages/WelcomePage'
 import WizardPage from './pages/WizardPage'
 import { api } from './api'
+import type { PublishSessionSummary } from './types'
 
 export default function App() {
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
   const [backendDown, setBackendDown] = useState(false)
   const [started, setStarted] = useState(false)
+  // Publish sessions an earlier interrupted run left on disk (see the
+  // backend's services.publish_orchestrator) — fetched once on startup and
+  // offered ahead of the welcome page; null while still loading (so nothing
+  // flashes before the check completes), empty once confirmed there's
+  // nothing to resume. Resuming or explicitly skipping clears it so the
+  // wizard/welcome page takes over for the rest of this browser session.
+  const [unfinishedSessions, setUnfinishedSessions] = useState<PublishSessionSummary[] | null>(null)
+  const [resumeSession, setResumeSession] = useState<PublishSessionSummary | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -27,6 +37,14 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    api.listPublishSessions()
+      .then((sessions) => setUnfinishedSessions(sessions))
+      .catch(() => setUnfinishedSessions([]))
+  }, [])
+
+  const showResumeScreen = !started && unfinishedSessions !== null && unfinishedSessions.length > 0
+
   return (
     <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
       <Navbar version={currentVersion} />
@@ -36,7 +54,18 @@ export default function App() {
         </div>
       )}
       <main className="flex-1">
-        {started ? <WizardPage /> : <WelcomePage onStart={() => setStarted(true)} />}
+        {started
+          ? <WizardPage resumeSession={resumeSession ?? undefined} />
+          : showResumeScreen
+            ? (
+              <ResumeSessionsPage
+                sessions={unfinishedSessions!}
+                onResume={(session) => { setResumeSession(session); setStarted(true) }}
+                onDiscarded={(taskId) => setUnfinishedSessions((s) => (s ?? []).filter((x) => x.task_id !== taskId))}
+                onSkip={() => setUnfinishedSessions([])}
+              />
+            )
+            : <WelcomePage onStart={() => setStarted(true)} />}
       </main>
       <Footer />
     </div>

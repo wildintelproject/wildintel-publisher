@@ -65,6 +65,21 @@ describe('HFHPublishForm', () => {
     expect(identifier.parentElement?.textContent).toContain('The repository identifier will be:')
   })
 
+  it('strips any slash typed or pasted into either repository field, so pasting a full user/repo id never doubles the namespace', async () => {
+    // Regression test: pasting an already-prefixed repo id (e.g. copied
+    // from an existing HFH URL) into "Repository name" while "User or
+    // organization" was also filled used to silently build
+    // 'org/org/dataset' — rejected by HFH's own repo_id validation ("Repo
+    // id must be in the form 'repo_name' or 'namespace/repo_name'").
+    await renderAndWaitForConfig()
+
+    await userEvent.type(screen.getByLabelText('User or organization'), 'wildintelproject')
+    await userEvent.type(screen.getByLabelText('Repository name'), 'wildintelproject/iberiancamtrap_r0001')
+
+    expect(screen.getByLabelText('Repository name')).toHaveValue('wildintelprojectiberiancamtrap_r0001')
+    expect(screen.getByText('wildintelproject/wildintelprojectiberiancamtrap_r0001')).toBeInTheDocument()
+  })
+
   it('tests the token and shows the connected username', async () => {
     mockedApi.hfhTestToken.mockResolvedValue({ ok: true, username: 'alice', version_conflict: false })
     await renderAndWaitForConfig()

@@ -1,4 +1,7 @@
-import type { BrowseResult, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment, OutputMode, ResearchProject } from './types'
+import type {
+  BrowseResult, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment, OutputMode,
+  PublishRepoConfig, PublishSessionSummary, ResearchProject,
+} from './types'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
   const r = await fetch(url, options)
@@ -343,29 +346,7 @@ export const api = {
     // cross-referencing step still has something real to work with. No
     // token/repo_id/community_id is required in this mode.
     dryRun?: boolean
-    repos: Array<{
-      repo: 'hfh' | 'zenodo' | 'b2share' | 'gbif'
-      outputDir: string
-      token?: string
-      mirrorImages: boolean
-      outputMode: OutputMode
-      repoId?: string
-      private?: boolean
-      environment?: string
-      communities?: string
-      communityId?: string
-      // zenodo/b2share, Camtrap DP + mirror only — see common.fit_images_to_size
-      fitArchiveSize?: boolean
-      maxZipFile?: number
-      minImageEdge?: number
-      // gbif-only
-      archiveUrl?: string
-      publishingOrganizationKey?: string
-      installationKey?: string
-      registryLanguage?: string
-      username?: string
-      password?: string
-    }>
+    repos: PublishRepoConfig[]
   }) =>
     post<{ task_id: string }>('/api/publish/start', {
       input_dir: params.inputDir,
@@ -374,27 +355,7 @@ export const api = {
       timeout: params.timeout,
       primary_doi_source: params.primaryDoiSource,
       dry_run: params.dryRun ?? false,
-      repos: params.repos.map((r) => ({
-        repo: r.repo,
-        output_dir: r.outputDir,
-        token: r.token,
-        mirror_images: r.mirrorImages,
-        output_mode: r.outputMode,
-        repo_id: r.repoId,
-        private: r.private,
-        environment: r.environment,
-        communities: r.communities,
-        community_id: r.communityId,
-        fit_archive_size: r.fitArchiveSize,
-        max_zip_file: r.maxZipFile,
-        min_image_edge: r.minImageEdge,
-        archive_url: r.archiveUrl,
-        publishing_organization_key: r.publishingOrganizationKey,
-        installation_key: r.installationKey,
-        registry_language: r.registryLanguage,
-        username: r.username,
-        password: r.password,
-      })),
+      repos: params.repos.map(_repoConfigToApi),
     }),
 
   publishAllStatus: (taskId: string) =>
@@ -413,4 +374,49 @@ export const api = {
         doi_synced_to_hfh?: boolean | null
       }>
     }>(`/api/publish/${taskId}`),
+
+  // Publish sessions an earlier interrupted run left on disk (see the
+  // backend's services.publish_orchestrator) — offered on web app startup
+  // so the user can resume or discard instead of starting over. Never
+  // carries credentials (see PublishSessionSummary's own docstring).
+  listPublishSessions: () => req<PublishSessionSummary[]>('/api/publish/sessions'),
+
+  // Resumes an interrupted session — same repos/order as the original run,
+  // with freshly-supplied credentials (never persisted, so always required
+  // again here). Already-finished repos, already-downloaded images, and
+  // (for Zenodo/B2SHARE) already-uploaded files are skipped server-side.
+  resumePublishStart: (taskId: string, repos: PublishRepoConfig[], version?: string, timeout?: number) =>
+    post<{ task_id: string }>(`/api/publish/sessions/${taskId}/resume`, {
+      repos: repos.map(_repoConfigToApi),
+      version,
+      timeout,
+    }),
+
+  // Permanently discards an interrupted session instead of resuming it.
+  discardPublishSession: (taskId: string) =>
+    req<{ status: string }>(`/api/publish/sessions/${taskId}`, { method: 'DELETE' }),
+}
+
+function _repoConfigToApi(r: PublishRepoConfig) {
+  return {
+    repo: r.repo,
+    output_dir: r.outputDir,
+    token: r.token,
+    mirror_images: r.mirrorImages,
+    output_mode: r.outputMode,
+    repo_id: r.repoId,
+    private: r.private,
+    environment: r.environment,
+    communities: r.communities,
+    community_id: r.communityId,
+    fit_archive_size: r.fitArchiveSize,
+    max_zip_file: r.maxZipFile,
+    min_image_edge: r.minImageEdge,
+    archive_url: r.archiveUrl,
+    publishing_organization_key: r.publishingOrganizationKey,
+    installation_key: r.installationKey,
+    registry_language: r.registryLanguage,
+    username: r.username,
+    password: r.password,
+  }
 }

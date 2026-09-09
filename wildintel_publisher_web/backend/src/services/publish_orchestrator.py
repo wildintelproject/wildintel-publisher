@@ -58,19 +58,34 @@ which are replaced by the _dry_run_* helpers below — a synthetic record
 (fake-but-well-formed DOI/PID) is written to disk instead of a real one, so
 the populate phase's cross-referencing logic runs completely for real
 against it. prepare_*_export (local file generation) and doi_populate.
-populate() itself are never mocked — only the network boundary is."""
+populate() itself are never mocked — only the network boundary is.
+
+Resumable sessions: every task's build directories (and the extra "chain"
+directories fed from one repo into the next) live under a persistent
+get_sessions_dir()/<task_id> directory instead of a throwaway tempdir, and
+a session.json manifest is written there after every state change (see
+_write_session_manifest) — deliberately EXCLUDING credentials (token/
+password: see _scrub_secrets), since resuming always requires the user to
+re-supply them. The whole session_dir is only deleted once the task
+actually finishes successfully (see _run's `finally`); on error, it's left
+on disk on purpose, so resume_publish_all_task can pick the task back up —
+already-downloaded images (download_public_images already skips what's on
+disk) and already-uploaded Zenodo/B2SHARE files (see zenodo.upload_to_zenodo/
+b2share.upload_to_b2share, which skip whatever the reused deposition/draft
+already lists) aren't redone, and any repo whose own "stage" is already
+"done" is skipped entirely rather than re-run."""
 from __future__ import annotations
 
 import asyncio
 import json
 import random
 import shutil
-import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from wildintel_publisher.config import load_settings
+from wildintel_publisher.config import get_sessions_dir, load_settings
 from wildintel_publisher.services import b2share as b2share_cli
 from wildintel_publisher.services import doi_populate
 from wildintel_publisher.services import gbif as gbif_cli
@@ -163,6 +178,84 @@ def _initial_repo_status() -> dict:
 
 def get_publish_task_status(task_id: str) -> dict[str, Any] | None:
     return _publish_tasks.get(task_id)
+
+
+# Never written to session.json — a resumed session always requires the user
+# to re-enter these by hand (see the module docstring's "Resumable sessions"
+# note).
+_SECRET_CFG_KEYS = {"token", "password"}
+
+
+def _scrub_secrets(cfg: dict) -> dict:
+    return {k: v for k, v in cfg.items() if k not in _SECRET_CFG_KEYS}
+
+
+def _session_dir(task_id: str) -> Path:
+    return get_sessions_dir() / task_id
+
+
+def _write_session_manifest(
+    task_id: str, *, session_dir: Path, repos: list[dict], primary_doi_source: str | None,
+    dry_run: bool, input_dir: Path, media_dir: Path | None, created_at: str,
+    build_dirs: dict[str, Path], input_dirs: dict[str, Path],
+) -> None:
+    """Persists everything needed to resume this task after a crash/restart
+    or a backend restart — see resume_publish_all_task. Written after every
+    state change in _run so a session_dir left behind by an interrupted task
+    is never more than one step stale."""
+    task = _publish_tasks[task_id]
+    manifest = {
+        "task_id": task_id,
+        "created_at": created_at,
+        "status": task["status"],
+        "error": task.get("error"),
+        "dry_run": dry_run,
+        "primary_doi_source": primary_doi_source,
+        "input_dir": str(input_dir),
+        "media_dir": str(media_dir) if media_dir else None,
+        "repos": [_scrub_secrets(cfg) for cfg in repos],
+        "repo_status": task["repos"],
+        "build_dirs": {repo: str(d) for repo, d in build_dirs.items()},
+        "input_dirs": {repo: str(d) for repo, d in input_dirs.items()},
+    }
+    session_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = session_dir / "session.json.tmp"
+    tmp_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(session_dir / "session.json")
+
+
+def list_unfinished_sessions() -> list[dict[str, Any]]:
+    """Sessions left on disk by a task that didn't finish successfully — a
+    task that reaches "done" always deletes its own session_dir (see _run's
+    `finally`), so anything found here is either still running (backend
+    hasn't restarted since) or was interrupted (backend restarted, or the
+    process died) — the web app offers both to resume on startup."""
+    sessions_dir = get_sessions_dir()
+    if not sessions_dir.is_dir():
+        return []
+    sessions = []
+    for entry in sorted(sessions_dir.iterdir()):
+        manifest_path = entry / "session.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if manifest.get("status") == "done":
+            # Shouldn't normally happen (a "done" task deletes session_dir
+            # itself) — defensive cleanup for a process that died between
+            # marking done and removing it.
+            shutil.rmtree(entry, ignore_errors=True)
+            continue
+        sessions.append(manifest)
+    return sessions
+
+
+def discard_session(task_id: str) -> None:
+    """Permanently deletes an interrupted session's build directories and
+    manifest — for when the user chooses not to resume it."""
+    shutil.rmtree(_session_dir(task_id), ignore_errors=True)
 
 
 def _detect_hfh_repo_id(input_dir: Path) -> str | None:
@@ -396,7 +489,7 @@ async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status:
         repo_status["doi"] = record.get("doi")
 
 
-async def _extract_chain_input(build_dir: Path) -> Path:
+async def _extract_chain_input(build_dir: Path, chain_dir: Path) -> Path:
     """The next repo in the publish order must never receive the previous
     repo's raw build_dir as its own input_dir — that directory also carries
     the previous repo's own extras (README.md, LICENSE, CITATION.cff,
@@ -411,10 +504,14 @@ async def _extract_chain_input(build_dir: Path) -> Path:
     each web service's copy_prepared_output_files) — which also knows how
     to pull the core files back out of the self-contained zip when the loose
     copies are gone (see camtrapdp_adapter.py/yolo_adapter.py's own
-    extract_core_files)."""
+    extract_core_files).
+
+    `chain_dir` is caller-provided (a fixed path under the task's own
+    session_dir, not a throwaway tempdir) so it survives a crash and its
+    path can be persisted for resume_publish_all_task."""
     meta = await asyncio.to_thread(product.read_metadata_json, build_dir)
     adapter = product.get_adapter(meta["product_type"])
-    chain_dir = Path(tempfile.mkdtemp(prefix="chain-"))
+    chain_dir.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(adapter.extract_core_files, build_dir, chain_dir)
     await asyncio.to_thread(product.copy_metadata_json, build_dir, chain_dir)
     return chain_dir
@@ -474,6 +571,167 @@ async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str,
     return str(output_dir)
 
 
+async def _run(
+    task_id: str, *, input_dir: Path, repos: list[dict], primary_doi_source: str | None,
+    dry_run: bool, media_dir: Path | None, settings, resume: bool,
+) -> None:
+    task = _publish_tasks[task_id]
+    session_dir = _session_dir(task_id)
+    created_at = task.get("created_at") or datetime.now(timezone.utc).isoformat()
+    task["created_at"] = created_at
+
+    build_dirs: dict[str, Path] = {}
+    # Each repo's own input_dir, as of its OWN turn in the chain — GBIF's is
+    # what matters most, since its build_dir is never populated (see
+    # _upload_one) and _lock_one falls back to reading metadata.json from
+    # here instead; a repo publishing in mirror mode ahead of it (e.g. HFH)
+    # may have just updated metadata.json's own "homepage" (see
+    # product.write_homepage), and that update only reaches this dict's
+    # entry, never the very first input_dir. On resume, a repo whose own
+    # upload turn already finished (stage "uploaded"/"done") is restored
+    # from the persisted manifest below instead of being recomputed.
+    input_dirs: dict[str, Path] = {}
+
+    if resume:
+        manifest = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+        for repo, path_str in manifest.get("build_dirs", {}).items():
+            path = Path(path_str)
+            if path.is_dir():
+                build_dirs[repo] = path
+        # Unlike build_dirs (a session_dir subdirectory this module fully
+        # owns), an input_dir may be a repo's own upstream input — trusted
+        # as-is, with no existence check, same as a fresh (non-resumed) run
+        # never checks the task's own original input_dir either.
+        for repo, path_str in manifest.get("input_dirs", {}).items():
+            input_dirs[repo] = Path(path_str)
+
+    def _persist() -> None:
+        _write_session_manifest(
+            task_id, session_dir=session_dir, repos=repos, primary_doi_source=primary_doi_source,
+            dry_run=dry_run, input_dir=input_dir, media_dir=media_dir, created_at=created_at,
+            build_dirs=build_dirs, input_dirs=input_dirs,
+        )
+
+    try:
+        # Marks a repo whose own prepare+upload turn already completed
+        # (before an earlier interruption) — distinct from "done" (which
+        # only means the lock/finalize phase, further below, already ran
+        # for it too): the DOI-populate and lock/finalize phases below still
+        # need to run for an "uploaded" repo the first time this task
+        # actually reaches "done".
+        UPLOADED_STAGES = {"uploaded", "done"}
+
+        current_input_dir = input_dir
+        for i, cfg in enumerate(repos):
+            repo = cfg["repo"]
+            repo_status = task["repos"][repo]
+
+            if repo_status.get("stage") in UPLOADED_STAGES:
+                # Its build_dir (and, if it fed the next repo in the chain,
+                # chain-after-<repo>) survive on disk, untouched — reuse the
+                # already-extracted chain output instead of re-preparing it.
+                if i < len(repos) - 1 and repo != "gbif":
+                    chain_dir = session_dir / f"chain-after-{repo}"
+                    if chain_dir.is_dir():
+                        current_input_dir = chain_dir
+                continue
+
+            repo_status["status"] = "running"
+            input_dirs[repo] = current_input_dir
+            build_dir = build_dirs.get(repo) or (session_dir / f"{repo}-build")
+            build_dir.mkdir(parents=True, exist_ok=True)
+            build_dirs[repo] = build_dir
+            _persist()
+            await _upload_one(
+                cfg, input_dir=current_input_dir, build_dir=build_dir, settings=settings,
+                repo_status=repo_status, dry_run=dry_run,
+                # media_dir only makes sense for the FIRST repo: from the
+                # second one onward, current_input_dir is the previous
+                # repo's own build_dir, which already has any local
+                # media mirrored into it if applicable (see
+                # _extract_chain_input below).
+                media_dir=media_dir if i == 0 else None,
+            )
+            repo_status["stage"] = "uploaded"
+            _persist()
+            # GBIF never transforms the product (see _upload_one) — the
+            # next repo in the chain keeps whatever input the CURRENT one
+            # got, rather than trying to extract core files out of GBIF's
+            # own (empty) build_dir.
+            if i < len(repos) - 1 and repo != "gbif":
+                chain_dir = session_dir / f"chain-after-{repo}"
+                current_input_dir = await _extract_chain_input(build_dir, chain_dir)
+
+        # GBIF has no CITATION.cff of its own to cross-reference DOIs
+        # into — excluded here so doi_populate.populate() (which only
+        # knows about hfh/zenodo/b2share) never sees it.
+        doi_dirs = {repo: d for repo, d in build_dirs.items() if repo != "gbif"}
+        changed = await asyncio.to_thread(doi_populate.populate, doi_dirs, primary_doi_source=primary_doi_source)
+        for cfg in repos:
+            repo = cfg["repo"]
+            if changed.get(repo) and task["repos"][repo].get("stage") != "done":
+                await _reupload_one(cfg, build_dir=build_dirs[repo], dry_run=dry_run)
+        _persist()
+
+        previous_output_dir = str(input_dir)
+        for cfg in repos:
+            repo = cfg["repo"]
+            repo_status = task["repos"][repo]
+            if repo_status.get("stage") == "done":
+                # Already locked/finalized before an earlier interruption —
+                # its output_dir already has the final files.
+                if repo_status.get("output_dir"):
+                    previous_output_dir = repo_status["output_dir"]
+                continue
+            build_dir = build_dirs[repo]
+            await _lock_one(cfg, input_dir=input_dirs[repo], build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
+            final_output_dir = await _finalize_one(
+                cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
+            )
+            repo_status["output_dir"] = final_output_dir
+            repo_status["status"] = "done"
+            repo_status["stage"] = "done"
+            previous_output_dir = final_output_dir
+            _persist()
+
+        if not dry_run:
+            gbif_status = task["repos"].get("gbif")
+            hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
+            if (
+                gbif_status and gbif_status.get("doi") and hfh_cfg is not None
+                and gbif_status.get("doi_synced_to_hfh") is None
+            ):
+                gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
+                try:
+                    await asyncio.to_thread(
+                        gbif_service.sync_doi_to_hfh,
+                        gbif_output_dir=Path(gbif_cfg["output_dir"]),
+                        hfh_output_dir=Path(hfh_cfg["output_dir"]),
+                        hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
+                    )
+                    gbif_status["doi_synced_to_hfh"] = True
+                except Exception:
+                    # Best-effort — the manual "Sync DOI" section is
+                    # still there for the user to retry by hand.
+                    gbif_status["doi_synced_to_hfh"] = False
+                _persist()
+
+        task["status"] = "done"
+    except Exception as exc:
+        task["status"] = "error"
+        task["error"] = str(exc)
+        for repo, repo_status in task["repos"].items():
+            if repo_status["status"] == "running":
+                repo_status["status"] = "error"
+                repo_status["error"] = str(exc)
+        _persist()
+    finally:
+        # Only a fully successful task deletes its own session — an
+        # interrupted one stays on disk on purpose, for resume_publish_all_task.
+        if task["status"] == "done":
+            shutil.rmtree(session_dir, ignore_errors=True)
+
+
 def start_publish_all_task(
     *, input_dir: Path, repos: list[dict], primary_doi_source: str | None, dry_run: bool = False,
     media_dir: Path | None = None,
@@ -484,99 +742,52 @@ def start_publish_all_task(
         "repos": {cfg["repo"]: _initial_repo_status() for cfg in repos},
     }
     settings = load_settings()
+    asyncio.create_task(_run(
+        task_id, input_dir=input_dir, repos=repos, primary_doi_source=primary_doi_source,
+        dry_run=dry_run, media_dir=media_dir, settings=settings, resume=False,
+    ))
+    return task_id
 
-    async def _run() -> None:
-        build_dirs: dict[str, Path] = {}
-        chain_dirs: list[Path] = []
-        # Each repo's own input_dir, as of its OWN turn in the chain — GBIF's
-        # is what matters most, since its build_dir is never populated (see
-        # _upload_one) and _lock_one falls back to reading metadata.json from
-        # here instead; a repo publishing in mirror mode ahead of it (e.g.
-        # HFH) may have just updated metadata.json's own "homepage" (see
-        # product.write_homepage), and that update only reaches this dict's
-        # entry, never the very first input_dir.
-        input_dirs: dict[str, Path] = {}
-        try:
-            current_input_dir = input_dir
-            for i, cfg in enumerate(repos):
-                repo = cfg["repo"]
-                repo_status = _publish_tasks[task_id]["repos"][repo]
-                repo_status["status"] = "running"
-                input_dirs[repo] = current_input_dir
-                build_dir = Path(tempfile.mkdtemp(prefix=f"{repo}-build-"))
-                build_dirs[repo] = build_dir
-                await _upload_one(
-                    cfg, input_dir=current_input_dir, build_dir=build_dir, settings=settings,
-                    repo_status=repo_status, dry_run=dry_run,
-                    # media_dir only makes sense for the FIRST repo: from the
-                    # second one onward, current_input_dir is the previous
-                    # repo's own build_dir, which already has any local
-                    # media mirrored into it if applicable (see
-                    # _extract_chain_input below).
-                    media_dir=media_dir if i == 0 else None,
-                )
-                # GBIF never transforms the product (see _upload_one) — the
-                # next repo in the chain keeps whatever input the CURRENT one
-                # got, rather than trying to extract core files out of GBIF's
-                # own (empty) build_dir.
-                if i < len(repos) - 1 and repo != "gbif":
-                    current_input_dir = await _extract_chain_input(build_dir)
-                    chain_dirs.append(current_input_dir)
 
-            # GBIF has no CITATION.cff of its own to cross-reference DOIs
-            # into — excluded here so doi_populate.populate() (which only
-            # knows about hfh/zenodo/b2share) never sees it.
-            doi_dirs = {repo: d for repo, d in build_dirs.items() if repo != "gbif"}
-            changed = await asyncio.to_thread(doi_populate.populate, doi_dirs, primary_doi_source=primary_doi_source)
-            for cfg in repos:
-                if changed.get(cfg["repo"]):
-                    await _reupload_one(cfg, build_dir=build_dirs[cfg["repo"]], dry_run=dry_run)
+def resume_publish_all_task(task_id: str, repos: list[dict]) -> str:
+    """Resumes a publish session left on disk by an earlier interrupted run
+    (see list_unfinished_sessions) — `repos` must name the very same repos,
+    in the same order, as the original run, but with fresh credentials
+    (session.json never stores token/password — see _scrub_secrets)."""
+    session_dir = _session_dir(task_id)
+    manifest_path = session_dir / "session.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"No interrupted publish session found for task {task_id!r}.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-            previous_output_dir = str(input_dir)
-            for cfg in repos:
-                repo = cfg["repo"]
-                repo_status = _publish_tasks[task_id]["repos"][repo]
-                build_dir = build_dirs[repo]
-                await _lock_one(cfg, input_dir=input_dirs[repo], build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
-                final_output_dir = await _finalize_one(
-                    cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
-                )
-                repo_status["output_dir"] = final_output_dir
-                repo_status["status"] = "done"
-                repo_status["stage"] = "done"
-                previous_output_dir = final_output_dir
+    original_repo_order = [r["repo"] for r in manifest["repos"]]
+    new_repo_order = [cfg["repo"] for cfg in repos]
+    if new_repo_order != original_repo_order:
+        raise RuntimeError(
+            f"This session was for repos {original_repo_order} — got {new_repo_order}. Resume "
+            "with the exact same repos, in the same order, as the original run."
+        )
 
-            if not dry_run:
-                gbif_status = _publish_tasks[task_id]["repos"].get("gbif")
-                hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
-                if gbif_status and gbif_status.get("doi") and hfh_cfg is not None:
-                    gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
-                    try:
-                        await asyncio.to_thread(
-                            gbif_service.sync_doi_to_hfh,
-                            gbif_output_dir=Path(gbif_cfg["output_dir"]),
-                            hfh_output_dir=Path(hfh_cfg["output_dir"]),
-                            hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
-                        )
-                        gbif_status["doi_synced_to_hfh"] = True
-                    except Exception:
-                        # Best-effort — the manual "Sync DOI" section is
-                        # still there for the user to retry by hand.
-                        gbif_status["doi_synced_to_hfh"] = False
+    dry_run = manifest["dry_run"]
+    primary_doi_source = manifest.get("primary_doi_source")
+    input_dir = Path(manifest["input_dir"])
+    media_dir = Path(manifest["media_dir"]) if manifest.get("media_dir") else None
 
-            _publish_tasks[task_id]["status"] = "done"
-        except Exception as exc:
-            _publish_tasks[task_id]["status"] = "error"
-            _publish_tasks[task_id]["error"] = str(exc)
-            for repo, repo_status in _publish_tasks[task_id]["repos"].items():
-                if repo_status["status"] == "running":
-                    repo_status["status"] = "error"
-                    repo_status["error"] = str(exc)
-        finally:
-            for build_dir in build_dirs.values():
-                shutil.rmtree(build_dir, ignore_errors=True)
-            for chain_dir in chain_dirs:
-                shutil.rmtree(chain_dir, ignore_errors=True)
+    repo_status = manifest["repo_status"]
+    for status in repo_status.values():
+        if status["status"] == "running":
+            # Was mid-flight when the process died — treat as not-yet-done
+            # so _run re-processes it (uploads/downloads resume from
+            # whatever's already on disk / already at the remote).
+            status["status"] = "pending"
+            status["error"] = None
 
-    asyncio.create_task(_run())
+    _publish_tasks[task_id] = {
+        "status": "running", "dry_run": dry_run, "created_at": manifest["created_at"], "repos": repo_status,
+    }
+    settings = load_settings()
+    asyncio.create_task(_run(
+        task_id, input_dir=input_dir, repos=repos, primary_doi_source=primary_doi_source,
+        dry_run=dry_run, media_dir=media_dir, settings=settings, resume=True,
+    ))
     return task_id

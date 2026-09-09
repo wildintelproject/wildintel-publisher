@@ -83,6 +83,12 @@ def get_working_output_dir() -> Path:
     return get_app_documents_dir() / "working"
 
 
+def get_sessions_dir() -> Path:
+    """Directorio donde persisten las sesiones de publicación en curso o
+    interrumpidas — ver services.publish_orchestrator (web app)."""
+    return get_app_documents_dir() / "sessions"
+
+
 def _slug_to_dataset_name(slug: str) -> str:
     """Deriva un nombre legible ('wildintel-camtrapdp' -> 'Wildintel Camtrapdp')
     a partir de un slug, igual que donadataset.config._slug_to_dataset_name."""

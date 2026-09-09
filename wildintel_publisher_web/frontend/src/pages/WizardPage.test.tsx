@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
+import type { PublishSessionSummary } from '../types'
 import WizardPage from './WizardPage'
 
 vi.mock('../api', () => ({
@@ -40,6 +41,9 @@ vi.mock('../api', () => ({
     gbifSyncDoi: vi.fn(),
     publishAllStart: vi.fn(),
     publishAllStatus: vi.fn(),
+    listPublishSessions: vi.fn(),
+    resumePublishStart: vi.fn(),
+    discardPublishSession: vi.fn(),
   },
 }))
 
@@ -1436,5 +1440,70 @@ describe('WizardPage publish order', () => {
     await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+  })
+})
+
+const HFH_ONLY_RESUME_SESSION: PublishSessionSummary = {
+  task_id: 'resume-task-1',
+  created_at: '2026-09-01T10:00:00Z',
+  status: 'error',
+  dry_run: false,
+  input_dir: '/tmp/camtrapdp',
+  media_dir: null,
+  primary_doi_source: null,
+  repos: [
+    { repo: 'hfh', output_dir: '/hfh/output', repo_id: 'alice/dataset', private: true, mirror_images: true, output_mode: 'prepared' },
+  ],
+  repo_status: {
+    hfh: {
+      status: 'error', stage: 'uploading', error: 'network blip',
+      repo_url: null, doi: null, pid: null, output_dir: null,
+    },
+  },
+}
+
+describe('WizardPage resume', () => {
+  it('skips straight to configuring the persisted repos, pre-filled minus the token', async () => {
+    render(<WizardPage resumeSession={HFH_ONLY_RESUME_SESSION} />)
+
+    await act(async () => {})
+    expect(screen.getByRole('heading', { name: /configure hugging face hub/i })).toBeInTheDocument()
+    expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
+    expect(screen.getByLabelText('Repository name')).toHaveValue('dataset')
+    // Never persisted — the user must always retype it.
+    expect(screen.getByLabelText('HuggingFace Hub token')).toHaveValue('')
+  })
+
+  it('calls resumePublishStart (not publishAllStart) once every repo is reconfigured', async () => {
+    mockedApi.resumePublishStart.mockResolvedValue({ task_id: 'resume-task-1' })
+    mockedApi.publishAllStatus.mockResolvedValue({
+      status: 'done', error: null, dry_run: false,
+      repos: {
+        hfh: {
+          status: 'done', stage: 'done', error: null,
+          repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output',
+        },
+      },
+    })
+
+    render(<WizardPage resumeSession={HFH_ONLY_RESUME_SESSION} />)
+    // User/org and repository name are already pre-filled from the session
+    // (see the first test above) — only the token needs retyping.
+    await act(async () => {})
+    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await act(async () => {})
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    expect(mockedApi.resumePublishStart).toHaveBeenCalledWith(
+      'resume-task-1',
+      expect.arrayContaining([expect.objectContaining({ repo: 'hfh', token: 'hf_x', repoId: 'alice/dataset' })]),
+      undefined, 60,
+    )
+    expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
   })
 })

@@ -144,3 +144,83 @@ export interface BrowseResult {
  * - 'downloaded': a fresh copy downloaded back from the repo after a
  *   successful publish. */
 export type OutputMode = 'prepared' | 'passthrough' | 'downloaded'
+
+/** One repo's worth of publish configuration — shared shape between
+ * api.publishAllStart and api.resumePublishStart (see PublishSessionSummary
+ * below: a resumed session pre-fills every field except `token`/`password`,
+ * which are never persisted and must always be re-entered). */
+export interface PublishRepoConfig {
+  repo: 'hfh' | 'zenodo' | 'b2share' | 'gbif'
+  outputDir: string
+  token?: string
+  mirrorImages: boolean
+  outputMode: OutputMode
+  repoId?: string
+  private?: boolean
+  environment?: string
+  communities?: string
+  communityId?: string
+  // zenodo/b2share, Camtrap DP + mirror only — see common.fit_images_to_size
+  fitArchiveSize?: boolean
+  maxZipFile?: number
+  minImageEdge?: number
+  // gbif-only
+  archiveUrl?: string
+  publishingOrganizationKey?: string
+  installationKey?: string
+  registryLanguage?: string
+  username?: string
+  password?: string
+}
+
+/** A per-repo publish status entry — same shape api.publishAllStatus polls,
+ * reused by PublishSessionSummary since a session's repo_status is exactly
+ * what was last polled before the interruption. */
+export interface PublishRepoStatus {
+  status: 'pending' | 'running' | 'done' | 'error'
+  stage: string
+  error: string | null
+  repo_url: string | null
+  doi: string | null
+  pid: string | null
+  output_dir: string | null
+  doi_synced_to_hfh?: boolean | null
+}
+
+/** A publish session an earlier interrupted run left on disk (see the
+ * backend's services.publish_orchestrator — GET /api/publish/sessions) —
+ * offered on web app startup so the user can resume or discard it instead
+ * of starting over. Never carries credentials: `repos` only has whatever
+ * services.publish_orchestrator._scrub_secrets keeps, so `token`/`password`
+ * always come back empty and must be re-entered before resuming. */
+export interface PublishSessionSummary {
+  task_id: string
+  created_at: string
+  status: 'running' | 'error'
+  dry_run: boolean
+  input_dir: string
+  media_dir: string | null
+  primary_doi_source: 'zenodo' | 'b2share' | null
+  repos: Array<{
+    repo: 'hfh' | 'zenodo' | 'b2share' | 'gbif'
+    output_dir?: string | null
+    mirror_images?: boolean
+    output_mode?: OutputMode
+    repo_id?: string | null
+    private?: boolean
+    environment?: string | null
+    communities?: string | null
+    community_id?: string | null
+    fit_archive_size?: boolean
+    max_zip_file?: number | null
+    min_image_edge?: number
+    archive_url?: string | null
+    publishing_organization_key?: string | null
+    installation_key?: string | null
+    registry_language?: string | null
+    username?: string | null
+    version?: string | null
+    timeout?: number | null
+  }>
+  repo_status: Record<string, PublishRepoStatus>
+}

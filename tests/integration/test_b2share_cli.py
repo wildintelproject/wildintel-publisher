@@ -436,6 +436,50 @@ def test_b2share_upload_self_contained_uploads_only_the_zip_and_metadata_files(c
     assert record["pid_kind"] == "doi"
 
 
+def test_b2share_upload_resumes_by_skipping_files_the_draft_already_has(camtrapdp_dir, tmp_path, monkeypatch):
+    """Resuming an interrupted upload (see services.publish_orchestrator's
+    session persistence — the draft, and this same b2share_record.json,
+    survive a crash) must not re-upload whatever the draft already lists
+    remotely — InvenioRDM's own files.entries is the source of truth, not
+    any local state."""
+    monkeypatch.setenv("B2SHARE_TOKEN", "faketoken")
+    output_dir = _prepared_b2share_export(camtrapdp_dir, tmp_path, self_contained=False)
+    (output_dir / "b2share_record.json").write_text(json.dumps({
+        "record_id": "rec-3", "environment": "sandbox", "pid": None, "pid_kind": None,
+        "record_url": "https://trng-b2share.eudat.eu/records/rec-3", "published": False,
+    }), encoding="utf-8")
+
+    existing_draft = {
+        "id": "rec-3", "links": {}, "pids": {},
+        "files": {"enabled": True, "count": 1, "entries": {"README.md": {"key": "README.md", "size": 10}}},
+    }
+    uploaded_filenames = []
+
+    def fake_get(url, **kwargs):
+        return _fake_response(200, existing_draft)
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/draft/pids/doi"):
+            return _fake_response(400, {"message": "DOI reservation not available"})
+        if url.endswith("/draft/files") or url.endswith("/commit"):
+            return _fake_response(201, {})
+        raise AssertionError(f"unexpected POST {url}")
+
+    def fake_put(url, **kwargs):
+        if "/draft/files/" in url and url.endswith("/content"):
+            key = url.split("/draft/files/", 1)[1].rsplit("/content", 1)[0]
+            uploaded_filenames.append(key)
+        return _fake_response(200, {})
+
+    with patch("httpx.get", side_effect=fake_get), patch("httpx.post", side_effect=fake_post), \
+         patch("httpx.put", side_effect=fake_put):
+        result = runner.invoke(app, ["b2share", "upload", "--output-dir", str(output_dir), "--community-id", "uuid-1"])
+
+    assert result.exit_code == 0, result.output
+    assert "README.md" not in uploaded_filenames
+    assert "CITATION.cff" in uploaded_filenames
+
+
 def test_b2share_upload_without_token_reports_error(camtrapdp_dir, tmp_path, monkeypatch):
     monkeypatch.delenv("B2SHARE_TOKEN", raising=False)
     output_dir = _prepared_b2share_export(camtrapdp_dir, tmp_path)

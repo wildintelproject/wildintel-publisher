@@ -573,6 +573,7 @@ def upload_to_b2share(
         related_identifier_url=related_identifier_url,
     )
 
+    already_uploaded: set[str] = set()
     if record_path.is_file():
         record = json.loads(record_path.read_text(encoding="utf-8"))
         record_id = record["record_id"]
@@ -584,6 +585,14 @@ def upload_to_b2share(
                 "For a new version, delete b2share_record.json and run 'b2share upload' again "
                 "(this will create a new draft, unrelated to the already-published one)."
             )
+        # Resuming an interrupted upload (see services.publish_orchestrator's
+        # session persistence): whatever the draft already lists is skipped
+        # below instead of re-uploaded — the file listing on the remote
+        # draft is the source of truth, not any local state. InvenioRDM's
+        # own record shape nests already-committed files under
+        # files.entries, keyed by filename (see upload_file's own {"key":
+        # ...} above — same identifier).
+        already_uploaded = set((b2share_record.get("files") or {}).get("entries") or {})
     else:
         console.print("Creating a new draft on B2SHARE...")
         b2share_record = create_draft_record(api_base_url, token, b2share_metadata)
@@ -618,8 +627,12 @@ def upload_to_b2share(
         p for p in output_dir.iterdir()
         if p.is_file() and p.name not in (RECORD_FILENAME, product.METADATA_FILENAME)
     )
-    console.print(f"Uploading {len(files)} metadata file(s) to draft {record_id} ...")
+    to_upload = [p for p in files if p.name not in already_uploaded]
     for file_path in files:
+        if file_path.name in already_uploaded:
+            console.print(f"  [green]✓[/green] {file_path.name} (already uploaded, skipped)")
+    console.print(f"Uploading {len(to_upload)} metadata file(s) to draft {record_id} ...")
+    for file_path in to_upload:
         upload_file(api_base_url, token, record_id, file_path, file_path.name)
         console.print(f"  [green]✓[/green] {file_path.name}")
 

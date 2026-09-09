@@ -478,6 +478,43 @@ def test_zenodo_upload_without_token_reports_error(camtrapdp_dir, tmp_path, monk
     assert "No Zenodo token configured" in result.output
 
 
+def test_zenodo_upload_resumes_by_skipping_files_the_deposition_already_has(camtrapdp_dir, tmp_path, monkeypatch):
+    """Resuming an interrupted upload (see services.publish_orchestrator's
+    session persistence — the deposition, and this same zenodo_record.json,
+    survive a crash) must not re-upload whatever the deposition already
+    lists remotely — the remote listing is the source of truth, not any
+    local state."""
+    monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
+    output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
+    (output_dir / "zenodo_record.json").write_text(json.dumps({
+        "deposition_id": 555, "environment": "sandbox", "doi": None,
+        "record_url": "https://sandbox.zenodo.org/deposit/555", "published": False,
+    }), encoding="utf-8")
+
+    existing_deposition = {
+        "id": 555, "links": {"bucket": "https://sandbox.zenodo.org/api/files/bucket-abc"},
+        "metadata": {}, "state": "unsubmitted", "submitted": False,
+        "files": [{"id": "f1", "filename": "README.md", "filesize": 10}],
+    }
+    uploaded_filenames = []
+
+    def fake_get(url, **kwargs):
+        return _fake_response(200, existing_deposition)
+
+    def fake_put(url, **kwargs):
+        if url.endswith("/deposit/depositions/555"):
+            return _fake_response(200, existing_deposition)
+        uploaded_filenames.append(url.rsplit("/", 1)[-1])
+        return _fake_response(201, {})
+
+    with patch("httpx.get", side_effect=fake_get), patch("httpx.put", side_effect=fake_put):
+        result = runner.invoke(app, ["zenodo", "upload", "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "README.md" not in uploaded_filenames
+    assert "CITATION.cff" in uploaded_filenames
+
+
 def test_zenodo_sync_doi_fails_when_not_yet_published(camtrapdp_dir, tmp_path):
     output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
     (output_dir / "zenodo_record.json").write_text(json.dumps({

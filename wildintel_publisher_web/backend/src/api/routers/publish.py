@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from schemas.requests import PublishAllRequest, RepoPublishConfig
+from schemas.requests import PublishAllRequest, RepoPublishConfig, ResumePublishRequest
 from services import b2share_service, gbif_service, hfh_service, publish_orchestrator, zenodo_service
 
 router = APIRouter(prefix="/api/publish", tags=["publish"])
@@ -120,6 +120,40 @@ async def start(req: PublishAllRequest) -> dict:
         dry_run=req.dry_run, media_dir=Path(req.media_dir) if req.media_dir else None,
     )
     return {"task_id": task_id}
+
+
+@router.get("/sessions")
+def sessions() -> list[dict]:
+    """Publish sessions an earlier interrupted run left on disk — offered by
+    the web app on startup so the user can resume (or discard) instead of
+    starting over. Never includes credentials (session.json never stores
+    them — see services.publish_orchestrator)."""
+    return publish_orchestrator.list_unfinished_sessions()
+
+
+@router.post("/sessions/{task_id}/resume")
+async def resume(task_id: str, req: ResumePublishRequest) -> dict:
+    """Resumes an interrupted session — same repos/order as the original
+    run, with freshly-supplied credentials (never persisted, so always
+    required again here). Already-finished repos, already-downloaded
+    images, and (for Zenodo/B2SHARE) already-uploaded files are skipped —
+    see services.publish_orchestrator."""
+    resolved_repos = [
+        _resolve_repo_config(cfg, version=req.version, timeout=req.timeout, dry_run=False)
+        for cfg in req.repos
+    ]
+    try:
+        resumed_task_id = publish_orchestrator.resume_publish_all_task(task_id, resolved_repos)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"task_id": resumed_task_id}
+
+
+@router.delete("/sessions/{task_id}")
+def discard(task_id: str) -> dict:
+    """Permanently discards an interrupted session instead of resuming it."""
+    publish_orchestrator.discard_session(task_id)
+    return {"status": "discarded"}
 
 
 @router.get("/{task_id}")

@@ -125,7 +125,15 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
   }, [form.outputDir])
 
   function setField(key: keyof typeof form, value: string) {
-    setForm((f) => ({ ...f, [key]: value }))
+    // hfUser/repoName are each just ONE path segment of the final repo_id
+    // (built below as `${hfUser}/${repoName}`) — stripping any '/' here
+    // stops a pasted full "namespace/repo" id (e.g. someone copying an
+    // existing HFH URL) from silently doubling the namespace into
+    // 'namespace/namespace/repo', which HFH's own repo_id validation
+    // rejects ("Repo id must be in the form 'repo_name' or
+    // 'namespace/repo_name'").
+    const sanitized = key === 'hfUser' || key === 'repoName' ? value.replace(/\//g, '') : value
+    setForm((f) => ({ ...f, [key]: sanitized }))
     if (key === 'token' || key === 'hfUser' || key === 'repoName') setTest({ status: 'idle', message: '' })
   }
 
@@ -183,7 +191,9 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
         </div>
       </div>
       <p className={hintClass + ' mb-4'}>
-        {repoId ? <>The repository identifier will be: <span className="font-mono">{repoId}</span></> : ' '}
+        {repoId
+          ? <>The repository identifier will be: <span className="font-mono">{repoId}</span></>
+          : <>Just the name, not the full <span className="font-mono">user/repo</span> id — that's built automatically from both fields above.</>}
       </p>
 
       <div className="flex items-center gap-6 mb-4">

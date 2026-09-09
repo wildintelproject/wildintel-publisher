@@ -827,3 +827,219 @@ def test_publish_all_hfh_then_gbif_chains_without_breaking_doi_populate(tmp_path
     assert body["repos"]["hfh"]["repo_url"] == "https://huggingface.co/datasets/alice/dataset"
     assert body["repos"]["gbif"]["repo_url"] == "https://registry.gbif-test.org/dataset/xyz"
     mock_register.assert_called_once()
+
+
+# ── resumable sessions ───────────────────────────────────────────────────────
+
+def test_publish_all_success_deletes_the_session_dir(tmp_path):
+    def fake_prepare(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", return_value="https://huggingface.co/datasets/alice/dataset"),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface"),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [{"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"}],
+            })
+            task_id = start.json()["task_id"]
+            body = _poll(client, task_id)
+
+    assert body["status"] == "done"
+    from wildintel_publisher.config import get_sessions_dir
+    assert not (get_sessions_dir() / task_id).exists()
+
+
+def test_publish_all_error_persists_a_secret_free_session_manifest(tmp_path):
+    """The whole point of the session persisted on disk (see
+    publish_orchestrator's own docstring) is to make resume_publish_all_task
+    possible — but it must never carry the credentials the request was
+    started with; resuming always requires the user to re-enter them."""
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_hfh(output_dir, **kwargs):
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    def failing_prepare_zenodo(*, input_dir, output_dir, **kwargs):
+        raise RuntimeError("boom")
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface"),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=failing_prepare_zenodo),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_secret"},
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_secret", "environment": "sandbox"},
+                ],
+            })
+            task_id = start.json()["task_id"]
+            body = _poll(client, task_id)
+
+    assert body["status"] == "error"
+
+    from wildintel_publisher.config import get_sessions_dir
+    session_dir = get_sessions_dir() / task_id
+    assert session_dir.is_dir()  # kept on disk — never deleted for a failed task
+    assert (session_dir / "hfh-build").is_dir()  # the already-finished repo's own build_dir survives too
+
+    manifest = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+    assert manifest["repo_status"]["hfh"]["stage"] == "uploaded"
+    assert manifest["repo_status"]["zenodo"]["status"] == "error"
+    for repo_cfg in manifest["repos"]:
+        assert "token" not in repo_cfg
+    manifest_text = json.dumps(manifest)
+    assert "hf_secret" not in manifest_text
+    assert "zen_secret" not in manifest_text
+
+
+def test_publish_all_sessions_list_finds_the_interrupted_task(tmp_path):
+    def failing_prepare(*, input_dir, output_dir, **kwargs):
+        raise RuntimeError("boom")
+
+    with patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=failing_prepare):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [{"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"}],
+            })
+            task_id = start.json()["task_id"]
+            _poll(client, task_id)
+
+            sessions_response = client.get("/api/publish/sessions")
+            assert sessions_response.status_code == 200
+            sessions = sessions_response.json()
+
+    assert isinstance(sessions, list)
+    assert task_id in [s["task_id"] for s in sessions]
+
+
+def test_discard_session_removes_it_from_disk(tmp_path):
+    def failing_prepare(*, input_dir, output_dir, **kwargs):
+        raise RuntimeError("boom")
+
+    from wildintel_publisher.config import get_sessions_dir
+
+    with patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=failing_prepare):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [{"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"}],
+            })
+            task_id = start.json()["task_id"]
+            _poll(client, task_id)
+            assert (get_sessions_dir() / task_id).exists()
+
+            discard = client.delete(f"/api/publish/sessions/{task_id}")
+            assert discard.status_code == 200, discard.text
+
+    assert not (get_sessions_dir() / task_id).exists()
+
+
+def test_resume_publish_all_task_rejects_a_different_repo_list(tmp_path):
+    def failing_prepare(*, input_dir, output_dir, **kwargs):
+        raise RuntimeError("boom")
+
+    with patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=failing_prepare):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [{"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"}],
+            })
+            task_id = start.json()["task_id"]
+            _poll(client, task_id)
+
+            resume = client.post(f"/api/publish/sessions/{task_id}/resume", json={
+                "repos": [{"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x", "environment": "sandbox"}],
+            })
+
+    assert resume.status_code == 400
+
+
+def test_resume_publish_all_task_skips_the_already_done_repo_and_completes(tmp_path):
+    """A repo whose stage was already "done" before the interruption (here:
+    hfh, which finished before zenodo's own prepare blew up) must never be
+    re-prepared/re-uploaded on resume — its build_dir survives untouched
+    under the session dir, and only the not-yet-finished repo actually
+    re-runs."""
+    calls: list[str] = []
+
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        calls.append("prepare-hfh")
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_hfh(output_dir, **kwargs):
+        calls.append("upload-hfh")
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    zenodo_attempts = {"count": 0}
+
+    def fake_prepare_zenodo(*, input_dir, output_dir, **kwargs):
+        zenodo_attempts["count"] += 1
+        calls.append("prepare-zenodo")
+        if zenodo_attempts["count"] == 1:
+            raise RuntimeError("network blip")
+        _write_product_files(output_dir)
+
+    def fake_upload_zenodo(output_dir, **kwargs):
+        calls.append("upload-zenodo")
+        (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": None}), encoding="utf-8")
+
+    def fake_release_zenodo(output_dir, *, token):
+        calls.append("release-zenodo")
+        return {"doi": "10.5281/zenodo.1", "record_url": "https://zenodo.org/records/1"}
+
+    hfh_output_dir = _tmp(tmp_path, "hfh")
+    zenodo_output_dir = _tmp(tmp_path, "zenodo")
+    repos = [
+        {"repo": "hfh", "output_dir": str(hfh_output_dir), "repo_id": "alice/dataset", "token": "hf_x"},
+        {"repo": "zenodo", "output_dir": str(zenodo_output_dir), "token": "zen_x", "environment": "sandbox"},
+    ]
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", side_effect=lambda **k: calls.append("tag-hfh")),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", side_effect=lambda **k: calls.append("release-hfh")),
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=fake_upload_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.release_on_zenodo", side_effect=fake_release_zenodo),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={"input_dir": "/tmp/camtrapdp", "repos": repos})
+            task_id = start.json()["task_id"]
+            body = _poll(client, task_id)
+            assert body["status"] == "error", body
+            assert body["repos"]["hfh"]["stage"] == "uploaded"
+            assert body["repos"]["zenodo"]["status"] == "error"
+
+            resume = client.post(f"/api/publish/sessions/{task_id}/resume", json={"repos": repos})
+            assert resume.status_code == 200, resume.text
+            resumed_task_id = resume.json()["task_id"]
+            assert resumed_task_id == task_id  # resume continues the SAME task, not a new one
+
+            resumed_body = _poll(client, resumed_task_id)
+
+    assert resumed_body["status"] == "done", resumed_body
+    assert resumed_body["repos"]["zenodo"]["doi"] == "10.5281/zenodo.1"
+    # hfh, already "done" before the interruption, is never re-run.
+    assert calls.count("prepare-hfh") == 1
+    assert calls.count("upload-hfh") == 1
+    # zenodo re-runs from scratch: the failed attempt, then the resumed one.
+    assert calls.count("prepare-zenodo") == 2
+
+    from wildintel_publisher.config import get_sessions_dir
+    assert not (get_sessions_dir() / task_id).exists()  # cleaned up on the eventual success
