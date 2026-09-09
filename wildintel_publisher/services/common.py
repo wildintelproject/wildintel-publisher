@@ -5,6 +5,7 @@ propio camtrapdp (datapackage.json + CSVs) o descargar sus imágenes, que no
 depende de a qué repositorio se vaya a publicar después.
 """
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -93,12 +94,94 @@ def copy_core_camtrapdp_files(source_dir: Path, target_dir: Path) -> None:
     `source_dir` (datapackage.json + sus 3 tablas) — nada más, en particular
     ninguna imagen/vídeo. Ficheros ausentes en `source_dir` se saltan en
     silencio (mismo criterio que el resto del pipeline: no todo camtrapdp
-    trae las 3 tablas)."""
+    trae las 3 tablas).
+
+    Para cada tabla, si no existe la versión sin comprimir pero sí un
+    `<fichero>.gz` (p. ej. un export de Trapper descargado y descomprimido a
+    mano, cuyas tablas siguen viniendo comprimidas), se copia ese `.gz` tal
+    cual — decompress_gzipped_tables (pensada para ejecutarse justo después,
+    sobre `target_dir`) es quien luego lo descomprime y limpia la marca de
+    compresión en datapackage.json."""
     target_dir.mkdir(parents=True, exist_ok=True)
     for filename in CORE_CAMTRAPDP_FILES:
         source = source_dir / filename
         if source.is_file():
             shutil.copy2(source, target_dir / filename)
+            continue
+        if filename == DATAPACKAGE_FILENAME:
+            continue  # never itself gzip-compressed
+        gz_source = source_dir / f"{filename}.gz"
+        if gz_source.is_file():
+            shutil.copy2(gz_source, target_dir / gz_source.name)
+
+
+def decompress_gzipped_tables(output_dir: Path) -> None:
+    """Descomprime en sitio las tablas del paquete que vienen comprimidas
+    (export_filetype='csv.gz' por defecto en Trapper, ej. media.csv.gz,
+    deployments.csv.gz, observations.csv.gz), elimina el .gz para quedarse
+    solo con el .csv en claro, y limpia la marca de compresión en
+    datapackage.json (ver _clear_datapackage_resource_compression) — si no,
+    cualquier lector/validador del paquete (incluido frictionless) seguiría
+    intentando hacer gunzip sobre un CSV que ya está en claro.
+
+    Usada tanto por 'trapper download' (justo tras extraer el zip) como por
+    resolve_local_camtrapdp_source (Local Directory, tras copy_core_camtrapdp_files)
+    — un export de Trapper descargado y descomprimido a mano conserva sus
+    tablas comprimidas, y sin este paso la validación de Camtrap DP fallaba
+    con "No such file or directory: .../deployments.csv.gz" (el fichero
+    referenciado en datapackage.json nunca llegó a copiarse/descomprimirse)."""
+    decompressed_names = set()
+    for gz_path in output_dir.rglob("*.gz"):
+        csv_path = gz_path.with_suffix("")
+        with gzip.open(gz_path, "rb") as f_in, open(csv_path, "wb") as f_out:
+            f_out.write(f_in.read())
+        gz_path.unlink()
+        console.print(f"  Decompressed {gz_path.name} -> {csv_path.name}")
+        decompressed_names.add(csv_path.relative_to(output_dir).as_posix())
+
+    if decompressed_names:
+        _clear_datapackage_resource_compression(output_dir, decompressed_names)
+
+
+def _clear_datapackage_resource_compression(output_dir: Path, decompressed_names: set) -> None:
+    """Quita "compression" de los resources de datapackage.json cuyo fichero
+    ya se descomprimió.
+
+    Trapper declara "path" con el nombre YA descomprimido (ej.
+    "deployments.csv") aunque el fichero físico dentro del zip fuera
+    "deployments.csv.gz" — es el "compression": "gz" el que le dice a quien
+    lea el paquete que descomprima, no el nombre en "path". Por si esa
+    convención cambiase (algunos exports declaran "path" ya terminado en
+    ".gz"), también se cubre ese caso."""
+    datapackage_path = output_dir / DATAPACKAGE_FILENAME
+    if not datapackage_path.is_file():
+        return
+
+    try:
+        data = json.loads(datapackage_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+
+    resources = data.get("resources")
+    if not isinstance(resources, list):
+        return
+
+    changed = False
+    for resource in resources:
+        if not isinstance(resource, dict):
+            continue
+        path = resource.get("path")
+        if path in decompressed_names:
+            if resource.pop("compression", None) is not None:
+                changed = True
+        elif isinstance(path, str) and path.endswith(".gz") and path[:-3] in decompressed_names:
+            resource["path"] = path[:-3]
+            resource.pop("compression", None)
+            changed = True
+
+    if changed:
+        datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        console.print("  datapackage.json: removed the compression marker from the already-decompressed resources.")
 
 
 _jinja_env = Environment(
@@ -222,12 +305,23 @@ def validate_camtrap_dp(output_dir: Path, *, patch_missing_profile: bool = True)
         return
 
     console.print("[red]✘  The camtrapdp is not valid according to the Camtrap DP schema:[/red]")
+    error_lines = []
     for _type, title, message in report.flatten(["type", "title", "message"]):
-        console.print(f"  [red]•[/red] {title}: {message}")
+        line = f"{title}: {message}"
+        console.print(f"  [red]•[/red] {line}")
+        error_lines.append(line)
 
+    # The errors above are also folded into the exception message itself —
+    # not just printed to this console — since some callers (e.g. the web
+    # backend's resolve_local_source/fetch_camtrap_dp_archive) only ever
+    # surface str(exc) to their own caller (an HTTP response, eventually the
+    # wizard's UI), which never sees this process's own stdout. Without this,
+    # the web UI showed a generic "review the errors above" pointing at a
+    # console the user has no access to, with the actual validation errors
+    # visible only in the server's own logs.
+    details = "\n".join(f"  - {line}" for line in error_lines) or "  (no details reported by frictionless)"
     raise RuntimeError(
-        f"The camtrapdp in {output_dir} does not pass Camtrap DP validation (frictionless) — "
-        "review the errors above."
+        f"The camtrapdp in {output_dir} does not pass Camtrap DP validation (frictionless):\n{details}"
     )
 
 

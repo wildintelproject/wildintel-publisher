@@ -1,8 +1,9 @@
-"""Unit tests for services.trapper's local datapackage.json patching helpers
-(_fix_datapackage_license, _decompress_gzipped_tables/_clear_datapackage_resource_compression),
-test_connection's exception-to-RuntimeError mapping, and fetch_camtrapdp_package's
-own include_events wiring."""
-import gzip
+"""Unit tests for services.trapper's local datapackage.json patching helper
+(_fix_datapackage_license — decompress_gzipped_tables/
+_clear_datapackage_resource_compression moved to services.common, see
+test_common_decompress_gzipped_tables.py, now that resolve_local_camtrapdp_source
+reuses them too), test_connection's exception-to-RuntimeError mapping, and
+fetch_camtrapdp_package's own include_events wiring."""
 import io
 import json
 import zipfile
@@ -13,12 +14,7 @@ import pytest
 from trapper_client import err
 from trapper_client.schemas.classifications import ResultsDataPackageData, ResultsDataPackageResponse
 
-from wildintel_publisher.services.trapper import (
-    _clear_datapackage_resource_compression,
-    _decompress_gzipped_tables,
-    _fix_datapackage_license,
-    fetch_camtrapdp_package,
-)
+from wildintel_publisher.services.trapper import _fix_datapackage_license, fetch_camtrapdp_package
 from wildintel_publisher.services.trapper import test_connection as trapper_test_connection
 
 
@@ -67,53 +63,6 @@ def test_fix_datapackage_license_no_op_when_all_scopes_real(tmp_path):
 def test_fix_datapackage_license_no_op_when_datapackage_missing(tmp_path):
     _fix_datapackage_license(tmp_path, license_id="CC-BY-4.0", license_name="CC BY 4.0", license_url="https://example.org")  # must not raise
     assert not (tmp_path / "datapackage.json").exists()
-
-
-def test_decompress_gzipped_tables_removes_gz_and_strips_compression_marker(tmp_path):
-    """Reproduces Trapper's real shape: resources declare "path": "deployments.csv"
-    (no .gz suffix) but the physical file inside the zip is deployments.csv.gz,
-    with a stray "compression": "gz" key that must be cleared once decompressed
-    (otherwise frictionless/any reader tries to gunzip an already-plain CSV)."""
-    gz_path = tmp_path / "deployments.csv.gz"
-    with gzip.open(gz_path, "wb") as f:
-        f.write(b"deploymentID\nd1\n")
-
-    _write_datapackage(tmp_path, {
-        "resources": [{"name": "deployments", "path": "deployments.csv", "compression": "gz"}],
-    })
-
-    _decompress_gzipped_tables(tmp_path)
-
-    assert not gz_path.exists()
-    assert (tmp_path / "deployments.csv").read_bytes() == b"deploymentID\nd1\n"
-    data = json.loads((tmp_path / "datapackage.json").read_text(encoding="utf-8"))
-    assert "compression" not in data["resources"][0]
-    assert data["resources"][0]["path"] == "deployments.csv"
-
-
-def test_clear_datapackage_resource_compression_handles_path_still_ending_in_gz(tmp_path):
-    """Fallback branch: if `path` itself still ends in .gz (unlike Trapper's
-    real behavior, but defensive in case that convention ever changes), it
-    gets renamed to the decompressed name too."""
-    _write_datapackage(tmp_path, {
-        "resources": [{"name": "media", "path": "media.csv.gz", "compression": "gz"}],
-    })
-
-    _clear_datapackage_resource_compression(tmp_path, {"media.csv"})
-
-    data = json.loads((tmp_path / "datapackage.json").read_text(encoding="utf-8"))
-    assert data["resources"][0]["path"] == "media.csv"
-    assert "compression" not in data["resources"][0]
-
-
-def test_clear_datapackage_resource_compression_no_op_when_nothing_decompressed(tmp_path):
-    original = {"resources": [{"name": "media", "path": "media.csv", "compression": "gz"}]}
-    path = _write_datapackage(tmp_path, original)
-    before = path.read_text(encoding="utf-8")
-
-    _clear_datapackage_resource_compression(tmp_path, set())
-
-    assert path.read_text(encoding="utf-8") == before
 
 
 def test_test_connection_maps_unauthorized_to_runtime_error(monkeypatch):

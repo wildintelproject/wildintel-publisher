@@ -55,6 +55,15 @@ def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
     CSV/JSON files, cheap to redo, and caching would risk serving a stale
     copy if the user edits their original files between calls.
 
+    If the tables are still gzip-compressed (e.g. a Trapper export
+    downloaded as a zip and extracted by hand, whose tables Trapper itself
+    would normally decompress on the way in — see trapper.fetch_camtrapdp_package),
+    copy_core_camtrapdp_files picks up the `.gz` counterpart when the plain
+    `.csv` isn't present, and decompress_gzipped_tables below unpacks it
+    (and clears datapackage.json's own "compression" marker) before
+    validating — without this, frictionless failed with a "No such file or
+    directory: .../deployments.csv.gz" that never got any clearer than that.
+
     Raises:
         RuntimeError: if `source_dir` doesn't exist or isn't a directory, or
         if the copied core files don't pass Camtrap DP validation
@@ -70,6 +79,7 @@ def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
         shutil.rmtree(destination)
 
     common.copy_core_camtrapdp_files(source_dir, destination)
+    common.decompress_gzipped_tables(destination)
     common.validate_camtrap_dp(destination)
 
     return destination
@@ -129,6 +139,12 @@ def fetch_camtrap_dp_archive(
             zf.extractall(extract_dir)
 
         camtrap_dp_root = common.find_camtrap_dp_root(extract_dir)
+        # A Camtrap DP standard-compliant archive from a source this project
+        # doesn't control could still ship gzip-compressed tables (this
+        # project's own generated zips never do) — same fix as
+        # resolve_local_camtrapdp_source, same underlying failure mode
+        # otherwise ("No such file or directory: .../deployments.csv.gz").
+        common.decompress_gzipped_tables(camtrap_dp_root)
         common.validate_camtrap_dp(camtrap_dp_root)
 
         output_dir.mkdir(parents=True, exist_ok=True)

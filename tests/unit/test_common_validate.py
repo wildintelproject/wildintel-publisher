@@ -58,6 +58,24 @@ def test_validate_camtrap_dp_raises_on_invalid_report(tmp_path):
             validate_camtrap_dp(tmp_path)
 
 
+def test_validate_camtrap_dp_embeds_the_actual_errors_in_the_exception_message(tmp_path):
+    # Regression test: the per-field frictionless errors used to only ever
+    # reach console.print — a caller that only inspects str(exc) (e.g. the
+    # web backend's resolve_local_source/fetch_camtrap_dp_archive, whose
+    # HTTP response is all the wizard's UI ever sees) got a generic "review
+    # the errors above" pointing at a console it has no access to, with the
+    # real detail visible only in the server's own logs.
+    datapackage_path = tmp_path / "datapackage.json"
+    datapackage_path.write_text(json.dumps({"title": "T", "profile": CAMTRAP_DP_PROFILE_URL}), encoding="utf-8")
+
+    with patch(
+        "wildintel_publisher.services.common.frictionless_validate",
+        return_value=_fake_report(valid=False, errors=["'project' is a required property"]),
+    ):
+        with pytest.raises(RuntimeError, match="'project' is a required property"):
+            validate_camtrap_dp(tmp_path)
+
+
 def test_validate_camtrap_dp_raises_on_missing_profile_when_patch_disabled(tmp_path):
     datapackage_path = tmp_path / "datapackage.json"
     datapackage_path.write_text(json.dumps({"title": "T"}), encoding="utf-8")

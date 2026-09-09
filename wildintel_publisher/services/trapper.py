@@ -7,7 +7,6 @@ paquete ya cacheado) y devuelve una URL de descarga absoluta en
 (``?rt=...``), así que se descarga tal cual con ``client.make_request()``,
 sin pasar por la cabecera Authorization del cliente.
 """
-import gzip
 import json
 from pathlib import Path
 from typing import Optional
@@ -17,6 +16,8 @@ import httpx
 from rich.console import Console
 from trapper_client import TrapperClient, err
 from trapper_client.schemas import ClassificationProject
+
+from wildintel_publisher.services import common
 
 console = Console()
 
@@ -148,7 +149,7 @@ def fetch_camtrapdp_package(
     with ZipFile(zip_path) as zf:
         zf.extractall(output_dir)
 
-    _decompress_gzipped_tables(output_dir)
+    common.decompress_gzipped_tables(output_dir)
     if license_id:
         _fix_datapackage_license(output_dir, license_id=license_id, license_name=license_name, license_url=license_url)
 
@@ -196,68 +197,6 @@ def _fix_datapackage_license(
     data["licenses"] = licenses
     datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  datapackage.json: license '{license_id}' added for scope(s) {', '.join(missing_scopes)}.")
-
-
-def _decompress_gzipped_tables(output_dir: Path) -> None:
-    """Descomprime en sitio las tablas del paquete que vienen comprimidas
-    (export_filetype='csv.gz' por defecto en Trapper, ej. media.csv.gz,
-    deployments.csv.gz, observations.csv.gz), elimina el .gz para quedarse
-    solo con el .csv en claro, y limpia la marca de compresión en
-    datapackage.json (ver _clear_datapackage_resource_compression) — si no,
-    cualquier lector/validador del paquete (incluido frictionless) seguiría
-    intentando hacer gunzip sobre un CSV que ya está en claro."""
-    decompressed_names = set()
-    for gz_path in output_dir.rglob("*.gz"):
-        csv_path = gz_path.with_suffix("")
-        with gzip.open(gz_path, "rb") as f_in, open(csv_path, "wb") as f_out:
-            f_out.write(f_in.read())
-        gz_path.unlink()
-        console.print(f"  Decompressed {gz_path.name} -> {csv_path.name}")
-        decompressed_names.add(csv_path.relative_to(output_dir).as_posix())
-
-    if decompressed_names:
-        _clear_datapackage_resource_compression(output_dir, decompressed_names)
-
-
-def _clear_datapackage_resource_compression(output_dir: Path, decompressed_names: set) -> None:
-    """Quita "compression" de los resources de datapackage.json cuyo fichero
-    ya se descomprimió.
-
-    Trapper declara "path" con el nombre YA descomprimido (ej.
-    "deployments.csv") aunque el fichero físico dentro del zip fuera
-    "deployments.csv.gz" — es el "compression": "gz" el que le dice a quien
-    lea el paquete que descomprima, no el nombre en "path". Por si esa
-    convención cambiase, también se cubre el caso de que "path" siguiera
-    terminando en ".gz"."""
-    datapackage_path = output_dir / DATAPACKAGE_FILENAME
-    if not datapackage_path.is_file():
-        return
-
-    try:
-        data = json.loads(datapackage_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-
-    resources = data.get("resources")
-    if not isinstance(resources, list):
-        return
-
-    changed = False
-    for resource in resources:
-        if not isinstance(resource, dict):
-            continue
-        path = resource.get("path")
-        if path in decompressed_names:
-            if resource.pop("compression", None) is not None:
-                changed = True
-        elif isinstance(path, str) and path.endswith(".gz") and path[:-3] in decompressed_names:
-            resource["path"] = path[:-3]
-            resource.pop("compression", None)
-            changed = True
-
-    if changed:
-        datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        console.print("  datapackage.json: removed the compression marker from the already-decompressed resources.")
 
 
 def test_connection(

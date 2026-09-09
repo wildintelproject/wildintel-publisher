@@ -114,6 +114,36 @@ def test_resolve_local_source_copies_only_the_four_core_files(camtrapdp_dir, tmp
     assert sorted(p.name for p in result.iterdir()) == ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]
 
 
+def test_resolve_local_source_decompresses_gzipped_tables(camtrapdp_dir, tmp_path):
+    """Regression test: a Trapper export downloaded as a zip and extracted
+    by hand (instead of through 'trapper download', which decompresses
+    on the way in — see trapper.fetch_camtrapdp_package) keeps its tables
+    gzip-compressed. copy_core_camtrapdp_files only looked for the plain
+    .csv names and silently skipped the .gz ones, so the working copy ended
+    up with just datapackage.json and validate_camtrap_dp then failed with
+    an opaque "No such file or directory: .../deployments.csv.gz" — nothing
+    actionable, since datapackage.json still referenced the never-copied
+    table."""
+    import gzip
+
+    source_dir = camtrapdp_dir()
+    original_media_csv = (source_dir / "media.csv").read_bytes()
+    for filename in ("deployments.csv", "media.csv", "observations.csv"):
+        original = source_dir / filename
+        with gzip.open(source_dir / f"{filename}.gz", "wb") as f:
+            f.write(original.read_bytes())
+        original.unlink()
+
+    output_dir = tmp_path / "local-source"
+    result = resolve_local_camtrapdp_source(source_dir, output_dir)
+
+    assert sorted(p.name for p in result.iterdir()) == ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]
+    assert (result / "media.csv").read_bytes() == original_media_csv
+    # the source directory itself is never touched — still gzip-compressed.
+    assert (source_dir / "media.csv.gz").is_file()
+    assert not (source_dir / "media.csv").exists()
+
+
 def test_resolve_local_source_rejects_a_missing_directory(tmp_path):
     with pytest.raises(RuntimeError, match="does not exist"):
         resolve_local_camtrapdp_source(tmp_path / "nope", tmp_path / "output")
