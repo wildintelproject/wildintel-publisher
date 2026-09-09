@@ -6,7 +6,7 @@
    Trapper — only ever a local directory the user already has). #}
 ---
 license: {{ license_id | lower }}
-pretty_name: {{ dataset_name }}
+pretty_name: {{ dataset_name | tojson }}
 ---
 
 # {{ dataset_name }}

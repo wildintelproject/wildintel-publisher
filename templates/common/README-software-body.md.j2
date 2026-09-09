@@ -9,7 +9,7 @@
    vocabulary for what gets published — software has no HFH export). #}
 ---
 license: {{ license_id | lower }}
-pretty_name: {{ dataset_name }}
+pretty_name: {{ dataset_name | tojson }}
 ---
 
 # {{ dataset_name }}
