@@ -33,6 +33,21 @@ def test_url_doi_identifiers_notes_are_absent_by_default(tmp_path):
     assert "identifiers" not in citation
     assert "notes" not in citation
     assert "repository-artifact" not in citation
+    assert "contact" not in citation
+
+
+def test_contact_appears_as_its_own_field_when_given(tmp_path):
+    citation = _write(tmp_path, contact=[{"name": "Contact Person", "affiliation": "Test Org"}])
+
+    assert citation["contact"] == [{"name": "Contact Person", "affiliation": "Test Org"}]
+    # Never folded into authors — CITATION.cff has its own field for this.
+    assert citation["authors"] == [{"name": "Alice", "affiliation": "Org"}]
+
+
+def test_contact_person_style_uses_given_and_family_names(tmp_path):
+    citation = _write(tmp_path, contact=[{"given_names": "Jane", "family_names": "Doe", "affiliation": "Org"}])
+
+    assert citation["contact"] == [{"given-names": "Jane", "family-names": "Doe", "affiliation": "Org"}]
 
 
 def test_url_and_doi_appear_when_given(tmp_path):

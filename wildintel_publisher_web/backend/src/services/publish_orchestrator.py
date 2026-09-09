@@ -179,6 +179,7 @@ def _detect_hfh_repo_id(input_dir: Path) -> str | None:
 
 async def _upload_one(
     cfg: dict, *, input_dir: Path, build_dir: Path, settings, repo_status: dict, dry_run: bool,
+    media_dir: Path | None = None,
 ) -> None:
     """Phase 1 (and re-run as-is during phase 2 for a changed repo, minus
     the 'preparing' half — see _reupload_one): prepare + upload a single
@@ -209,7 +210,7 @@ async def _upload_one(
         await asyncio.to_thread(
             hfh_cli.prepare_hfh_export, input_dir=input_dir, output_dir=build_dir, metadata=settings.HFH,
             version=version or hfh_cli.DEFAULT_VERSION, image_timeout=timeout, overwrite=True,
-            mirror_images=cfg["mirror_images"],
+            mirror_images=cfg["mirror_images"], media_dir=media_dir,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -242,6 +243,7 @@ async def _upload_one(
             fit_archive_size=cfg.get("fit_archive_size", True),
             max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
             min_image_edge=cfg.get("min_image_edge") or zenodo_cli.DEFAULT_MIN_IMAGE_EDGE,
+            media_dir=media_dir,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -262,6 +264,7 @@ async def _upload_one(
             fit_archive_size=cfg.get("fit_archive_size", True),
             max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
             min_image_edge=cfg.get("min_image_edge") or b2share_cli.DEFAULT_MIN_IMAGE_EDGE,
+            media_dir=media_dir,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -473,6 +476,7 @@ async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str,
 
 def start_publish_all_task(
     *, input_dir: Path, repos: list[dict], primary_doi_source: str | None, dry_run: bool = False,
+    media_dir: Path | None = None,
 ) -> str:
     task_id = str(uuid.uuid4())
     _publish_tasks[task_id] = {
@@ -504,6 +508,12 @@ def start_publish_all_task(
                 await _upload_one(
                     cfg, input_dir=current_input_dir, build_dir=build_dir, settings=settings,
                     repo_status=repo_status, dry_run=dry_run,
+                    # media_dir only makes sense for the FIRST repo: from the
+                    # second one onward, current_input_dir is the previous
+                    # repo's own build_dir, which already has any local
+                    # media mirrored into it if applicable (see
+                    # _extract_chain_input below).
+                    media_dir=media_dir if i == 0 else None,
                 )
                 # GBIF never transforms the product (see _upload_one) — the
                 # next repo in the chain keeps whatever input the CURRENT one

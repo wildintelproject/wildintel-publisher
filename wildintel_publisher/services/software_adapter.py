@@ -121,10 +121,13 @@ class SoftwareAdapter:
             )
         return tag
 
-    def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
-        # image_timeout accepted for interface parity with the other
-        # adapters but unused — a software application has no images to
-        # download.
+    def prepare(
+        self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
+        media_dir: Optional[Path] = None,
+    ) -> None:
+        # image_timeout and media_dir accepted for interface parity with the
+        # other adapters but unused — a software application has no images
+        # to download.
         if not mirror:
             # "Link" mode: no source copied — prepare_<repo>_export's own
             # generated README.md/CITATION.cff (written afterwards, on top
@@ -162,7 +165,7 @@ class SoftwareAdapter:
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
         pass  # a software application has no GPS coordinates of its own
 
-    def randomize_media_ids(self, input_dir: Path) -> None:
+    def randomize_media_ids(self, input_dir: Path, *, domain: str = "localhost") -> None:
         pass  # a software application has no mediaID of its own
 
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:

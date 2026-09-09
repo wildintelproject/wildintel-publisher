@@ -17,8 +17,11 @@ vi.mock('../api', () => ({
     softwareCloneStatus: vi.fn(),
     camtrapdpFetchArchiveStart: vi.fn(),
     camtrapdpFetchArchiveStatus: vi.fn(),
+    resolveLocalSource: vi.fn(),
     generateProductMetadata: vi.fn(),
     completeProductMetadata: vi.fn(),
+    datapackageFields: vi.fn(),
+    updateDatapackageFields: vi.fn(),
     datapackageSummary: vi.fn(),
     datapackageDownloadUrl: vi.fn((path: string) => `/api/camtrapdp/download?path=${path}`),
     openFolder: vi.fn(),
@@ -45,8 +48,20 @@ const mockedApi = vi.mocked(api)
 beforeEach(() => {
   vi.clearAllMocks() // call history must not leak between tests (e.g. .not.toHaveBeenCalled() checks)
   mockedApi.trapperGetConfig.mockResolvedValue({ base_url: null, user_name: null, has_password: false })
+  // Identity by default (workingDir === the typed path) so existing local-
+  // source tests, written before the working-copy split, keep passing
+  // unchanged — only a test that cares about the split overrides this.
+  mockedApi.resolveLocalSource.mockImplementation(async (path: string) => (
+    { status: 'valid' as const, workingDir: path, sourceDir: path, error: null }
+  ))
   mockedApi.generateProductMetadata.mockResolvedValue({ authors: [] })
   mockedApi.datapackageSummary.mockResolvedValue({ authors: [] })
+  // The new metadata-editing step (step === 2) fetches these to pre-fill
+  // its form as soon as the source resolves, and patches them back when
+  // "Continue" is clicked — default to a no-op shape so tests that don't
+  // care about this step's own fields aren't forced to mock it themselves.
+  mockedApi.datapackageFields.mockResolvedValue({ name: null, title: null, description: null, version: null, homepage: null })
+  mockedApi.updateDatapackageFields.mockResolvedValue({ ok: true })
   mockedApi.hfhGetConfig.mockResolvedValue({ username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false })
   mockedApi.zenodoGetConfig.mockResolvedValue({
     environment: 'sandbox', communities: null, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false,
@@ -170,6 +185,9 @@ describe('WizardPage download flow', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
     await waitFor(() => expect(screen.getByText('Package downloaded')).toBeInTheDocument())
     expect(screen.getByText('/home/user/Documents/wildintel-publisher/trapper')).toBeInTheDocument()
     expect(mockedApi.trapperStartDownload).toHaveBeenCalledWith(
@@ -227,6 +245,9 @@ describe('WizardPage local directory flow', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
     expect(screen.getByText('Package ready')).toBeInTheDocument()
     expect(screen.getByText('/data/camtrapdp')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /open folder/i })).toBeInTheDocument()
@@ -243,6 +264,9 @@ describe('WizardPage local directory flow', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(screen.getByText('Some details are missing')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled()
@@ -277,6 +301,9 @@ async function reachPublishStep() {
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
+  await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
@@ -299,24 +326,38 @@ async function reachPublishStepYolo() {
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
+  await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
 
 describe('WizardPage coordinate anonymization', () => {
-  it('shows the anonymize-coordinates option once a Camtrap DP source is picked', async () => {
+  // These options moved from the source step to the new metadata step (see
+  // WizardPage's step === 2) — reachable only once a source has actually
+  // resolved, unlike before (when they showed as soon as a source type was
+  // picked, on the same step as source selection).
+  it('shows the anonymize-coordinates option in the metadata step', async () => {
     render(<WizardPage />)
     await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
-    expect(screen.getByText('Anonymize deployment coordinates')).toBeInTheDocument()
+    expect(await screen.findByText('Anonymize deployment coordinates')).toBeInTheDocument()
   })
 
-  it('does not show the anonymize-coordinates option for an AI Dataset', async () => {
+  it('does not show the anonymize-coordinates option in the metadata step for an AI Dataset', async () => {
     render(<WizardPage />)
     await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
+    expect(await screen.findByText('Ready to process this package.')).toBeInTheDocument()
     expect(screen.queryByText('Anonymize deployment coordinates')).not.toBeInTheDocument()
   })
 
@@ -324,6 +365,10 @@ describe('WizardPage coordinate anonymization', () => {
     render(<WizardPage />)
     await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await screen.findByText('Anonymize deployment coordinates')
 
     expect(screen.queryByLabelText(/decimal places/i)).not.toBeInTheDocument()
 
@@ -332,7 +377,7 @@ describe('WizardPage coordinate anonymization', () => {
     expect(screen.getByLabelText(/decimal places/i)).toBeInTheDocument()
   })
 
-  it('sends the chosen anonymize-coordinates setting to generateProductMetadata, once, as preprocessing', async () => {
+  it('sends the chosen anonymize-coordinates setting to generateProductMetadata when Continue is clicked', async () => {
     mockedApi.generateProductMetadata.mockResolvedValue({
       title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
       license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
@@ -343,17 +388,137 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await screen.findByText('Anonymize deployment coordinates')
 
     await userEvent.click(screen.getByRole('checkbox', { name: /anonymize deployment coordinates/i }))
     const decimalsInput = screen.getByLabelText(/decimal places/i)
     await userEvent.clear(decimalsInput)
     await userEvent.type(decimalsInput, '1')
 
-    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalledWith(
-      '/data/camtrapdp', 'camtrapdp', true, 1, false,
+      '/data/camtrapdp', 'camtrapdp', true, 1, false, 'localhost',
     ))
+  })
+})
+
+describe('WizardPage contributors editor', () => {
+  it('always shows the fixed publisher and rights holder rows, even with no other contributors', async () => {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await screen.findByText('Contributors')
+    expect(screen.getByText('WildINTEL')).toBeInTheDocument()
+    expect(screen.getByText('wildintelproject@gmail.com')).toBeInTheDocument()
+    expect(screen.getByText('Rights holder')).toBeInTheDocument()
+    // Defaults to the first option — nothing else to identify a specific
+    // contributor by, so no generic per-contributor row is shown.
+    expect(screen.getByLabelText('Rights holder')).toHaveValue('Institute of Nature Conservation PAS')
+    expect(screen.queryByText('Unnamed contributor')).not.toBeInTheDocument()
+  })
+
+  it('lets the user change only a contributor\'s role, and sends the full array back untouched otherwise', async () => {
+    mockedApi.datapackageFields.mockResolvedValue({
+      name: null, title: null, description: null, version: null, homepage: null,
+      contributors: [
+        { title: 'Alice', email: 'alice@example.org', organization: 'Test Org', role: 'principalInvestigator' },
+        { title: 'Bob', role: 'contributor' },
+      ],
+    })
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await screen.findByText('Alice')
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText('alice@example.org · Test Org')).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText('Role for Alice'), 'contact')
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await waitFor(() => expect(mockedApi.updateDatapackageFields).toHaveBeenCalledWith('/data/camtrapdp', expect.objectContaining({
+      contributors: [
+        { title: 'WildINTEL', email: 'wildintelproject@gmail.com', path: 'https://wildintel.eu/', role: 'publisher' },
+        { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', role: 'rightsHolder' },
+        { title: 'Alice', email: 'alice@example.org', organization: 'Test Org', role: 'contact' },
+        { title: 'Bob', role: 'contributor' },
+      ],
+    })))
+  })
+
+  it('demotes any other publisher/rightsHolder from the source, and pre-selects a matching known rights holder', async () => {
+    mockedApi.datapackageFields.mockResolvedValue({
+      name: null, title: null, description: null, version: null, homepage: null,
+      contributors: [
+        { title: 'Someone Else', role: 'publisher' },
+        { title: 'University of Huelva', role: 'rightsHolder' },
+        { title: 'Alice', role: 'principalInvestigator' },
+      ],
+    })
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await screen.findByText('Alice')
+    // "Someone Else" (the source's own "publisher") is gone from the
+    // generic list — publisher is exclusively WildINTEL.
+    expect(screen.queryByText('Someone Else')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Rights holder')).toHaveValue('University of Huelva')
+    // Warned about the publisher swap (a real change) but not about rights
+    // holder (it already matched a known institution — nothing to warn).
+    expect(screen.getByText(/"Someone Else" was listed as publisher/)).toBeInTheDocument()
+    expect(screen.queryByText(/was listed as rights holder/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await waitFor(() => expect(mockedApi.updateDatapackageFields).toHaveBeenCalledWith('/data/camtrapdp', expect.objectContaining({
+      contributors: [
+        { title: 'WildINTEL', email: 'wildintelproject@gmail.com', path: 'https://wildintel.eu/', role: 'publisher' },
+        { title: 'University of Huelva', path: 'https://www.uhu.es/', role: 'rightsHolder' },
+        { title: 'Alice', role: 'principalInvestigator' },
+      ],
+    })))
+  })
+
+  it('warns when the source\'s rights holder is not one of the selectable institutions', async () => {
+    mockedApi.datapackageFields.mockResolvedValue({
+      name: null, title: null, description: null, version: null, homepage: null,
+      contributors: [{ title: 'Some Other University', role: 'rightsHolder' }],
+    })
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await screen.findByText(/was listed as rights holder/)
+    expect(screen.getByText(/"Some Other University" was listed as rights holder/)).toBeInTheDocument()
+    // Falls back to the first option, since nothing matched.
+    expect(screen.getByLabelText('Rights holder')).toHaveValue('Institute of Nature Conservation PAS')
   })
 })
 
@@ -377,6 +542,9 @@ describe('WizardPage Camtrap DP archive flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(screen.getByText('Package downloaded')).toBeInTheDocument())
     expect(screen.getByText('/home/user/Documents/wildintel-publisher/camtrapdp-archive/camtrapdp-remote')).toBeInTheDocument()
@@ -429,6 +597,9 @@ describe('WizardPage Camtrap DP archive flow', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
@@ -464,12 +635,15 @@ async function reachPublishStepSoftware() {
   await vi.advanceTimersByTimeAsync(2000)
   vi.useRealTimers()
 
+  await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 }
 
 describe('WizardPage metadata errors', () => {
-  it('shows the error and keeps Next disabled when generateProductMetadata fails (e.g. a git clone with no CITATION.cff)', async () => {
+  it('shows the error and stays on the metadata step when generateProductMetadata fails (e.g. a git clone with no CITATION.cff)', async () => {
     mockedApi.generateProductMetadata.mockRejectedValue(
       new Error('/repo has no CITATION.cff — a software application product must provide one at its repository root.'),
     )
@@ -489,8 +663,12 @@ describe('WizardPage metadata errors', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
     expect(await screen.findByText(/has no CITATION\.cff/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled()
+    // Still on the metadata step — never advanced to the download-result step.
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
   })
 
   async function reachConfirmPackageSoftware() {
@@ -510,7 +688,8 @@ describe('WizardPage metadata errors', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
   }
 
   it('confirms the checked-out tag when it matches CITATION.cff\'s version', async () => {

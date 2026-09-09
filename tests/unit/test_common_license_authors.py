@@ -1,10 +1,12 @@
-"""Unit tests for services.common.resolve_license/resolve_authors/format_apa_*."""
+"""Unit tests for services.common.resolve_license/resolve_authors/
+resolve_contact/format_apa_*."""
 import pytest
 
 from wildintel_publisher.services.common import (
     format_apa_author,
     format_apa_citation,
     resolve_authors,
+    resolve_contact,
     resolve_license,
 )
 
@@ -56,6 +58,45 @@ def test_resolve_authors_raises_when_no_named_contributor():
 def test_resolve_authors_raises_when_empty():
     with pytest.raises(RuntimeError):
         resolve_authors([])
+
+
+def test_resolve_authors_treats_a_missing_role_as_contributor():
+    # Camtrap DP's own default for an unset role.
+    assert resolve_authors([{"title": "No Role"}]) == [{"name": "No Role", "affiliation": ""}]
+
+
+def test_resolve_authors_excludes_contact_publisher_and_rights_holder():
+    contributors = [
+        {"title": "Contact Person", "role": "contact"},
+        {"title": "WildINTEL", "role": "publisher"},
+        {"title": "Some University", "role": "rightsHolder"},
+        {"title": "The PI", "role": "principalInvestigator"},
+    ]
+    assert resolve_authors(contributors) == [{"name": "The PI", "affiliation": ""}]
+
+
+def test_resolve_authors_raises_when_only_contact_publisher_or_rights_holder():
+    contributors = [
+        {"title": "Contact Person", "role": "contact"},
+        {"title": "WildINTEL", "role": "publisher"},
+        {"title": "Some University", "role": "rightsHolder"},
+    ]
+    with pytest.raises(RuntimeError, match="no 'contributor' with a name"):
+        resolve_authors(contributors)
+
+
+def test_resolve_contact_returns_only_contact_role_contributors():
+    contributors = [
+        {"title": "Contact Person", "email": "contact@example.org", "role": "contact"},
+        {"title": "The PI", "role": "principalInvestigator"},
+        {"title": "WildINTEL", "role": "publisher"},
+    ]
+    assert resolve_contact(contributors) == [{"name": "Contact Person", "affiliation": ""}]
+
+
+def test_resolve_contact_returns_empty_list_when_none_and_never_raises():
+    assert resolve_contact([{"title": "The PI", "role": "principalInvestigator"}]) == []
+    assert resolve_contact([]) == []
 
 
 def test_format_apa_author_entity_uses_name_as_is():

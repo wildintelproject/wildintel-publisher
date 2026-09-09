@@ -9,7 +9,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from schemas.requests import GenerateMetadataRequest, OpenFolderRequest, UpdateMetadataRequest
+from schemas.requests import (
+    GenerateMetadataRequest, OpenFolderRequest, UpdateDatapackageRequest, UpdateMetadataRequest,
+)
 from services import camtrapdp_service
 
 router = APIRouter(prefix="/api/camtrapdp", tags=["camtrapdp"])
@@ -27,7 +29,7 @@ def generate_metadata(req: GenerateMetadataRequest) -> dict:
         return camtrapdp_service.generate_metadata(
             req.product_type, Path(req.input_dir),
             anonymize_coordinates=req.anonymize_coordinates, coordinate_decimals=req.coordinate_decimals,
-            randomize_media_ids=req.randomize_media_ids,
+            randomize_media_ids=req.randomize_media_ids, media_id_domain=req.media_id_domain,
         )
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -45,6 +47,31 @@ def complete_metadata(req: UpdateMetadataRequest) -> dict:
         return camtrapdp_service.update_metadata(Path(req.input_dir), updates)
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/datapackage-fields")
+def datapackage_fields(path: str) -> dict:
+    """name/title/description/version/homepage/contributors straight from
+    <path>/datapackage.json itself — unlike /summary above, works even
+    before generate-metadata has ever run (no metadata.json needed), so the
+    wizard's metadata-editing step can pre-fill its form right after the
+    source is downloaded/resolved."""
+    return camtrapdp_service.read_datapackage_fields(Path(path))
+
+
+@router.post("/update-datapackage")
+def update_datapackage(req: UpdateDatapackageRequest) -> dict:
+    """Patches <req.input_dir>/datapackage.json itself (not metadata.json —
+    see /complete-metadata above) with whatever fields are provided. Meant
+    to be called BEFORE /generate-metadata (see
+    services.common.update_datapackage_fields's docstring for why that
+    ordering is enough to sync metadata.json for free)."""
+    updates = req.model_dump(exclude={"input_dir"}, exclude_none=True)
+    try:
+        camtrapdp_service.update_datapackage(Path(req.input_dir), updates)
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
 
 
 @router.get("/summary")

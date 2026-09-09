@@ -7,6 +7,7 @@ import LocalDirectoryForm from './LocalDirectoryForm'
 vi.mock('../api', () => ({
   api: {
     generateProductMetadata: vi.fn(),
+    resolveLocalSource: vi.fn(),
     fsBrowse: vi.fn(),
   },
 }))
@@ -19,19 +20,25 @@ function renderForm(onSelectionChange = vi.fn()) {
 }
 
 describe('LocalDirectoryForm', () => {
-  it('reports the path once metadata.json is generated successfully', async () => {
+  it('reports the working dir (and original path) once metadata.json is generated successfully', async () => {
+    mockedApi.resolveLocalSource.mockResolvedValue({
+      status: 'valid', workingDir: '/app/local-source/abc123', sourceDir: '/data/camtrapdp', error: null,
+    })
     mockedApi.generateProductMetadata.mockResolvedValue({ title: 'My Camtrap DP', authors: [] })
     const onSelectionChange = renderForm()
 
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
 
     await waitFor(() => expect(screen.getByText('My Camtrap DP')).toBeInTheDocument())
-    expect(onSelectionChange).toHaveBeenLastCalledWith('/data/camtrapdp')
-    expect(mockedApi.generateProductMetadata).toHaveBeenLastCalledWith('/data/camtrapdp', 'camtrapdp')
+    expect(mockedApi.resolveLocalSource).toHaveBeenLastCalledWith('/data/camtrapdp')
+    expect(mockedApi.generateProductMetadata).toHaveBeenLastCalledWith('/app/local-source/abc123', 'camtrapdp')
+    expect(onSelectionChange).toHaveBeenLastCalledWith({ path: '/app/local-source/abc123', sourcePath: '/data/camtrapdp' })
   })
 
-  it('shows an error and does not report a selection when the directory is invalid', async () => {
-    mockedApi.generateProductMetadata.mockRejectedValue(new Error('datapackage.json not found.'))
+  it('shows an error and does not report a selection when the directory is not a valid Camtrap DP', async () => {
+    mockedApi.resolveLocalSource.mockResolvedValue({
+      status: 'invalid', workingDir: null, sourceDir: '/not/a/camtrapdp', error: 'datapackage.json not found.',
+    })
     const onSelectionChange = renderForm()
 
     await userEvent.type(screen.getByLabelText('Directory'), '/not/a/camtrapdp')

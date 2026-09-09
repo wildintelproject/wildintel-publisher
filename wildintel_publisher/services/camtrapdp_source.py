@@ -1,18 +1,22 @@
-"""Fetches a Camtrap DP product from a public URL pointing to a zip
-archive — this product type's third way of obtaining its raw source,
-alongside a Trapper fetch (trapper.py) or an already-local directory (see
-services.camtrapdp_adapter).
+"""Obtains a Camtrap DP product's raw source when it's a public URL pointing
+to a zip archive, or an already-local directory — two of this product
+type's three ways of obtaining its raw source, alongside a Trapper fetch
+(trapper.py).
 
-Reuses the same download/zip/validate steps as
+fetch_camtrap_dp_archive() reuses the same download/zip/validate steps as
 services.gbif.validate_camtrap_dp_archive (which only checks a
 --archive-url upfront, in a throwaway temp dir), but PERSISTS the extracted
 directory instead of discarding it — the whole point here is to keep what
 gets fetched, since the URL used to fetch it is then directly reusable as
 GBIF's own --archive-url (already confirmed public and a valid Camtrap DP,
 by the same validation this module runs on the way in).
-"""
+
+resolve_local_camtrapdp_source() gives the local-directory case the same
+"never touch the original" property those two already have — see its own
+docstring."""
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import tempfile
@@ -34,6 +38,41 @@ def _slug_from_url(url: str) -> str:
     name = re.sub(r"\.zip$", "", name, flags=re.IGNORECASE)
     name = re.sub(r"[^\w.-]", "-", name).strip("-")
     return name or "camtrapdp"
+
+
+def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
+    """Takes a local directory the user pointed at as a Camtrap DP source
+    and returns a working COPY of just its core files (datapackage.json +
+    deployments/media/observations.csv) under output_dir/<slug> — never the
+    original `source_dir` itself, so the rest of the pipeline
+    (generate_metadata_json's validate/anonymize/randomize, all of which
+    mutate their input in place) never touches the user's own files. Any
+    media referenced by relative path in media.csv is deliberately NOT
+    copied here — it stays at `source_dir`, read from there later (only) by
+    the mirror step, via ProductAdapter.prepare's own media_dir parameter.
+
+    Always re-copies from scratch (no caching): these are a handful of small
+    CSV/JSON files, cheap to redo, and caching would risk serving a stale
+    copy if the user edits their original files between calls.
+
+    Raises:
+        RuntimeError: if `source_dir` doesn't exist or isn't a directory, or
+        if the copied core files don't pass Camtrap DP validation
+        (frictionless) — same failure mode as fetch_camtrap_dp_archive.
+    """
+    if not source_dir.is_dir():
+        raise RuntimeError(f"{source_dir} does not exist or is not a directory.")
+
+    slug = hashlib.sha1(str(source_dir.resolve()).encode("utf-8")).hexdigest()[:16]
+    destination = output_dir / slug
+
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    common.copy_core_camtrapdp_files(source_dir, destination)
+    common.validate_camtrap_dp(destination)
+
+    return destination
 
 
 def fetch_camtrap_dp_archive(

@@ -1,4 +1,4 @@
-import type { BrowseResult, ClassificationProject, DatapackageSummary, Deployment, OutputMode, ResearchProject } from './types'
+import type { BrowseResult, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment, OutputMode, ResearchProject } from './types'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
   const r = await fetch(url, options)
@@ -81,23 +81,54 @@ export const api = {
       `/api/camtrapdp/fetch-archive/${taskId}`,
     ),
 
+  // Copies path's core Camtrap DP files (datapackage.json + its 3 tables —
+  // never any media) into an app-owned working directory and validates it.
+  // Synchronous, unlike fetch-archive/Trapper's download above: it's just a
+  // few small local files, not a network fetch. workingDir is what the rest
+  // of the wizard should use as input_dir from here on; sourceDir (== path)
+  // is kept only so media.csv's locally-referenced images can still be
+  // found later, at the actual publish step (see mediaDir in
+  // publishAllStart below) — never copied here.
+  resolveLocalSource: (path: string) =>
+    post<{ status: 'valid' | 'invalid'; workingDir: string | null; sourceDir: string; error: string | null }>(
+      '/api/camtrapdp/resolve-local-source', { path },
+    ),
+
   // anonymizeCoordinates/coordinateDecimals (Camtrap DP only) round
   // deployments.csv's latitude/longitude in inputDir itself, once, here —
   // see WizardPage's anonymizeCoordinates/coordinateDecimals state.
   // randomizeMediaIds (Camtrap DP only) replaces every mediaID that isn't
-  // already a UUID, same "applied once here" shape.
+  // already a UUID with one derived from mediaIdDomain, same "applied once
+  // here" shape — see WizardPage's mediaIdDomain state.
   generateProductMetadata: (
     inputDir: string, productType: string,
     anonymizeCoordinates = false, coordinateDecimals = 2, randomizeMediaIds = false,
+    mediaIdDomain = 'localhost',
   ) =>
     post<DatapackageSummary>('/api/camtrapdp/generate-metadata', {
       input_dir: inputDir, product_type: productType,
       anonymize_coordinates: anonymizeCoordinates, coordinate_decimals: coordinateDecimals,
-      randomize_media_ids: randomizeMediaIds,
+      randomize_media_ids: randomizeMediaIds, media_id_domain: mediaIdDomain,
     }),
 
   completeProductMetadata: (inputDir: string, updates: Partial<Omit<DatapackageSummary, 'product_type' | 'hfh_repo_id'>>) =>
     post<DatapackageSummary>('/api/camtrapdp/complete-metadata', { input_dir: inputDir, ...updates }),
+
+  // Camtrap DP only — reads/patches datapackage.json ITSELF (not
+  // metadata.json, see generateProductMetadata/completeProductMetadata
+  // above). datapackageFields works even before generateProductMetadata
+  // has ever run (no metadata.json needed yet), so the wizard's new
+  // metadata-editing step can pre-fill its form right after the source is
+  // downloaded/resolved. updateDatapackageFields is meant to be called
+  // BEFORE generateProductMetadata: CamtrapDPAdapter.extract_metadata
+  // re-reads these same fields from datapackage.json every time it runs,
+  // so patching first is enough for metadata.json (and everything
+  // generated from it) to pick up the new values, with no separate write.
+  datapackageFields: (path: string) =>
+    req<DatapackageFields>(`/api/camtrapdp/datapackage-fields?path=${encodeURIComponent(path)}`),
+
+  updateDatapackageFields: (inputDir: string, updates: DatapackageFields) =>
+    post<{ ok: boolean }>('/api/camtrapdp/update-datapackage', { input_dir: inputDir, ...updates }),
 
   datapackageSummary: (path: string) =>
     req<DatapackageSummary>(`/api/camtrapdp/summary?path=${encodeURIComponent(path)}`),
@@ -298,6 +329,12 @@ export const api = {
   // wizard no longer sequences each repo's own start/poll cycle itself.
   publishAllStart: (params: {
     inputDir: string
+    // Where locally-referenced media (media.csv's filePath, non-URL
+    // entries) actually lives — only different from inputDir for a local
+    // Camtrap DP source, where inputDir is a working copy of just the core
+    // files (see resolveLocalSource above) and the real media stayed at
+    // this original path. Undefined/omitted for every other source type.
+    mediaDir?: string
     version?: string
     timeout?: number
     primaryDoiSource?: 'zenodo' | 'b2share'
@@ -332,6 +369,7 @@ export const api = {
   }) =>
     post<{ task_id: string }>('/api/publish/start', {
       input_dir: params.inputDir,
+      media_dir: params.mediaDir || null,
       version: params.version,
       timeout: params.timeout,
       primary_doi_source: params.primaryDoiSource,

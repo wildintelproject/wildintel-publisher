@@ -127,6 +127,7 @@ def prepare_b2share_export(
     fit_archive_size: bool = True,
     max_zip_bytes: Optional[int] = None,
     min_image_edge: int = DEFAULT_MIN_IMAGE_EDGE,
+    media_dir: Optional[Path] = None,
 ) -> Path:
     """Copia el producto de `input_dir` a `output_dir` (vía el ProductAdapter
     de su tipo, leído de `input_dir`/metadata.json) — mismos tres modos que
@@ -198,7 +199,7 @@ def prepare_b2share_export(
     common.ensure_output_dir(output_dir, overwrite=overwrite)
 
     console.print(f"Copying the product from {input_dir} to {output_dir} ...")
-    adapter.prepare(input_dir, output_dir, mirror=self_contained, image_timeout=image_timeout)
+    adapter.prepare(input_dir, output_dir, mirror=self_contained, image_timeout=image_timeout, media_dir=media_dir)
     product.copy_metadata_json(input_dir, output_dir)
 
     if not self_contained and hfh_repo_id:
@@ -210,6 +211,7 @@ def prepare_b2share_export(
     resolved_version = product_meta.get("version") or version
     license = product_meta["license"]
     authors = product_meta["authors"]
+    contact = product_meta.get("contact") or []
     date_released = datetime.now().date().isoformat()
 
     write_readme(
@@ -225,7 +227,7 @@ def prepare_b2share_export(
     common.write_citation(
         CITATION_TEMPLATE_FILE, output_dir,
         title=title, message="If you use this dataset, please cite it as below.",
-        authors=authors, version=resolved_version, date_released=date_released,
+        authors=authors, contact=contact, version=resolved_version, date_released=date_released,
         license_id=license["id"],
         repository_code="https://github.com/wildintelproject/wildintel-publisher",
     )

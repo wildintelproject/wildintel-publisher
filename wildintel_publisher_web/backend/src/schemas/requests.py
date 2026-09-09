@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -67,6 +67,16 @@ class CamtrapDPArchiveFetchRequest(BaseModel):
     clear_cache: bool = False
 
 
+class LocalSourceResolveRequest(BaseModel):
+    # Raw path the user typed/picked for a local Camtrap DP source — never
+    # used directly as input_dir afterwards (see services.camtrapdp_source.
+    # resolve_local_camtrapdp_source): only its core files get copied into a
+    # working directory the app owns, so later steps (generate-metadata's
+    # anonymize/randomize, which mutate their input in place) never touch
+    # this original path.
+    path: str
+
+
 class GenerateMetadataRequest(BaseModel):
     # Which services.product.ProductAdapter to validate/extract metadata
     # with — "camtrapdp" or "yolo" today (see services.product.get_adapter).
@@ -82,12 +92,18 @@ class GenerateMetadataRequest(BaseModel):
     anonymize_coordinates: bool = False
     coordinate_decimals: int = 2
     # Camtrap DP only — replaces every mediaID in media.csv (and matching
-    # observations.csv references) that isn't already a UUID with a freshly
-    # generated one, in input_dir itself, before metadata is extracted.
-    # Same "applied once here" shape as anonymize_coordinates, and just as
-    # safe to call again later (a mediaID that's already a UUID is left
-    # alone). See wildintel_publisher.services.common.randomize_media_ids.
+    # observations.csv references) that isn't already a UUID with one
+    # derived from media_id_domain, in input_dir itself, before metadata is
+    # extracted. Same "applied once here" shape as anonymize_coordinates,
+    # and just as safe to call again later (a mediaID that's already a UUID
+    # is left alone). See wildintel_publisher.services.common.randomize_media_ids.
     randomize_media_ids: bool = False
+    # Namespace for the UUIDs randomize_media_ids derives — typically the
+    # domain of the Trapper server or public URL this product came from
+    # (the wizard auto-fills this from the chosen source), so two different
+    # sources' own numbering never collides. "localhost" by default for a
+    # local-directory source, where there's no server domain to use.
+    media_id_domain: str = "localhost"
 
 
 class UpdateMetadataRequest(BaseModel):
@@ -102,6 +118,34 @@ class UpdateMetadataRequest(BaseModel):
     license: Optional[ProductLicense] = None
     authors: Optional[list[ProductAuthor]] = None
     homepage: Optional[str] = None
+
+
+class UpdateDatapackageRequest(BaseModel):
+    # Camtrap DP only — patches datapackage.json ITSELF (not metadata.json,
+    # see UpdateMetadataRequest above) with whatever fields the caller
+    # provides, only those. Meant to run BEFORE generate-metadata (see
+    # /generate-metadata below): CamtrapDPAdapter.extract_metadata re-reads
+    # these same fields from datapackage.json every time it runs, so
+    # patching first is enough for metadata.json (and everything generated
+    # from it — README.md, CITATION.cff, Zenodo/B2SHARE/HFH records) to pick
+    # up the new values with no separate sync step. See
+    # wildintel_publisher.services.common.update_datapackage_fields.
+    input_dir: str
+    # Data Package's own machine-readable slug identifier — distinct from
+    # "title" (the human-readable one) and not part of metadata.json's own
+    # schema, since nothing in the publish pipeline reads it from there.
+    name: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    homepage: Optional[str] = None
+    version: Optional[str] = None
+    # The full contributors array, sent back as-is except for whatever the
+    # wizard's "change role only" editor actually changed — each entry is
+    # datapackage.json's own contributor object (title/email/organization/
+    # role/...) untouched, so nothing beyond role is ever lost on round-trip.
+    # Not validated against Camtrap DP's 5-value role enum here — the
+    # frontend's <select> already constrains it to a valid value.
+    contributors: Optional[list[dict[str, Any]]] = None
 
 
 class HFHTestTokenRequest(BaseModel):
@@ -265,6 +309,15 @@ class PublishAllRequest(BaseModel):
     populate pass (see services.doi_populate), and only THEN release/lock
     ALL of them — see services.publish_orchestrator for the full flow."""
     input_dir: str
+    # Where to actually read locally-referenced media (media.csv's filePath,
+    # for entries that aren't a plain URL) from when preparing the FIRST
+    # repo in `repos` — distinct from input_dir only for a local-directory
+    # Camtrap DP source, where input_dir is itself just a working copy of
+    # the small core files (see services.camtrapdp_source.
+    # resolve_local_camtrapdp_source) and the actual media still lives at
+    # the original path the user picked. None for every other source type
+    # (URL/Trapper/git), where input_dir already is that place.
+    media_dir: Optional[str] = None
     version: Optional[str] = None
     timeout: Optional[int] = None
     repos: list[RepoPublishConfig]

@@ -117,7 +117,7 @@ async def start(req: PublishAllRequest) -> dict:
 
     task_id = publish_orchestrator.start_publish_all_task(
         input_dir=Path(req.input_dir), repos=resolved_repos, primary_doi_source=req.primary_doi_source,
-        dry_run=req.dry_run,
+        dry_run=req.dry_run, media_dir=Path(req.media_dir) if req.media_dir else None,
     )
     return {"task_id": task_id}
 

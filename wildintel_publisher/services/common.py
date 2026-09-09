@@ -88,6 +88,19 @@ def ensure_output_dir(output_dir: Path, *, overwrite: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
+def copy_core_camtrapdp_files(source_dir: Path, target_dir: Path) -> None:
+    """Copia a `target_dir` los CORE_CAMTRAPDP_FILES presentes en
+    `source_dir` (datapackage.json + sus 3 tablas) — nada más, en particular
+    ninguna imagen/vídeo. Ficheros ausentes en `source_dir` se saltan en
+    silencio (mismo criterio que el resto del pipeline: no todo camtrapdp
+    trae las 3 tablas)."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for filename in CORE_CAMTRAPDP_FILES:
+        source = source_dir / filename
+        if source.is_file():
+            shutil.copy2(source, target_dir / filename)
+
+
 _jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_ROOT)),
     trim_blocks=True, lstrip_blocks=True,
@@ -219,7 +232,7 @@ def validate_camtrap_dp(output_dir: Path, *, patch_missing_profile: bool = True)
 
 
 def read_datapackage_metadata(output_dir: Path) -> dict:
-    """Lee title/description/version/licenses/contributors/homepage de
+    """Lee name/title/description/version/licenses/contributors/homepage de
     datapackage.json, si existe y es válido."""
     datapackage_path = output_dir / DATAPACKAGE_FILENAME
     if not datapackage_path.is_file():
@@ -228,11 +241,30 @@ def read_datapackage_metadata(output_dir: Path) -> dict:
         data = json.loads(datapackage_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
-    result = {key: data[key] for key in ("title", "description", "version") if data.get(key)}
+    result = {key: data[key] for key in ("name", "title", "description", "version") if data.get(key)}
     result["licenses"] = data.get("licenses") or []
     result["contributors"] = data.get("contributors") or []
     result["homepage"] = data.get("homepage")
     return result
+
+
+def update_datapackage_fields(output_dir: Path, updates: dict) -> None:
+    """Merges `updates` (only the keys actually present, e.g.
+    name/title/description/homepage/version) into datapackage.json,
+    preserving everything else already there — same read-mutate-rewrite
+    pattern as write_homepage below and trapper._fix_datapackage_license.
+
+    Edited here rather than in metadata.json (see product.update_metadata_json)
+    because datapackage.json is the Camtrap DP's own source of truth for
+    these fields — CamtrapDPAdapter.extract_metadata re-reads them from here
+    every time generate_metadata_json runs, so calling this BEFORE that (see
+    the web wizard's own metadata-editing step) is enough for metadata.json,
+    and everything generated from it (README.md, CITATION.cff, Zenodo/
+    B2SHARE/HFH records), to pick up the new values with no extra syncing."""
+    datapackage_path = output_dir / DATAPACKAGE_FILENAME
+    data = json.loads(datapackage_path.read_text(encoding="utf-8"))
+    data.update({key: value for key, value in updates.items() if value is not None})
+    datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def write_homepage(output_dir: Path, url: str) -> None:
@@ -244,10 +276,7 @@ def write_homepage(output_dir: Path, url: str) -> None:
     B2SHARE) can detect it instead of asking the user to retype it. Not
     called in link mode: media stays wherever it already was (e.g. Trapper),
     so this HFH repo isn't really the media's home."""
-    datapackage_path = output_dir / DATAPACKAGE_FILENAME
-    data = json.loads(datapackage_path.read_text(encoding="utf-8"))
-    data["homepage"] = url
-    datapackage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    update_datapackage_fields(output_dir, {"homepage": url})
 
 
 def resolve_license(licenses: list) -> dict:
@@ -279,6 +308,9 @@ def resolve_license(licenses: list) -> dict:
     )
 
 
+_CITATION_AUTHOR_ROLES = {"principalInvestigator", "contributor"}
+
+
 def resolve_authors(contributors: list) -> list:
     """Convierte los contributors de datapackage.json (title/organization,
     nombre completo sin separar en nombre/apellidos — ver get_contributors()
@@ -287,12 +319,22 @@ def resolve_authors(contributors: list) -> list:
     tiene administradores configurados — hay que arreglarlo ahí, no
     sustituirlo aquí por un autor genérico.
 
+    Solo se incluyen los contributors cuyo role sea "principalInvestigator"
+    o "contributor" (o no tenga role, el valor por defecto de Camtrap DP
+    para "contributor") — "contact" tiene su propio campo en CITATION.cff
+    (ver resolve_contact) y "publisher"/"rightsHolder" no tienen ningún
+    campo equivalente ahí, así que no tiene sentido citarlos como autores.
+
     Raises:
-        RuntimeError: si no hay ningún contributor con nombre.
+        RuntimeError: si no queda ningún contributor con nombre después de
+        ese filtro.
     """
     authors = []
     for contributor in contributors:
         if not isinstance(contributor, dict):
+            continue
+        role = contributor.get("role") or "contributor"
+        if role not in _CITATION_AUTHOR_ROLES:
             continue
         name = contributor.get("title")
         if not name:
@@ -303,9 +345,28 @@ def resolve_authors(contributors: list) -> list:
         return authors
 
     raise RuntimeError(
-        "datapackage.json has no 'contributor' with a name — configure the administrators "
-        "of the classification project in Trapper (get_contributors() derives them from there)."
+        "datapackage.json has no 'contributor' with a name and a role of 'principalInvestigator' "
+        "or 'contributor' — configure the administrators of the classification project in Trapper "
+        "(get_contributors() derives them from there), or adjust contributor roles in the wizard."
     )
+
+
+def resolve_contact(contributors: list) -> list:
+    """Convierte los contributors de datapackage.json cuyo role sea
+    exactamente "contact" en entradas "entity" para el campo `contact` de
+    CITATION.cff — a diferencia de resolve_authors, estos NO se incluyen
+    también como autores (el propio CITATION.cff ya tiene un campo
+    específico para esto). Lista vacía (nunca error) si no hay ninguno —
+    `contact` es opcional en CITATION.cff, a diferencia de `authors`."""
+    contacts = []
+    for contributor in contributors:
+        if not isinstance(contributor, dict) or contributor.get("role") != "contact":
+            continue
+        name = contributor.get("title")
+        if not name:
+            continue
+        contacts.append({"name": name, "affiliation": contributor.get("organization") or ""})
+    return contacts
 
 
 def keep_only_public_media(output_dir: Path) -> set:
@@ -403,14 +464,23 @@ def anonymize_deployment_coordinates(output_dir: Path, *, decimals: int = DEFAUL
     return rounded
 
 
-def randomize_media_ids(output_dir: Path) -> int:
-    """Reemplaza en media.csv cualquier mediaID que no sea ya un UUID4 válido
-    por uno recién generado (uuid.uuid4()), y actualiza toda referencia
-    coincidente en observations.csv para que el enlace entre ambas tablas
-    siga intacto — así los mediaID publicados no delatan la convención de
-    numeración original (ids secuenciales, o derivados del propio id interno
-    de Trapper) y quedan garantizados como únicos si estos datos acaban
-    integrándose con los de otro proyecto/repositorio.
+def randomize_media_ids(output_dir: Path, *, domain: str = "localhost") -> int:
+    """Reemplaza en media.csv cualquier mediaID que no sea ya un UUID válido
+    por uno determinista — uuid.uuid5(uuid.NAMESPACE_URL, f"{domain}:{old_id}") —,
+    y actualiza toda referencia coincidente en observations.csv para que el
+    enlace entre ambas tablas siga intacto — así los mediaID publicados no
+    delatan la convención de numeración original (ids secuenciales, o
+    derivados del propio id interno de Trapper).
+
+    `domain` es lo que de verdad garantiza que dos fuentes DISTINTAS con el
+    mismo mediaID numérico original no colisionen (el propio mediaID
+    original, sin más, no lo garantiza — dos repositorios distintos pueden
+    asignar "1", "2", "3"...) — normalmente el dominio del servidor Trapper o
+    de la URL pública de origen (ver el campo "Media ID domain" del wizard
+    web). Por ser determinista, además, volver a procesar la MISMA fuente
+    (mismo domain + mismo mediaID original) reproduce siempre el mismo UUID
+    — a diferencia de un uuid4() puramente aleatorio, que cambiaría en cada
+    pasada aunque la foto real sea la misma.
 
     Solo toca los mediaID que aún NO son un UUID válido — de ahí que sea
     idempotente (una segunda pasada no vuelve a generar otros distintos, a
@@ -443,7 +513,7 @@ def randomize_media_ids(output_dir: Path) -> int:
             continue  # already a valid UUID — leave it as-is
         except ValueError:
             pass
-        new_id = str(uuid.uuid4())
+        new_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{domain}:{old_id}"))
         id_map[old_id] = new_id
         row[MEDIA_ID_COLUMN] = new_id
 
@@ -451,7 +521,7 @@ def randomize_media_ids(output_dir: Path) -> int:
         return 0
 
     write_csv(media_csv, fieldnames, rows)
-    console.print(f"  {MEDIA_CSV_FILENAME}: {len(id_map)} mediaID(s) replaced with random UUIDs.")
+    console.print(f"  {MEDIA_CSV_FILENAME}: {len(id_map)} mediaID(s) replaced with UUIDs derived from {domain!r}.")
 
     observations_csv = output_dir / OBSERVATIONS_CSV_FILENAME
     if observations_csv.is_file():
@@ -516,6 +586,7 @@ def write_citation(
     template_file: Path, output_dir: Path, *,
     title: str, message: str, authors: list, version: str, date_released: str,
     license_id: str, repository_code: str,
+    contact: list | None = None,
     url: str | None = None, doi: str | None = None,
     identifiers: list | None = None, notes: str | None = None,
 ) -> Path:
@@ -527,7 +598,11 @@ def write_citation(
     get filled in afterwards by patching the already-written YAML directly
     (see hfh.py's _patch_citation_with_repo_id, zenodo.py's
     _patch_citation_with_doi, b2share.py's _patch_citation_with_pid) —
-    never through a second call to this function."""
+    never through a second call to this function.
+
+    contact (Camtrap DP only — see resolve_contact) is CITATION.cff's own
+    "contact" field, distinct from "authors" — empty/None just omits the
+    field, since it's optional there."""
     path = output_dir / "CITATION.cff"
     text = render_text_template(
         template_file,
@@ -536,6 +611,7 @@ def write_citation(
         message=message,
         citation_type="dataset",
         authors=authors,
+        contact=contact,
         version=version,
         date_released=date_released,
         license_id=license_id,

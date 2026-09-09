@@ -53,8 +53,21 @@ def _require(tool: str, hint: str) -> None:
         raise typer.Exit(1)
 
 
+def _ensure_frontend_deps() -> None:
+    """`npm install` es fácil de olvidar (no lo marca `_require`, que solo
+    comprueba que el propio `npm` exista) — si falta, 'npm run dev' falla a
+    medias con 'vite: orden no encontrada' en vez de un error claro. Se
+    comprueba/instala aquí, antes de cualquier comando `npm` del frontend,
+    para que este paso nunca dependa de que alguien haya leído el README."""
+    if (FRONTEND_DIR / "node_modules").is_dir():
+        return
+    console.print("[yellow]frontend/node_modules no encontrado — instalando dependencias (npm install)...[/yellow]")
+    _run("npm", "install", cwd=FRONTEND_DIR)
+
+
 def _npm(*args: str) -> None:
     _require("npm", "Instala Node.js desde https://nodejs.org/ (v18+)")
+    _ensure_frontend_deps()
     _run("npm", *args, cwd=FRONTEND_DIR)
 
 
@@ -165,6 +178,7 @@ def dev(
 ) -> None:
     """Arranca backend y frontend simultáneamente en modo desarrollo."""
     _require("npm", "Instala Node.js desde https://nodejs.org/ (v18+)")
+    _ensure_frontend_deps()
     effective_port = backend_port or settings.port
 
     console.print(Panel(

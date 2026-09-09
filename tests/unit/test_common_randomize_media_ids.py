@@ -91,6 +91,36 @@ def test_noop_when_media_csv_has_no_media_id_column(tmp_path):
     assert randomize_media_ids(tmp_path) == 0
 
 
+def test_same_domain_and_original_id_always_produce_the_same_uuid(tmp_path):
+    """The whole point of deriving from `domain`: re-processing the same
+    source (same domain + same original mediaID) must reproduce the exact
+    same UUID — unlike a purely random uuid4(), which would differ every
+    time even for the same underlying photo."""
+    _write_csv(tmp_path / "a" / "media.csv", ["mediaID", "fileName"], [{"mediaID": "img001", "fileName": "a.jpg"}])
+    _write_csv(tmp_path / "b" / "media.csv", ["mediaID", "fileName"], [{"mediaID": "img001", "fileName": "a.jpg"}])
+
+    randomize_media_ids(tmp_path / "a", domain="trapper.example")
+    randomize_media_ids(tmp_path / "b", domain="trapper.example")
+
+    id_a = _read_csv(tmp_path / "a" / "media.csv")[0]["mediaID"]
+    id_b = _read_csv(tmp_path / "b" / "media.csv")[0]["mediaID"]
+    assert id_a == id_b
+
+
+def test_different_domains_produce_different_uuids_for_the_same_original_id(tmp_path):
+    """Two different sources that happen to reuse the same original
+    mediaID (e.g. both start numbering from 1) must never collide."""
+    _write_csv(tmp_path / "a" / "media.csv", ["mediaID", "fileName"], [{"mediaID": "1", "fileName": "a.jpg"}])
+    _write_csv(tmp_path / "b" / "media.csv", ["mediaID", "fileName"], [{"mediaID": "1", "fileName": "a.jpg"}])
+
+    randomize_media_ids(tmp_path / "a", domain="trapper-one.example")
+    randomize_media_ids(tmp_path / "b", domain="trapper-two.example")
+
+    id_a = _read_csv(tmp_path / "a" / "media.csv")[0]["mediaID"]
+    id_b = _read_csv(tmp_path / "b" / "media.csv")[0]["mediaID"]
+    assert id_a != id_b
+
+
 def test_noop_when_observations_csv_has_no_media_id_column(tmp_path):
     _write_csv(tmp_path / "media.csv", ["mediaID", "fileName"], [{"mediaID": "img001", "fileName": "a.jpg"}])
     _write_csv(tmp_path / "observations.csv", ["observationID"], [{"observationID": "obs1"}])

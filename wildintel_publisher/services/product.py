@@ -93,10 +93,19 @@ class ProductAdapter(Protocol):
             its own warning for that case directly."""
         ...
 
-    def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
+    def prepare(
+        self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
+        media_dir: Optional[Path] = None,
+    ) -> None:
         """Copies/generates this product type's own files into output_dir
         (already created) — the product-specific equivalent of what used to
-        be prepare_hfh_export's file-copy/media-filter/image-mirror section."""
+        be prepare_hfh_export's file-copy/media-filter/image-mirror section.
+
+        media_dir, when given, is where any large media referenced by
+        relative path should actually be read from during the mirror step —
+        distinct from input_dir when input_dir is itself just a working copy
+        of the small core files (see CamtrapDPAdapter, the only adapter that
+        currently uses it; others accept and ignore it)."""
         ...
 
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
@@ -110,17 +119,18 @@ class ProductAdapter(Protocol):
         and ignore it, having no coordinates of their own."""
         ...
 
-    def randomize_media_ids(self, input_dir: Path) -> None:
+    def randomize_media_ids(self, input_dir: Path, *, domain: str = "localhost") -> None:
         """Mutates `input_dir` in place, replacing any mediaID that isn't
-        already a valid UUID4 with a freshly generated one — a
-        uniqueness/privacy option so published mediaIDs don't leak
-        whatever numbering convention the original export used, and stay
-        collision-free if this data is later merged with another
-        project's/repository's. Applied once (see generate_metadata_json)
-        as a product-level preprocessing step, before any repo-specific
-        prepare even runs. Only means anything to CamtrapDPAdapter (see
-        common.randomize_media_ids); other product types accept and ignore
-        it, having no mediaID of their own."""
+        already a valid UUID with one deterministically derived from
+        `domain` (see common.randomize_media_ids) — a uniqueness/privacy
+        option so published mediaIDs don't leak whatever numbering
+        convention the original export used, and stay collision-free
+        against another source's own numbering (distinguished by `domain`)
+        if this data is later merged with another project's/repository's.
+        Applied once (see generate_metadata_json) as a product-level
+        preprocessing step, before any repo-specific prepare even runs.
+        Only means anything to CamtrapDPAdapter; other product types accept
+        and ignore it, having no mediaID of their own."""
         ...
 
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
@@ -202,6 +212,11 @@ class ProductMetadata(BaseModel):
     version: str | None = None
     license: ProductLicense | None = None
     authors: list[ProductAuthor] = Field(default_factory=list)
+    # Contributors with role "contact" (Camtrap DP only — see
+    # common.resolve_contact) — CITATION.cff's own top-level "contact"
+    # field is exactly for these, so they're kept separate from "authors"
+    # rather than credited as authors too.
+    contact: list[ProductAuthor] = Field(default_factory=list)
     homepage: str | None = None
     publish_history: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -306,7 +321,7 @@ def _preserve_foreign_metadata_json(directory: Path) -> None:
 def generate_metadata_json(
     product_type: str, input_dir: Path, *,
     anonymize_coordinates: bool = False, coordinate_decimals: int = 2,
-    randomize_media_ids: bool = False,
+    randomize_media_ids: bool = False, media_id_domain: str = "localhost",
 ) -> dict:
     """The "before the flow starts" step: validates the raw product, extracts
     whatever generic metadata it can from it, and writes metadata.json into
@@ -323,9 +338,10 @@ def generate_metadata_json(
     per-repository flag of its own.
 
     If `randomize_media_ids` is True, also replaces every mediaID that
-    isn't already a UUID (see ProductAdapter.randomize_media_ids) — same
-    "applied once, here" shape as anonymize_coordinates, and just as safe
-    to call again later (a mediaID that's already a UUID is left alone).
+    isn't already a UUID with one derived from `media_id_domain` (see
+    ProductAdapter.randomize_media_ids) — same "applied once, here" shape as
+    anonymize_coordinates, and just as safe to call again later (a mediaID
+    that's already a UUID is left alone).
 
     extract_metadata is best-effort: a field it couldn't determine from the
     product comes back as None/[] rather than raising, so the caller should
@@ -354,7 +370,7 @@ def generate_metadata_json(
     if anonymize_coordinates:
         adapter.anonymize_coordinates(input_dir, decimals=coordinate_decimals)
     if randomize_media_ids:
-        adapter.randomize_media_ids(input_dir)
+        adapter.randomize_media_ids(input_dir, domain=media_id_domain)
     metadata = adapter.extract_metadata(input_dir)
     checked_out_tag = adapter.checkout_release(input_dir, version=metadata.get("version"))
     data = {"product_type": product_type, **metadata, "publish_history": []}

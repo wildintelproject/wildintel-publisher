@@ -153,6 +153,50 @@ def test_publish_all_uploads_every_repo_before_locking_any(tmp_path):
     assert calls.index("upload-zenodo") < calls.index("tag-hfh")
 
 
+def test_publish_all_passes_media_dir_only_to_the_first_repo(tmp_path):
+    """media_dir (only meaningfully different from input_dir for a local
+    Camtrap DP source — see services.camtrapdp_source.
+    resolve_local_camtrapdp_source) must reach the FIRST repo's own
+    prepare_*_export call, and NOT the second one's: from there on,
+    current_input_dir is the previous repo's own build_dir, which already
+    has any local media mirrored into it if applicable."""
+    captured = {}
+
+    def fake_prepare_hfh(*, input_dir, output_dir, media_dir=None, **kwargs):
+        captured["hfh"] = media_dir
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_prepare_zenodo(*, input_dir, output_dir, media_dir=None, **kwargs):
+        captured["zenodo"] = media_dir
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", return_value="https://huggingface.co/datasets/alice/dataset"),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface"),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=lambda output_dir, **k: (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": None}), encoding="utf-8")),
+        patch("services.publish_orchestrator.zenodo_cli.release_on_zenodo", return_value={"doi": "10.5281/zenodo.1", "record_url": "https://zenodo.org/records/1"}),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/local-source/working",
+                "media_dir": "/tmp/original",
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x", "environment": "sandbox"},
+                ],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done"
+    assert captured["hfh"] == Path("/tmp/original")
+    assert captured["zenodo"] is None
+
+
 def test_publish_all_passes_archive_size_options_through_to_zenodo_and_b2share(tmp_path):
     captured = {}
 

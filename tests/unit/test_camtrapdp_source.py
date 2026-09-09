@@ -1,13 +1,17 @@
-"""Unit tests for services.camtrapdp_source.fetch_camtrap_dp_archive — the
-same download/zip/validate steps as services.gbif.validate_camtrap_dp_archive,
-but persisting the extracted directory instead of discarding it."""
+"""Unit tests for services.camtrapdp_source.fetch_camtrap_dp_archive (a
+public-URL Camtrap DP source — the same download/zip/validate steps as
+services.gbif.validate_camtrap_dp_archive, but persisting the extracted
+directory instead of discarding it) and resolve_local_camtrapdp_source (a
+local-directory Camtrap DP source)."""
+import csv
+import hashlib
 import json
 import zipfile
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wildintel_publisher.services.camtrapdp_source import fetch_camtrap_dp_archive
+from wildintel_publisher.services.camtrapdp_source import fetch_camtrap_dp_archive, resolve_local_camtrapdp_source
 
 
 def _fake_stream_response(status_code: int, body: bytes) -> MagicMock:
@@ -94,6 +98,82 @@ def test_fetch_reuses_an_existing_extraction_without_re_downloading(tmp_path):
 
     fake_stream.assert_not_called()
     assert result == destination
+
+
+def test_resolve_local_source_copies_only_the_four_core_files(camtrapdp_dir, tmp_path):
+    source_dir = camtrapdp_dir()
+    # A big media file living alongside the core files, as a real local
+    # Camtrap DP would have — must NOT be copied.
+    (source_dir / "images").mkdir()
+    (source_dir / "images" / "m1.jpg").write_bytes(b"not-a-real-image")
+
+    output_dir = tmp_path / "local-source"
+    result = resolve_local_camtrapdp_source(source_dir, output_dir)
+
+    assert result == output_dir / hashlib.sha1(str(source_dir.resolve()).encode("utf-8")).hexdigest()[:16]
+    assert sorted(p.name for p in result.iterdir()) == ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]
+
+
+def test_resolve_local_source_rejects_a_missing_directory(tmp_path):
+    with pytest.raises(RuntimeError, match="does not exist"):
+        resolve_local_camtrapdp_source(tmp_path / "nope", tmp_path / "output")
+
+
+def test_resolve_local_source_always_recopies_ignoring_any_stale_destination(camtrapdp_dir, tmp_path):
+    source_dir = camtrapdp_dir()
+    output_dir = tmp_path / "local-source"
+    destination = output_dir / hashlib.sha1(str(source_dir.resolve()).encode("utf-8")).hexdigest()[:16]
+    destination.mkdir(parents=True)
+    (destination / "stale.txt").write_text("old", encoding="utf-8")
+
+    result = resolve_local_camtrapdp_source(source_dir, output_dir)
+
+    assert result == destination
+    assert not (destination / "stale.txt").exists()
+    assert (destination / "datapackage.json").is_file()
+
+
+def test_resolve_local_source_never_mutates_the_original_directory(tmp_path):
+    """The whole point of this function: generate_metadata_json's
+    validate/anonymize/randomize steps, run against the returned working
+    copy, must never touch source_dir — regression test for the bug this
+    refactor fixes (a local Camtrap DP source used to be mutated in place)."""
+    from wildintel_publisher.services import product
+
+    source_dir = tmp_path / "original"
+    source_dir.mkdir()
+    (source_dir / "datapackage.json").write_text("{}", encoding="utf-8")
+    with (source_dir / "deployments.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["deploymentID", "latitude", "longitude"])
+        writer.writeheader()
+        writer.writerow({"deploymentID": "d1", "latitude": "41.123456", "longitude": "-3.987654"})
+    with (source_dir / "media.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["mediaID", "fileName", "filePublic"])
+        writer.writeheader()
+        writer.writerow({"mediaID": "img001", "fileName": "img001.jpg", "filePublic": "true"})
+
+    original_deployments_bytes = (source_dir / "deployments.csv").read_bytes()
+    original_media_bytes = (source_dir / "media.csv").read_bytes()
+    original_entries = sorted(p.name for p in source_dir.iterdir())
+
+    output_dir = tmp_path / "local-source"
+    working_dir = resolve_local_camtrapdp_source(source_dir, output_dir)
+    product.generate_metadata_json(
+        product.CAMTRAPDP, working_dir,
+        anonymize_coordinates=True, coordinate_decimals=1, randomize_media_ids=True,
+    )
+
+    # The working copy DID get mutated (anonymize/randomize actually ran) ...
+    with (working_dir / "deployments.csv").open(newline="", encoding="utf-8") as f:
+        assert list(csv.DictReader(f))[0]["latitude"] == "41.1"
+    with (working_dir / "media.csv").open(newline="", encoding="utf-8") as f:
+        assert list(csv.DictReader(f))[0]["mediaID"] != "img001"
+
+    # ... but the original source_dir is byte-for-byte untouched, and never
+    # gained a metadata.json of its own.
+    assert (source_dir / "deployments.csv").read_bytes() == original_deployments_bytes
+    assert (source_dir / "media.csv").read_bytes() == original_media_bytes
+    assert sorted(p.name for p in source_dir.iterdir()) == original_entries
 
 
 def test_fetch_clear_cache_forces_a_fresh_download(camtrapdp_dir, tmp_path):

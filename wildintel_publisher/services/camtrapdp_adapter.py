@@ -13,6 +13,25 @@ from typing import Optional
 
 from wildintel_publisher.services import common, product
 
+# Appended as the closing paragraph of every Camtrap DP's description (see
+# extract_metadata below) — regardless of source (Trapper, a public URL, a
+# local directory) or whether the user edited datapackage.json's own
+# description by hand (e.g. the web wizard's metadata-editing step).
+# Attribution wildintel-publisher itself always wants present in what ends
+# up in metadata.json, and from there in every publish artifact that reads
+# it (README.md, and the description actually sent to GBIF's Registry API —
+# see services.gbif.register_gbif_dataset — Zenodo, B2SHARE).
+CAMTRAPDP_DESCRIPTION_FOOTER = "Camtrap DP camera-trap dataset, published via the WildINTEL project. https://wildintel.eu/"
+
+
+def _append_description_footer(description: Optional[str]) -> str:
+    description = (description or "").strip()
+    if description.endswith(CAMTRAPDP_DESCRIPTION_FOOTER):
+        return description  # already there — don't duplicate it
+    if not description:
+        return CAMTRAPDP_DESCRIPTION_FOOTER
+    return f"{description}\n\n{CAMTRAPDP_DESCRIPTION_FOOTER}"
+
 
 class CamtrapDPAdapter:
     product_type = product.CAMTRAPDP
@@ -25,7 +44,9 @@ class CamtrapDPAdapter:
         license/authors — returns None/[] for whatever datapackage.json
         doesn't provide, so generate_metadata_json can still write
         metadata.json and let the user fill the gaps afterwards (see
-        product.missing_required_fields)."""
+        product.missing_required_fields). description always gets
+        CAMTRAPDP_DESCRIPTION_FOOTER appended, on top of whatever
+        datapackage.json itself provides (or nothing, if it's blank)."""
         datapackage_meta = common.read_datapackage_metadata(input_dir)
         try:
             license_info = common.resolve_license(datapackage_meta.get("licenses", []))
@@ -35,36 +56,52 @@ class CamtrapDPAdapter:
             authors = common.resolve_authors(datapackage_meta.get("contributors", []))
         except RuntimeError:
             authors = []
+        contact = common.resolve_contact(datapackage_meta.get("contributors", []))
         return {
             "title": datapackage_meta.get("title"),
-            "description": datapackage_meta.get("description"),
+            "description": _append_description_footer(datapackage_meta.get("description")),
             "version": datapackage_meta.get("version"),
             "license": license_info,
             "authors": authors,
+            "contact": contact,
             "homepage": datapackage_meta.get("homepage"),
         }
 
     def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:
         return None  # Camtrap DP's raw source isn't a git checkout in this pipeline's sense
 
-    def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
-        for filename in common.CORE_CAMTRAPDP_FILES:
-            source = input_dir / filename
-            if source.is_file():
-                shutil.copy2(source, output_dir / filename)
+    def prepare(
+        self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
+        media_dir: Optional[Path] = None,
+    ) -> None:
+        common.copy_core_camtrapdp_files(input_dir, output_dir)
+
+        # The PUBLISHED datapackage.json itself must carry the same
+        # attribution its description gets in metadata.json (see
+        # extract_metadata) — copy_core_camtrapdp_files above only copies
+        # input_dir's own datapackage.json byte-for-byte, so without this it
+        # would ship without the footer even though metadata.json (and
+        # everything generated from it — README.md, GBIF's registered
+        # description, Zenodo/B2SHARE) already has it. Patched only on the
+        # OUTPUT copy — input_dir (the working copy, or the user's own
+        # original) is never touched.
+        output_datapackage_meta = common.read_datapackage_metadata(output_dir)
+        common.update_datapackage_fields(output_dir, {
+            "description": _append_description_footer(output_datapackage_meta.get("description")),
+        })
 
         self.validate(output_dir)
 
         public_media_ids = common.keep_only_public_media(output_dir)
         common.drop_observations_of_removed_media(output_dir, public_media_ids)
         if mirror:
-            common.download_public_images(output_dir, input_dir=input_dir, timeout=image_timeout)
+            common.download_public_images(output_dir, input_dir=media_dir or input_dir, timeout=image_timeout)
 
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
         common.anonymize_deployment_coordinates(input_dir, decimals=decimals)
 
-    def randomize_media_ids(self, input_dir: Path) -> None:
-        common.randomize_media_ids(input_dir)
+    def randomize_media_ids(self, input_dir: Path, *, domain: str = "localhost") -> None:
+        common.randomize_media_ids(input_dir, domain=domain)
 
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)

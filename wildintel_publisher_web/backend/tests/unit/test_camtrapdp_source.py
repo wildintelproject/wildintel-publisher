@@ -1,6 +1,7 @@
-"""Unit tests for the /api/camtrapdp/fetch-archive endpoints —
-camtrapdp_source_service's actual fetch_camtrap_dp_archive call is mocked
-out (no real network / no live archive needed)."""
+"""Unit tests for the /api/camtrapdp/fetch-archive and
+/api/camtrapdp/resolve-local-source endpoints — camtrapdp_source_service's
+actual fetch_camtrap_dp_archive/resolve_local_camtrapdp_source calls are
+mocked out (no real network / no real local directory needed)."""
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -77,3 +78,29 @@ def test_fetch_archive_passes_clear_cache_through():
             _poll_fetch(client, start.json()["task_id"])
 
     assert mock_fetch.call_args.kwargs["clear_cache"] is True
+
+
+def test_resolve_local_source_returns_the_working_dir_on_success():
+    with patch(
+        "services.camtrapdp_source_service.resolve_local_camtrapdp_source",
+        return_value=Path("/app/local-source/abc123"),
+    ) as mock_resolve:
+        response = _client().post("/api/camtrapdp/resolve-local-source", json={"path": "/data/camtrapdp"})
+
+    assert response.json() == {
+        "status": "valid", "workingDir": "/app/local-source/abc123", "sourceDir": "/data/camtrapdp", "error": None,
+    }
+    mock_resolve.assert_called_once()
+    assert mock_resolve.call_args.args[0] == Path("/data/camtrapdp")
+
+
+def test_resolve_local_source_reports_invalid_status_on_failure():
+    with patch(
+        "services.camtrapdp_source_service.resolve_local_camtrapdp_source",
+        side_effect=RuntimeError("datapackage.json not found."),
+    ):
+        response = _client().post("/api/camtrapdp/resolve-local-source", json={"path": "/not/a/camtrapdp"})
+
+    assert response.json() == {
+        "status": "invalid", "workingDir": None, "sourceDir": "/not/a/camtrapdp", "error": "datapackage.json not found.",
+    }

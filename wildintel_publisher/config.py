@@ -71,6 +71,18 @@ def get_camtrapdp_archive_output_dir() -> Path:
     return get_app_documents_dir() / "camtrapdp-archive"
 
 
+def get_working_output_dir() -> Path:
+    """Directorio por defecto donde se guardan copias de trabajo propias de
+    la app — nunca la carpeta original del usuario, para no mutarla
+    in-place. Nombrado de forma genérica (a diferencia de camtrapdp-archive/
+    trapper, que sí son cachés del origen real) porque su contenido no es
+    "la fuente", sino una copia derivada y descartable de ella; hoy solo lo
+    usa la resolución de un Camtrap DP local (datapackage.json + sus 3
+    tablas — ver services.camtrapdp_source.resolve_local_camtrapdp_source),
+    pero cualquier otro flujo con la misma necesidad podría reutilizarlo."""
+    return get_app_documents_dir() / "working"
+
+
 def _slug_to_dataset_name(slug: str) -> str:
     """Deriva un nombre legible ('wildintel-camtrapdp' -> 'Wildintel Camtrapdp')
     a partir de un slug, igual que donadataset.config._slug_to_dataset_name."""
@@ -156,8 +168,13 @@ class TrapperSettings(BaseModel):
         ),
     )
     description: Optional[str] = Field(
-        default="Camtrap DP camera-trap dataset, published via the WildINTEL project.",
-        description="Default value of --description in 'trapper download'. (TRAPPER.description)",
+        default=None,
+        description=(
+            "Default value of --description in 'trapper download'. Left unset by default — "
+            "CamtrapDPAdapter.extract_metadata always appends its own WildINTEL attribution "
+            "paragraph to whatever description ends up in datapackage.json, regardless of this "
+            "setting. (TRAPPER.description)"
+        ),
     )
 
     @model_validator(mode="after")

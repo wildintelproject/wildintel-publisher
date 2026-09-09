@@ -4,16 +4,70 @@ adapter is already exercised end to end by the CLI integration tests
 (test_hfh_cli.py/test_zenodo_cli.py/test_b2share_cli.py), which assert on
 the rendered README's own content."""
 import csv
+import json
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
-from wildintel_publisher.services.camtrapdp_adapter import CamtrapDPAdapter
+from wildintel_publisher.services.camtrapdp_adapter import CAMTRAPDP_DESCRIPTION_FOOTER, CamtrapDPAdapter
 
 
 def test_readme_context_has_nothing_extra(tmp_path):
     # Camtrap DP's README fragments (templates/*/_readme-format-camtrapdp.md.j2)
     # need nothing beyond the generic context every product type gets.
     assert CamtrapDPAdapter().readme_context(tmp_path) == {}
+
+
+def _write_minimal_datapackage(root: Path, *, description) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "datapackage.json").write_text(json.dumps({"title": "T", "description": description}), encoding="utf-8")
+    return root
+
+
+def test_extract_metadata_appends_wildintel_footer_to_a_real_description(tmp_path):
+    _write_minimal_datapackage(tmp_path, description="A real description of the dataset.")
+
+    metadata = CamtrapDPAdapter().extract_metadata(tmp_path)
+
+    assert metadata["description"] == f"A real description of the dataset.\n\n{CAMTRAPDP_DESCRIPTION_FOOTER}"
+
+
+def test_extract_metadata_uses_only_the_footer_when_there_is_no_description(tmp_path):
+    _write_minimal_datapackage(tmp_path, description=None)
+
+    metadata = CamtrapDPAdapter().extract_metadata(tmp_path)
+
+    assert metadata["description"] == CAMTRAPDP_DESCRIPTION_FOOTER
+
+
+def test_extract_metadata_does_not_duplicate_the_footer_if_already_present(tmp_path):
+    # Re-running generate_metadata_json (e.g. "Back" then "Next" again in
+    # the web wizard) always re-reads datapackage.json's own description
+    # from scratch — this only guards against a description that somehow
+    # already ends with the footer (e.g. datapackage.json edited by hand).
+    _write_minimal_datapackage(tmp_path, description=f"Some text.\n\n{CAMTRAPDP_DESCRIPTION_FOOTER}")
+
+    metadata = CamtrapDPAdapter().extract_metadata(tmp_path)
+
+    assert metadata["description"] == f"Some text.\n\n{CAMTRAPDP_DESCRIPTION_FOOTER}"
+    assert metadata["description"].count(CAMTRAPDP_DESCRIPTION_FOOTER) == 1
+
+
+def test_extract_metadata_splits_contact_from_authors(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "datapackage.json").write_text(json.dumps({
+        "title": "T",
+        "contributors": [
+            {"title": "Contact Person", "role": "contact"},
+            {"title": "The PI", "role": "principalInvestigator"},
+            {"title": "WildINTEL", "role": "publisher"},
+        ],
+    }), encoding="utf-8")
+
+    metadata = CamtrapDPAdapter().extract_metadata(tmp_path)
+
+    assert metadata["contact"] == [{"name": "Contact Person", "affiliation": ""}]
+    assert metadata["authors"] == [{"name": "The PI", "affiliation": ""}]
 
 
 def test_checkout_release_noops(tmp_path):
@@ -61,6 +115,68 @@ def test_randomize_media_ids_replaces_media_csv_ids_in_place(tmp_path):
     with (input_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert rows[0]["mediaID"] != "img001"
+
+
+def _write_minimal_package(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "datapackage.json").write_text("{}", encoding="utf-8")
+    with (root / "media.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["mediaID", "filePath", "fileName", "filePublic"])
+        writer.writeheader()
+        writer.writerow({"mediaID": "m1", "filePath": "images/m1.jpg", "fileName": "m1.jpg", "filePublic": "true"})
+    return root
+
+
+def test_prepare_appends_the_footer_to_the_published_datapackage_json(tmp_path):
+    """copy_core_camtrapdp_files copies datapackage.json byte-for-byte, so
+    without this the PUBLISHED datapackage.json (the one that actually
+    ships to HFH/Zenodo/B2SHARE/GBIF) would never get the same WildINTEL
+    attribution paragraph metadata.json's own description already gets (see
+    extract_metadata) — regression test for exactly that gap."""
+    input_dir = _write_minimal_package(tmp_path / "working")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images"):
+        CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
+
+    output_data = json.loads((output_dir / "datapackage.json").read_text(encoding="utf-8"))
+    assert output_data["description"] == CAMTRAPDP_DESCRIPTION_FOOTER
+    # input_dir's own datapackage.json is never touched.
+    assert (input_dir / "datapackage.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_prepare_mirrors_from_media_dir_when_given(tmp_path):
+    """When input_dir is itself just a working copy of the core files (the
+    local-source case — see services.camtrapdp_source.
+    resolve_local_camtrapdp_source), media_dir is where the ACTUAL images
+    referenced by a relative filePath live — the mirror step must read from
+    there, not from input_dir."""
+    input_dir = _write_minimal_package(tmp_path / "working")
+    media_dir = tmp_path / "original"  # never gets core files copied into it
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
+        CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60, media_dir=media_dir)
+
+    mock_download.assert_called_once_with(output_dir, input_dir=media_dir, timeout=60)
+
+
+def test_prepare_mirrors_from_input_dir_when_media_dir_not_given(tmp_path):
+    """Unchanged default behavior (URL/Trapper/CLI sources) — no media_dir
+    means input_dir IS where the media actually lives."""
+    input_dir = _write_minimal_package(tmp_path / "working")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
+        CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
+
+    mock_download.assert_called_once_with(output_dir, input_dir=input_dir, timeout=60)
 
 
 def test_extract_core_files_strips_the_self_contained_zips_root_folder(tmp_path):

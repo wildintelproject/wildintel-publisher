@@ -1,10 +1,14 @@
 {# Renderizada por write_citation() en services/common.py. Los fallbacks
    (cff_version, message, citation_type, date_released) se resuelven en
    Python antes de llegar aquí, así que siempre llegan ya definidos.
-   Cada author es "person" (given_names/family_names/affiliation, desde
-   HFHSettings) o "entity" (solo name/affiliation, desde los contributors
-   de datapackage.json — Trapper solo da el nombre completo, sin separar
-   en nombre/apellidos).
+   Cada author/contact es "person" (given_names/family_names/affiliation,
+   desde HFHSettings) o "entity" (solo name/affiliation, desde los
+   contributors de datapackage.json — Trapper solo da el nombre completo,
+   sin separar en nombre/apellidos). contact (Camtrap DP only, ver
+   common.resolve_contact) son los contributors con role="contact" —
+   deliberadamente NO están también en authors (ver common.resolve_authors),
+   y se omite el bloque entero si no hay ninguno (a diferencia de authors,
+   contact es opcional en CITATION.cff).
 
    url/doi/identifiers/notes: write_citation() solo se llama una vez, al
    preparar el export — antes de que se conozca el repo/DOI/PID de
@@ -33,6 +37,21 @@ authors:
 {% endif %}
 {% endif %}
 {% endfor %}
+{% if contact %}
+contact:
+{% for person in contact %}
+{% if person.given_names is defined %}
+  - given-names: {{ person.given_names | tojson }}
+    family-names: {{ person.family_names | tojson }}
+    affiliation: {{ person.affiliation | tojson }}
+{% else %}
+  - name: {{ person.name | tojson }}
+{% if person.affiliation %}
+    affiliation: {{ person.affiliation | tojson }}
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
 version: {{ version | tojson }}
 date-released: {{ date_released | tojson }}
 license: {{ license_id | tojson }}

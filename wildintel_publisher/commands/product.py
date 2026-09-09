@@ -42,10 +42,21 @@ def generate_metadata(
         False, "--randomize-media-ids/--no-randomize-media-ids",
         help=(
             "Replaces every mediaID in media.csv (and matching observations.csv references) that "
-            "isn't already a UUID with a freshly generated one, in --input-dir itself (Camtrap DP "
-            "only) — keeps published mediaIDs from leaking the original export's own numbering "
-            "convention, and collision-free if this data is later merged with another project's/ "
-            "repository's. Applied once here, same as --anonymize-coordinates."
+            "isn't already a UUID with one derived from --media-id-domain, in --input-dir itself "
+            "(Camtrap DP only) — keeps published mediaIDs from leaking the original export's own "
+            "numbering convention, and collision-free against another source's own numbering "
+            "(distinguished by --media-id-domain) if this data is later merged with another "
+            "project's/repository's. Applied once here, same as --anonymize-coordinates."
+        ),
+    ),
+    media_id_domain: str = typer.Option(
+        "localhost", "--media-id-domain",
+        help=(
+            "Namespace used with --randomize-media-ids to derive each new mediaID — typically the "
+            "domain of the Trapper server or public URL this product came from, so two different "
+            "sources' own numbering never collides. Deterministic: the same --media-id-domain and "
+            "original mediaID always produce the same UUID, so re-running this against the same "
+            "source doesn't change ids that were already derived."
         ),
     ),
 ) -> None:
@@ -56,7 +67,7 @@ def generate_metadata(
         metadata = product_service.generate_metadata_json(
             product_type, Path(input_dir),
             anonymize_coordinates=anonymize_coordinates, coordinate_decimals=coordinate_decimals,
-            randomize_media_ids=randomize_media_ids,
+            randomize_media_ids=randomize_media_ids, media_id_domain=media_id_domain,
         )
     except Exception as exc:
         logging.error("Could not generate metadata.json: %s", exc)

@@ -13,7 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from wildintel_publisher.services import product
+from wildintel_publisher.services import common, product
 from wildintel_publisher.services.common import DATAPACKAGE_FILENAME
 
 # Matches metadata.json's "homepage" once hfh_service.upload_to_huggingface
@@ -30,7 +30,7 @@ def datapackage_path(output_dir: Path) -> Path:
 def generate_metadata(
     product_type: str, input_dir: Path, *,
     anonymize_coordinates: bool = False, coordinate_decimals: int = 2,
-    randomize_media_ids: bool = False,
+    randomize_media_ids: bool = False, media_id_domain: str = "localhost",
 ) -> dict:
     """The "before the flow starts" step (see product.generate_metadata_json)
     — validates the raw product and best-effort extracts its metadata into
@@ -43,7 +43,8 @@ def generate_metadata(
     step inherits automatically, with no flag of its own.
 
     randomize_media_ids (Camtrap DP only) replaces every mediaID that isn't
-    already a UUID, same "applied once here" shape.
+    already a UUID with one derived from media_id_domain, same "applied
+    once here" shape.
 
     The caller should check product.missing_required_fields() on the
     result — if it's non-empty, the product itself didn't provide
@@ -57,7 +58,7 @@ def generate_metadata(
     return product.generate_metadata_json(
         product_type, input_dir,
         anonymize_coordinates=anonymize_coordinates, coordinate_decimals=coordinate_decimals,
-        randomize_media_ids=randomize_media_ids,
+        randomize_media_ids=randomize_media_ids, media_id_domain=media_id_domain,
     )
 
 
@@ -67,6 +68,28 @@ def update_metadata(input_dir: Path, updates: dict) -> dict:
     every required field on its own and the wizard collected the rest from
     the user."""
     return product.update_metadata_json(input_dir, updates)
+
+
+def read_datapackage_fields(input_dir: Path) -> dict:
+    """name/title/description/version/homepage/contributors straight from
+    datapackage.json itself (see common.read_datapackage_metadata) — used
+    to pre-fill the wizard's metadata-editing step BEFORE generate_metadata
+    has ever run for this input_dir (so there's no metadata.json yet to
+    read a summary from). contributors is the full, unfiltered list — every
+    field datapackage.json already has for each one (title/email/
+    organization/role/...), not just role, so the wizard's "change role
+    only" editor still round-trips everything else untouched."""
+    data = common.read_datapackage_metadata(input_dir)
+    return {key: data.get(key) for key in ("name", "title", "description", "version", "homepage", "contributors")}
+
+
+def update_datapackage(input_dir: Path, updates: dict) -> None:
+    """Patches datapackage.json itself (not metadata.json — see
+    update_metadata above) with whatever fields the caller provides. Meant
+    to run before generate_metadata (see common.update_datapackage_fields's
+    own docstring for why that ordering is enough to sync metadata.json for
+    free, with no separate write there)."""
+    common.update_datapackage_fields(input_dir, updates)
 
 
 def detect_hfh_repo_id(homepage: str | None) -> str | None:

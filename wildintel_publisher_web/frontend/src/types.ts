@@ -73,6 +73,42 @@ export interface DatapackageSummary {
   checked_out_tag?: string | null
 }
 
+/** Camtrap DP's 5 allowed values for a contributor's "role" (see the
+ * official profile's "contributors" schema) — "contributor" is the
+ * standard's own default when none is set. */
+export const CAMTRAPDP_CONTRIBUTOR_ROLES = [
+  'contact', 'principalInvestigator', 'rightsHolder', 'publisher', 'contributor',
+] as const
+export type CamtrapdpContributorRole = typeof CAMTRAPDP_CONTRIBUTOR_ROLES[number]
+
+/** A single entry of datapackage.json's own "contributors" array — kept
+ * loose (only `role` is ever edited by the wizard, see WizardPage's
+ * dpContributors state) so whatever other fields a contributor already has
+ * (title/email/organization/path...) survive a round-trip untouched. */
+export interface DatapackageContributor {
+  title?: string | null
+  email?: string | null
+  organization?: string | null
+  role?: string | null
+  [key: string]: unknown
+}
+
+/** name/title/description/version/homepage/contributors read straight from
+ * datapackage.json itself (see services.common.read_datapackage_metadata in
+ * the backend) — distinct from DatapackageSummary above, which comes from
+ * metadata.json (the app's own publish-pipeline wrapper) and only exists
+ * once generate-metadata has run. Used to pre-fill the wizard's
+ * metadata-editing step right after the source is downloaded/resolved,
+ * before any preprocessing happens. */
+export interface DatapackageFields {
+  name?: string | null
+  title?: string | null
+  description?: string | null
+  version?: string | null
+  homepage?: string | null
+  contributors?: DatapackageContributor[] | null
+}
+
 /** Which of DatapackageSummary's required fields the extractor couldn't
  * determine from the product itself (see services.product.
  * missing_required_fields in the backend) — homepage is deliberately not

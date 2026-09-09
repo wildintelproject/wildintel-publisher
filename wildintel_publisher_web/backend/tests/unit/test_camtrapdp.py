@@ -110,6 +110,27 @@ def test_generate_metadata_randomizes_media_ids_when_requested(tmp_path):
     assert ",img001.jpg" in (tmp_path / "media.csv").read_text(encoding="utf-8")  # fileName is untouched
 
 
+def test_generate_metadata_derives_media_ids_from_the_given_domain(tmp_path):
+    import uuid
+    _write_datapackage(
+        tmp_path,
+        title="My Camtrap DP", description="A test package.", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+    (tmp_path / "media.csv").write_text("mediaID,fileName\nimg001,img001.jpg\n", encoding="utf-8")
+
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        response = _client().post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp",
+            "randomize_media_ids": True, "media_id_domain": "trapper.example",
+        })
+
+    assert response.status_code == 200
+    expected_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "trapper.example:img001"))
+    assert expected_id in (tmp_path / "media.csv").read_text(encoding="utf-8")
+
+
 def test_generate_metadata_leaves_media_ids_untouched_by_default(tmp_path):
     _write_datapackage(
         tmp_path,
@@ -151,7 +172,9 @@ def test_generate_metadata_returns_nulls_instead_of_failing_when_fields_are_miss
     assert response.status_code == 200
     body = response.json()
     assert body["title"] is None
-    assert body["description"] is None
+    # Never null: CamtrapDPAdapter.extract_metadata always appends its own
+    # WildINTEL attribution paragraph, even with no description of its own.
+    assert body["description"] == "Camtrap DP camera-trap dataset, published via the WildINTEL project. https://wildintel.eu/"
     assert body["license"] is None
     assert body["authors"] == []
 
@@ -182,6 +205,121 @@ def test_complete_metadata_reports_400_when_input_dir_has_no_metadata_json(tmp_p
         "input_dir": str(tmp_path), "title": "T",
     })
     assert response.status_code == 400
+
+
+def test_datapackage_fields_reads_straight_from_datapackage_json(tmp_path):
+    _write_datapackage(
+        tmp_path, name="my-dataset", title="My Camtrap DP", description="D", version="1.0",
+        homepage="https://example.org", resources=[{"name": "media", "path": "media.csv"}],
+    )
+
+    response = _client().get(f"/api/camtrapdp/datapackage-fields?path={tmp_path}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "name": "my-dataset", "title": "My Camtrap DP", "description": "D", "version": "1.0",
+        "homepage": "https://example.org", "contributors": [],
+    }
+
+
+def test_datapackage_fields_returns_the_full_contributors_array_unfiltered(tmp_path):
+    _write_datapackage(tmp_path, contributors=[
+        {"title": "Alice", "email": "alice@example.org", "organization": "Test Org", "role": "principalInvestigator"},
+        {"title": "Bob", "role": "contributor"},
+    ])
+
+    response = _client().get(f"/api/camtrapdp/datapackage-fields?path={tmp_path}")
+
+    assert response.status_code == 200
+    assert response.json()["contributors"] == [
+        {"title": "Alice", "email": "alice@example.org", "organization": "Test Org", "role": "principalInvestigator"},
+        {"title": "Bob", "role": "contributor"},
+    ]
+
+
+def test_datapackage_fields_works_before_any_metadata_json_exists(tmp_path):
+    # No metadata.json written at all — unlike /summary, this doesn't need
+    # generate-metadata to have run first.
+    _write_datapackage(tmp_path, title="Raw Title")
+
+    response = _client().get(f"/api/camtrapdp/datapackage-fields?path={tmp_path}")
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Raw Title"
+    assert not (tmp_path / "metadata.json").exists()
+
+
+def test_update_datapackage_can_change_just_a_contributors_role(tmp_path):
+    # The wizard's "change role only" editor reads the full contributors
+    # array, edits one entry's role client-side, and sends the whole array
+    # back — everything else about each contributor must survive untouched.
+    _write_datapackage(
+        tmp_path, name="old-name", title="Old Title", contributors=[
+            {"title": "Alice", "email": "alice@example.org", "organization": "Test Org", "role": "principalInvestigator"},
+            {"title": "Bob", "role": "contributor"},
+        ],
+    )
+
+    response = _client().post("/api/camtrapdp/update-datapackage", json={
+        "input_dir": str(tmp_path),
+        "contributors": [
+            {"title": "Alice", "email": "alice@example.org", "organization": "Test Org", "role": "contact"},
+            {"title": "Bob", "role": "contributor"},
+        ],
+    })
+
+    assert response.status_code == 200
+    data = json.loads((tmp_path / "datapackage.json").read_text(encoding="utf-8"))
+    assert data["contributors"] == [
+        {"title": "Alice", "email": "alice@example.org", "organization": "Test Org", "role": "contact"},
+        {"title": "Bob", "role": "contributor"},
+    ]
+    # Untouched top-level fields survive.
+    assert data["name"] == "old-name"
+    assert data["title"] == "Old Title"
+
+
+def test_update_datapackage_patches_only_the_given_fields(tmp_path):
+    _write_datapackage(
+        tmp_path, name="old-name", title="Old Title", description="Old", version="1.0",
+        resources=[{"name": "media", "path": "media.csv"}],
+    )
+
+    response = _client().post("/api/camtrapdp/update-datapackage", json={
+        "input_dir": str(tmp_path), "title": "New Title", "version": "2.0",
+    })
+
+    assert response.status_code == 200
+    data = json.loads((tmp_path / "datapackage.json").read_text(encoding="utf-8"))
+    assert data["title"] == "New Title"
+    assert data["version"] == "2.0"
+    assert data["name"] == "old-name"  # untouched fields survive
+    assert data["resources"] == [{"name": "media", "path": "media.csv"}]
+
+
+def test_update_datapackage_then_generate_metadata_reflects_the_patched_fields(tmp_path):
+    """The actual point of editing datapackage.json before generate-metadata
+    runs: metadata.json (and everything generated from it) picks up the new
+    title with no separate write of its own — see
+    services.common.update_datapackage_fields's docstring."""
+    _write_datapackage(
+        tmp_path, title="Old Title", description="D", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+    (tmp_path / "media.csv").write_text("mediaID,fileName\n", encoding="utf-8")
+
+    client = _client()
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        client.post("/api/camtrapdp/update-datapackage", json={
+            "input_dir": str(tmp_path), "title": "Edited via the new screen",
+        })
+        response = client.post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp",
+        })
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Edited via the new screen"
 
 
 def test_summary_returns_404_when_metadata_missing(tmp_path):

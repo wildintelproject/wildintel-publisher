@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from schemas.requests import CamtrapDPArchiveFetchRequest
+from schemas.requests import CamtrapDPArchiveFetchRequest, LocalSourceResolveRequest
 from services import camtrapdp_source_service
 
 router = APIRouter(prefix="/api/camtrapdp", tags=["camtrapdp"])
@@ -18,6 +18,15 @@ async def fetch_archive(req: CamtrapDPArchiveFetchRequest) -> dict:
     GET /api/camtrapdp/fetch-archive/{task_id} for status."""
     task_id = camtrapdp_source_service.start_fetch_task(req.url, clear_cache=req.clear_cache)
     return {"task_id": task_id}
+
+
+@router.post("/resolve-local-source")
+def resolve_local_source(req: LocalSourceResolveRequest) -> dict:
+    """Copies req.path's core Camtrap DP files into an app-owned working
+    directory and validates it. Synchronous — unlike fetch-archive/Trapper's
+    download, this never touches the network, so it returns immediately
+    instead of a task_id to poll."""
+    return camtrapdp_source_service.resolve_local_source(req.path)
 
 
 @router.get("/fetch-archive/{task_id}")

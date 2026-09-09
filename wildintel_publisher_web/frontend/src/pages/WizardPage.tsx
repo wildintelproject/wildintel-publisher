@@ -9,14 +9,47 @@ import GitCloneForm from '../components/GitCloneForm'
 import HFHPublishForm from '../components/HFHPublishForm'
 import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
+import type { LocalSourceSelection } from '../components/LocalDirectoryForm'
 import TrapperConnectionForm from '../components/TrapperConnectionForm'
 import ZenodoPublishForm, { SyncDoiSection } from '../components/ZenodoPublishForm'
 import type { ZenodoPublishConfig } from '../components/ZenodoPublishForm'
 import { api } from '../api'
 import { missingRequiredFields } from '../types'
-import type { DatapackageSummary, ProductType, TrapperDownloadSelection } from '../types'
+import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
+import type { DatapackageContributor, DatapackageSummary, ProductType, TrapperDownloadSelection } from '../types'
 
-const STEP_LABELS = ['Product Type', 'Source', 'Download', 'Publish']
+const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish']
+
+// Data Package spec's own constraints on these two fields (the others —
+// title/description/homepage — are free text, nothing to validate).
+const DP_NAME_PATTERN = /^[a-z0-9._-]+$/
+const DP_VERSION_PATTERN = /^\d+(\.\d+){0,2}$/
+
+// The "publisher" contributor is always wildintel-publisher itself, never
+// user-editable — any other contributor's own "publisher" role gets
+// demoted (see the effect that loads datapackage.json's contributors).
+const CAMTRAPDP_PUBLISHER: DatapackageContributor = {
+  title: 'WildINTEL', email: 'wildintelproject@gmail.com', path: 'https://wildintel.eu/', role: 'publisher',
+}
+
+// The only organizations selectable as "rightsHolder" — exactly one of
+// these at a time (see dpRightsHolder state). Websites verified 2026-09.
+const CAMTRAPDP_RIGHTS_HOLDER_OPTIONS: { title: string; path: string }[] = [
+  { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/' },
+  { title: 'University of Huelva', path: 'https://www.uhu.es/' },
+  { title: 'University of South-Eastern Norway', path: 'https://www.usn.no/' },
+  { title: 'German Centre for Integrative Biodiversity Research', path: 'https://www.idiv.de/' },
+  { title: 'Spanish National Research Council', path: 'https://www.csic.es/' },
+  { title: 'Massachusetts Institute of Technology', path: 'https://www.mit.edu/' },
+  { title: 'Spanish Node of the Global Biodiversity Information Facility', path: 'https://www.gbif.es/' },
+]
+
+// "publisher" and "rightsHolder" are reserved for the two fixed rows above
+// — every OTHER contributor (from the source itself, e.g. Trapper) can
+// only ever be assigned one of these three roles.
+const EDITABLE_CONTRIBUTOR_ROLES = CAMTRAPDP_CONTRIBUTOR_ROLES.filter(
+  (role) => role !== 'publisher' && role !== 'rightsHolder',
+)
 
 interface ProductOption {
   value: ProductType
@@ -139,6 +172,12 @@ type DownloadStatus = 'idle' | 'running' | 'done' | 'error'
 interface DownloadState {
   status: DownloadStatus
   path: string | null
+  // Where locally-referenced media actually lives — only different from
+  // `path` when sourceType === 'local' (path is then an app-owned working
+  // copy of just the core files; sourcePath is the user's original
+  // directory, never mutated — see LocalDirectoryForm/resolveLocalSource).
+  // Equal to `path` for every other source type.
+  sourcePath: string | null
   error: string | null
 }
 
@@ -183,7 +222,7 @@ export default function WizardPage() {
   const [productType, setProductType] = useState<ProductType | null>(null)
   const [sourceType, setSourceType] = useState<SourceType | null>(null)
   const [trapperSelection, setTrapperSelection] = useState<TrapperDownloadSelection | null>(null)
-  const [localPath, setLocalPath] = useState<string | null>(null)
+  const [localSelection, setLocalSelection] = useState<LocalSourceSelection | null>(null)
   const [gitUrl, setGitUrl] = useState<string | null>(null)
   // The URL used to fetch a Camtrap DP directly (sourceType === 'archive')
   // — kept around (not just used to fetch) so it can be suggested straight
@@ -202,7 +241,44 @@ export default function WizardPage() {
   // once, as part of generateProductMetadata, same shape as
   // anonymizeCoordinates above.
   const [randomizeMediaIds, setRandomizeMediaIds] = useState(false)
-  const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, error: null })
+  // Namespace for those derived UUIDs — auto-suggested from the chosen
+  // source (see the effect below) unless the user has edited it by hand.
+  const [mediaIdDomain, setMediaIdDomain] = useState('localhost')
+  const [mediaIdDomainEdited, setMediaIdDomainEdited] = useState(false)
+  // Camtrap DP only — datapackage.json's own name/title/description/
+  // homepage/version, editable in the new step between download and
+  // preprocessing (see step === 2 below). Pre-filled from
+  // api.datapackageFields once the source resolves; edits are written back
+  // with api.updateDatapackageFields BEFORE generateProductMetadata runs,
+  // so metadata.json (and everything generated from it) picks them up too —
+  // see services.common.update_datapackage_fields's own docstring.
+  const [dpName, setDpName] = useState('')
+  const [dpTitle, setDpTitle] = useState('')
+  const [dpDescription, setDpDescription] = useState('')
+  const [dpHomepage, setDpHomepage] = useState('')
+  const [dpVersion, setDpVersion] = useState('')
+  // Every OTHER contributor from datapackage.json (i.e. not the fixed
+  // publisher/rightsHolder rows below) — the wizard only ever edits each
+  // entry's own "role" (see the dropdown in step === 2 below); everything
+  // else about each contributor round-trips untouched.
+  const [dpContributors, setDpContributors] = useState<DatapackageContributor[]>([])
+  // The single selected rightsHolder organization's title — always one of
+  // CAMTRAPDP_RIGHTS_HOLDER_OPTIONS. The "publisher" row has no state of
+  // its own: it's always CAMTRAPDP_PUBLISHER, never user-editable.
+  const [dpRightsHolder, setDpRightsHolder] = useState(CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title)
+  // Explains, when non-empty, which of the source's own contributors got
+  // silently excluded above (a "publisher" that isn't WildINTEL, or a
+  // "rightsHolder" not on the fixed list) — set once by the effect that
+  // loads datapackage.json's contributors below.
+  const [dpContributorWarnings, setDpContributorWarnings] = useState<string[]>([])
+  // Both fields are optional — only validated once the user has actually
+  // typed something in them (an empty value just means "leave as-is").
+  const dpNameValid = dpName === '' || DP_NAME_PATTERN.test(dpName)
+  const dpVersionValid = dpVersion === '' || DP_VERSION_PATTERN.test(dpVersion)
+  // True while handleContinueToPreprocessing (step === 2's "Continue"
+  // button) is running.
+  const [preprocessing, setPreprocessing] = useState(false)
+  const [download, setDownload] = useState<DownloadState>({ status: 'idle', path: null, sourcePath: null, error: null })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
   // Set whenever generateProductMetadata itself fails (e.g. a Software
   // Application git clone with no CITATION.cff at its root — see
@@ -244,7 +320,7 @@ export default function WizardPage() {
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [progress, setProgress] = useState<Partial<Record<RepoId, RepoProgress>>>({})
 
-  const canProceed = (sourceType === 'trapper' && trapperSelection !== null) || (sourceType === 'local' && localPath !== null) || (sourceType === 'git' && gitUrl !== null) || (sourceType === 'archive' && archiveSourceUrl !== null)
+  const canProceed = (sourceType === 'trapper' && trapperSelection !== null) || (sourceType === 'local' && localSelection !== null) || (sourceType === 'git' && gitUrl !== null) || (sourceType === 'archive' && archiveSourceUrl !== null)
   const isDownloading = download.status === 'running'
   const supportedRepos = productType ? REPOS_BY_PRODUCT_TYPE[productType] : []
   const sourceOptions = productType ? SOURCE_OPTIONS_BY_PRODUCT_TYPE[productType] : []
@@ -322,13 +398,24 @@ export default function WizardPage() {
     setProductType(null)
     setSourceType(null)
     setTrapperSelection(null)
-    setLocalPath(null)
+    setLocalSelection(null)
     setGitUrl(null)
     setArchiveSourceUrl(null)
     setAnonymizeCoordinates(false)
     setCoordinateDecimals(2)
     setRandomizeMediaIds(false)
-    setDownload({ status: 'idle', path: null, error: null })
+    setMediaIdDomain('localhost')
+    setMediaIdDomainEdited(false)
+    setDpName('')
+    setDpTitle('')
+    setDpDescription('')
+    setDpHomepage('')
+    setDpVersion('')
+    setDpContributors([])
+    setDpRightsHolder(CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title)
+    setDpContributorWarnings([])
+    setPreprocessing(false)
+    setDownload({ status: 'idle', path: null, sourcePath: null, error: null })
     setSummary(null)
     setMetadataError(null)
     setFolderError(null)
@@ -394,13 +481,14 @@ export default function WizardPage() {
   // (see retryFailedRepos) doesn't clobber what earlier repos already
   // reported — e.g. Hugging Face Hub's "✓ Done" and its repo_url stay
   // exactly as they were while GBIF alone retries.
-  async function publish(repos: RepoId[], inputDir: string) {
+  async function publish(repos: RepoId[], inputDir: string, mediaDir?: string) {
     setExecuting(true)
     setExecutionError(null)
     setProgress((p) => ({ ...p, ...Object.fromEntries(repos.map((repo) => [repo, IDLE_PROGRESS])) }))
     try {
       const { task_id } = await api.publishAllStart({
         inputDir,
+        mediaDir,
         version: summary?.version,
         timeout: IMAGE_TIMEOUT,
         repos: repos.map(buildRepoPayload),
@@ -455,7 +543,7 @@ export default function WizardPage() {
   }
 
   function runPublishSequence() {
-    return publish(publishOrder, download.path ?? '')
+    return publish(publishOrder, download.path ?? '', download.sourcePath ?? undefined)
   }
 
   // Retries only the repositories that haven't succeeded yet — everything
@@ -473,27 +561,115 @@ export default function WizardPage() {
     const inputDir = firstNotDoneIndex === 0
       ? (download.path ?? '')
       : (outputDirs[publishOrder[firstNotDoneIndex - 1]] ?? download.path ?? '')
-    return publish(reposToRetry, inputDir)
+    // mediaDir only makes sense when this retry's first repo is genuinely
+    // the chain's first repo (input_dir === download.path) — otherwise
+    // inputDir is already a later repo's own build_dir, which has no
+    // separate original media location of its own.
+    const mediaDir = firstNotDoneIndex === 0 ? (download.sourcePath ?? undefined) : undefined
+    return publish(reposToRetry, inputDir, mediaDir)
   }
 
+  // Suggests a domain for randomize-media-ids as soon as the chosen source
+  // resolves one — the actual Trapper server's host, or the public
+  // archive URL's host — without overwriting anything the user already
+  // typed by hand. Local/git sources have no server of their own, so they
+  // keep the "localhost" default (still editable).
   useEffect(() => {
-    if (download.status !== 'done' || !download.path || !productType) return
+    if (mediaIdDomainEdited) return
+    const urlToHost = (url: string) => {
+      try { return new URL(url).hostname } catch { return null }
+    }
+    if (sourceType === 'trapper' && trapperSelection?.url) {
+      const host = urlToHost(trapperSelection.url)
+      if (host) setMediaIdDomain(host)
+    } else if (sourceType === 'archive' && archiveSourceUrl) {
+      const host = urlToHost(archiveSourceUrl)
+      if (host) setMediaIdDomain(host)
+    }
+  }, [sourceType, trapperSelection, archiveSourceUrl, mediaIdDomainEdited])
+
+  // Pre-fills datapackage.json's own name/title/description/homepage/
+  // version as soon as the source resolves, so the user can review/edit
+  // them (step === 2 below) before preprocessing runs. Camtrap DP only —
+  // other product types have no datapackage.json of their own. Only
+  // depends on download.path, so it won't clobber the user's edits on a
+  // later re-render (e.g. going Back and Next again without re-downloading).
+  useEffect(() => {
+    if (download.status !== 'done' || !download.path || productType !== 'camtrapdp') return
+    api.datapackageFields(download.path).then((fields) => {
+      setDpName(fields.name ?? '')
+      setDpTitle(fields.title ?? '')
+      setDpDescription(fields.description ?? '')
+      setDpHomepage(fields.homepage ?? '')
+      setDpVersion(fields.version ?? '')
+      const allContributors = fields.contributors ?? []
+      // Pre-select whichever known institution is already the rightsHolder,
+      // if any — otherwise fall back to the first option. Any OTHER
+      // rightsHolder (not one of our known institutions) or any other
+      // "publisher" than wildintel-publisher itself gets excluded below:
+      // neither of those roles is ever left in the generic, per-contributor
+      // list. Warn about it whenever that actually changes something, so
+      // it's never a silent surprise once "Continue" overwrites it.
+      const warnings: string[] = []
+      const existingPublisher = allContributors.find((c) => c.role === 'publisher')
+      if (existingPublisher && existingPublisher.title !== CAMTRAPDP_PUBLISHER.title) {
+        warnings.push(
+          `"${existingPublisher.title || 'Unnamed'}" was listed as publisher in the source, but only ` +
+          `WildINTEL can be the publisher — it will be replaced when you continue.`,
+        )
+      }
+      const existingRightsHolder = allContributors.find((c) => c.role === 'rightsHolder')
+      const matchedRightsHolder = CAMTRAPDP_RIGHTS_HOLDER_OPTIONS.find((o) => o.title === existingRightsHolder?.title)
+      if (existingRightsHolder && !matchedRightsHolder) {
+        warnings.push(
+          `"${existingRightsHolder.title || 'Unnamed'}" was listed as rights holder in the source, but ` +
+          `isn't one of the selectable institutions — choose one below, or it will default to ` +
+          `"${CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title}" when you continue.`,
+        )
+      }
+      setDpContributorWarnings(warnings)
+      setDpRightsHolder(matchedRightsHolder?.title ?? CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title)
+      setDpContributors(allContributors.filter((c) => c.role !== 'publisher' && c.role !== 'rightsHolder'))
+    }).catch(() => { /* best-effort — the fields just stay blank/editable */ })
+  }, [download.status, download.path, productType])
+
+  // Triggered by the new step's own "Continue" button (step === 2 below) —
+  // no longer automatic, so the user gets to review/edit datapackage.json's
+  // fields and the anonymize/randomize options before anything actually
+  // runs. Idempotent: re-running this (e.g. after "Back") is safe — an
+  // already-rounded coordinate or an already-UUID mediaID is a no-op, and
+  // update_datapackage_fields/generate_metadata_json both just overwrite
+  // with whatever's currently in the form.
+  async function handleContinueToPreprocessing() {
+    if (!download.path || !productType) return
+    setPreprocessing(true)
     setSummary(null)
     setMetadataError(null)
-    // Idempotent: (re)writes metadata.json from the product's own files, so
-    // this works whether or not LocalDirectoryForm already generated it.
-    // anonymizeCoordinates/coordinateDecimals and randomizeMediaIds only
-    // matter the first time this runs for a given download.path — rounding
-    // already-rounded coordinates, or replacing a mediaID that's already a
-    // UUID, are both no-ops, so a later re-run (e.g. after "Back") can't
-    // undo them.
-    api.generateProductMetadata(download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds)
-      .then(setSummary)
-      .catch((e) => {
-        setSummary(null)
-        setMetadataError(e instanceof Error ? e.message : 'Could not read this package.')
-      })
-  }, [download.status, download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds])
+    try {
+      if (productType === 'camtrapdp') {
+        const rightsHolderOption = CAMTRAPDP_RIGHTS_HOLDER_OPTIONS.find((o) => o.title === dpRightsHolder)
+          ?? CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0]
+        await api.updateDatapackageFields(download.path, {
+          name: dpName, title: dpTitle, description: dpDescription, homepage: dpHomepage, version: dpVersion,
+          contributors: [
+            CAMTRAPDP_PUBLISHER,
+            { title: rightsHolderOption.title, path: rightsHolderOption.path, role: 'rightsHolder' },
+            ...dpContributors,
+          ],
+        })
+      }
+      const newSummary = await api.generateProductMetadata(
+        download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds, mediaIdDomain,
+      )
+      setSummary(newSummary)
+      setStep(3)
+    } catch (e) {
+      setSummary(null)
+      setMetadataError(e instanceof Error ? e.message : 'Could not read this package.')
+    } finally {
+      setPreprocessing(false)
+    }
+  }
 
   async function handleOpenFolder() {
     if (!download.path) return
@@ -507,14 +683,14 @@ export default function WizardPage() {
 
   async function handleNext() {
     if (sourceType === 'local') {
-      if (!localPath) return
-      setDownload({ status: 'done', path: localPath, error: null })
+      if (!localSelection) return
+      setDownload({ status: 'done', path: localSelection.path, sourcePath: localSelection.sourcePath, error: null })
       setStep(2)
       return
     }
     if (sourceType === 'git') {
       if (!gitUrl) return
-      setDownload({ status: 'running', path: null, error: null })
+      setDownload({ status: 'running', path: null, sourcePath: null, error: null })
       try {
         const { task_id } = await api.softwareCloneStart(gitUrl)
         // Poll until the background task finishes
@@ -522,23 +698,23 @@ export default function WizardPage() {
           await sleep(2000)
           const status = await api.softwareCloneStatus(task_id)
           if (status.status === 'done') {
-            setDownload({ status: 'done', path: status.path, error: null })
+            setDownload({ status: 'done', path: status.path, sourcePath: status.path, error: null })
             setStep(2)
             break
           }
           if (status.status === 'error') {
-            setDownload({ status: 'error', path: null, error: status.error ?? 'The clone failed.' })
+            setDownload({ status: 'error', path: null, sourcePath: null, error: status.error ?? 'The clone failed.' })
             break
           }
         }
       } catch (e) {
-        setDownload({ status: 'error', path: null, error: e instanceof Error ? e.message : 'Could not start the clone.' })
+        setDownload({ status: 'error', path: null, sourcePath: null, error: e instanceof Error ? e.message : 'Could not start the clone.' })
       }
       return
     }
     if (sourceType === 'archive') {
       if (!archiveSourceUrl) return
-      setDownload({ status: 'running', path: null, error: null })
+      setDownload({ status: 'running', path: null, sourcePath: null, error: null })
       try {
         const { task_id } = await api.camtrapdpFetchArchiveStart(archiveSourceUrl)
         // Poll until the background task finishes
@@ -546,22 +722,22 @@ export default function WizardPage() {
           await sleep(2000)
           const status = await api.camtrapdpFetchArchiveStatus(task_id)
           if (status.status === 'done') {
-            setDownload({ status: 'done', path: status.path, error: null })
+            setDownload({ status: 'done', path: status.path, sourcePath: status.path, error: null })
             setStep(2)
             break
           }
           if (status.status === 'error') {
-            setDownload({ status: 'error', path: null, error: status.error ?? 'The fetch failed.' })
+            setDownload({ status: 'error', path: null, sourcePath: null, error: status.error ?? 'The fetch failed.' })
             break
           }
         }
       } catch (e) {
-        setDownload({ status: 'error', path: null, error: e instanceof Error ? e.message : 'Could not start the fetch.' })
+        setDownload({ status: 'error', path: null, sourcePath: null, error: e instanceof Error ? e.message : 'Could not start the fetch.' })
       }
       return
     }
     if (!trapperSelection) return
-    setDownload({ status: 'running', path: null, error: null })
+    setDownload({ status: 'running', path: null, sourcePath: null, error: null })
     try {
       const { task_id } = await api.trapperStartDownload(
         trapperSelection.url, trapperSelection.username, trapperSelection.password,
@@ -572,17 +748,17 @@ export default function WizardPage() {
         await sleep(2000)
         const status = await api.trapperDownloadStatus(task_id)
         if (status.status === 'done') {
-          setDownload({ status: 'done', path: status.path, error: null })
+          setDownload({ status: 'done', path: status.path, sourcePath: status.path, error: null })
           setStep(2)
           break
         }
         if (status.status === 'error') {
-          setDownload({ status: 'error', path: null, error: status.error ?? 'The download failed.' })
+          setDownload({ status: 'error', path: null, sourcePath: null, error: status.error ?? 'The download failed.' })
           break
         }
       }
     } catch (e) {
-      setDownload({ status: 'error', path: null, error: e instanceof Error ? e.message : 'Could not start the download.' })
+      setDownload({ status: 'error', path: null, sourcePath: null, error: e instanceof Error ? e.message : 'Could not start the download.' })
     }
   }
 
@@ -704,7 +880,7 @@ export default function WizardPage() {
           {sourceType === 'local' && productType && (
             <div className="mt-8">
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
-              <LocalDirectoryForm productType={productType} onSelectionChange={setLocalPath} />
+              <LocalDirectoryForm productType={productType} onSelectionChange={setLocalSelection} />
             </div>
           )}
 
@@ -715,7 +891,164 @@ export default function WizardPage() {
             </div>
           )}
 
-          {productType === 'camtrapdp' && sourceType !== null && (
+          {sourceType === 'archive' && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <CamtrapDPArchiveForm onSelectionChange={setArchiveSourceUrl} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 2: metadata review + anonymize/randomize, before preprocessing ── */}
+      {step === 2 && download.status === 'done' && (
+        <div>
+          <h4 className="text-lg font-semibold mb-1">Review metadata</h4>
+          <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
+            {productType === 'camtrapdp'
+              ? "Edit the package's own datapackage.json fields if needed, then choose any preprocessing before continuing."
+              : 'Ready to process this package.'}
+          </p>
+
+          {productType === 'camtrapdp' && (
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="dp-name" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Name</label>
+                <input
+                  id="dp-name" type="text" value={dpName} onChange={(e) => setDpName(e.target.value)}
+                  aria-invalid={!dpNameValid}
+                  className={`w-full px-3 py-2 text-sm rounded border bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono ${dpNameValid ? 'border-zinc-300 dark:border-zinc-700' : 'border-red-500 dark:border-red-500'}`}
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  A short, url-usable (and preferably human-readable) name of the package.
+                </p>
+                {!dpNameValid && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                    Must be lower-case and contain only alphanumeric characters along with "." "_" or "-".
+                  </p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="dp-title" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Title</label>
+                <input
+                  id="dp-title" type="text" value={dpTitle} onChange={(e) => setDpTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  A string providing a title or one sentence description for this package.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="dp-description" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Description</label>
+                <textarea
+                  id="dp-description" rows={3} value={dpDescription} onChange={(e) => setDpDescription(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  A description of the package. The description MUST be Markdown formatted. A WildINTEL
+                  attribution paragraph is always appended automatically — no need to add it here.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="dp-homepage" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Homepage</label>
+                <input
+                  id="dp-homepage" type="text" value={dpHomepage} onChange={(e) => setDpHomepage(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  A URL for the home on the web that is related to this data package.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="dp-version" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Version</label>
+                <input
+                  id="dp-version" type="text" value={dpVersion} onChange={(e) => setDpVersion(e.target.value)}
+                  aria-invalid={!dpVersionValid}
+                  className={`w-full sm:w-48 px-3 py-2 text-sm rounded border bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono ${dpVersionValid ? 'border-zinc-300 dark:border-zinc-700' : 'border-red-500 dark:border-red-500'}`}
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  A version string identifying the version of the package.
+                </p>
+                {!dpVersionValid && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                    Use the form N, N.N or N.N.N (e.g. 2, 2.1, 2.1.3) — only the first number is required.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {productType === 'camtrapdp' && (
+            <div className="mt-8">
+              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
+              <h5 className="text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Contributors</h5>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                Publisher and rights holder are fixed roles, always present. For everyone else, only their
+                role can be changed here — name, email and affiliation come from the source and are shown
+                for reference only.
+              </p>
+              {dpContributorWarnings.length > 0 && (
+                <div className="mb-3 space-y-1">
+                  {dpContributorWarnings.map((warning, i) => (
+                    <p key={i} className="text-sm text-amber-600 dark:text-amber-400">⚠ {warning}</p>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[10rem] text-sm">
+                    <div className="text-zinc-900 dark:text-zinc-100">{CAMTRAPDP_PUBLISHER.title}</div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">{CAMTRAPDP_PUBLISHER.email}</div>
+                  </div>
+                  <span className="px-2 py-1.5 text-sm rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400">
+                    publisher
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[10rem] text-sm text-zinc-500 dark:text-zinc-400">
+                    Rights holder
+                  </div>
+                  <select
+                    aria-label="Rights holder"
+                    value={dpRightsHolder}
+                    onChange={(e) => setDpRightsHolder(e.target.value)}
+                    className="px-2 py-1.5 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                  >
+                    {CAMTRAPDP_RIGHTS_HOLDER_OPTIONS.map((option) => (
+                      <option key={option.title} value={option.title}>{option.title}</option>
+                    ))}
+                  </select>
+                </div>
+                {dpContributors.map((contributor, i) => (
+                  <div key={i} className="flex items-center gap-3 flex-wrap">
+                    <div className="flex-1 min-w-[10rem] text-sm">
+                      <div className="text-zinc-900 dark:text-zinc-100">{contributor.title || 'Unnamed contributor'}</div>
+                      {(contributor.email || contributor.organization) && (
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {[contributor.email, contributor.organization].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                    <select
+                      aria-label={`Role for ${contributor.title || 'this contributor'}`}
+                      value={contributor.role ?? 'contributor'}
+                      onChange={(e) => {
+                        const role = e.target.value
+                        setDpContributors((prev) => prev.map((c, j) => (j === i ? { ...c, role } : c)))
+                      }}
+                      className="px-2 py-1.5 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                    >
+                      {EDITABLE_CONTRIBUTOR_ROLES.map((role) => (
+                        <option key={role} value={role}>{role}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {productType === 'camtrapdp' && (
             <div className="mt-8">
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
               <label className="flex items-start gap-3 cursor-pointer">
@@ -763,27 +1096,47 @@ export default function WizardPage() {
                 <span className="text-sm">
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200">Randomize media IDs</span>
                   <span className="block text-zinc-500 dark:text-zinc-400">
-                    Replaces every mediaID that isn't already a UUID with a freshly generated one,
-                    keeping media.csv and observations.csv in sync — avoids leaking the original
-                    export's own numbering convention, and guarantees the ids stay unique if this
-                    data is later merged with another project's or repository's.
+                    Replaces every mediaID that isn't already a UUID with one derived from the
+                    domain below, keeping media.csv and observations.csv in sync — avoids leaking
+                    the original export's own numbering convention, and stays consistent if this
+                    same source is downloaded again later (re-running this produces the same ids,
+                    it doesn't regenerate new ones).
                   </span>
                 </span>
               </label>
+              {randomizeMediaIds && (
+                <div className="mt-3 ml-7">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="media-id-domain" className="text-sm text-zinc-600 dark:text-zinc-400">
+                      Media ID domain:
+                    </label>
+                    <input
+                      id="media-id-domain"
+                      type="text"
+                      value={mediaIdDomain}
+                      onChange={(e) => { setMediaIdDomain(e.target.value); setMediaIdDomainEdited(true) }}
+                      className="w-56 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1 text-sm font-mono"
+                    />
+                  </div>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                    Distinguishes this source's own mediaID numbering from any other's — auto-filled
+                    from the Trapper/archive URL when available. For a local directory, use a
+                    different value per dataset if you plan to process more than one, so their ids
+                    never collide with each other.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          {sourceType === 'archive' && (
-            <div className="mt-8">
-              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
-              <CamtrapDPArchiveForm onSelectionChange={setArchiveSourceUrl} />
-            </div>
+          {metadataError && (
+            <p className="mt-6 text-sm text-red-600 dark:text-red-400">{metadataError}</p>
           )}
         </div>
       )}
 
-      {/* ── Step 2: download result ── */}
-      {step === 2 && download.status === 'done' && (
+      {/* ── Step 3: download result ── */}
+      {step === 3 && download.status === 'done' && (
         <div>
           <h4 className="text-lg font-semibold mb-1">
             {sourceType === 'local' ? 'Package ready' : 'Package downloaded'}
@@ -882,8 +1235,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* ── Step 3: repository selection ── */}
-      {step === 3 && !publishStarted && (
+      {/* ── Step 4: repository selection ── */}
+      {step === 4 && !publishStarted && (
         <div>
           <h4 className="text-lg font-semibold mb-1">Where do you want to publish it?</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
@@ -1019,8 +1372,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* ── Step 3 (continued): collecting configuration, one repository at a time ── */}
-      {step === 3 && publishStarted && !allConfigured && !executing && !executionDone && (
+      {/* ── Step 4 (continued): collecting configuration, one repository at a time ── */}
+      {step === 4 && publishStarted && !allConfigured && !executing && !executionDone && (
         <div>
           <div className="flex items-center gap-4 mb-6 flex-wrap">
             {publishOrder.map((repoId, i) => {
@@ -1147,8 +1500,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* ── Step 3 (continued): hfh + zenodo + b2share all selected — choose which DOI is primary for HFH ── */}
-      {step === 3 && allConfigured && needsPrimaryDoiChoice && primaryDoiSource === null && !executing && !executionDone && (
+      {/* ── Step 4 (continued): hfh + zenodo + b2share all selected — choose which DOI is primary for HFH ── */}
+      {step === 4 && allConfigured && needsPrimaryDoiChoice && primaryDoiSource === null && !executing && !executionDone && (
         <div>
           <h4 className="text-lg font-semibold mb-1">Which DOI should Hugging Face Hub cite as primary?</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
@@ -1177,8 +1530,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* ── Step 3 (continued): all configured — confirm before publishing ── */}
-      {step === 3 && readyToConfirm && !executing && !executionDone && (
+      {/* ── Step 4 (continued): all configured — confirm before publishing ── */}
+      {step === 4 && readyToConfirm && !executing && !executionDone && (
         <div>
           <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
             Ready to publish
@@ -1198,8 +1551,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* ── Step 3 (continued): live progress while publishing runs automatically ── */}
-      {step === 3 && executing && !executionDone && (
+      {/* ── Step 4 (continued): live progress while publishing runs automatically ── */}
+      {step === 4 && executing && !executionDone && (
         <div>
           <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
             {dryRun ? 'Simulating…' : 'Publishing…'}
@@ -1258,8 +1611,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* ── Step 3 (continued): all repositories published ── */}
-      {step === 3 && executionDone && (
+      {/* ── Step 4 (continued): all repositories published ── */}
+      {step === 4 && executionDone && (
         <div>
           <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
             {dryRun ? 'Dry run complete!' : 'All done!'}
@@ -1344,7 +1697,7 @@ export default function WizardPage() {
       )}
 
       {/* Navigation */}
-      {step > 0 && !(step === 3 && publishStarted) && (
+      {step > 0 && !(step === 4 && publishStarted) && (
         <div className="flex justify-between items-start mt-10">
           <button type="button" className={btnOutline} onClick={() => setStep((s) => s - 1)}>
             Back
@@ -1368,12 +1721,24 @@ export default function WizardPage() {
           )}
 
           {step === 2 && download.status === 'done' && (
-            <button type="button" className={btnPrimary} disabled={!metadataComplete} onClick={() => setStep(3)}>
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={handleContinueToPreprocessing}
+              disabled={preprocessing || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid))}
+            >
+              {preprocessing && <SmallSpinner />}
+              {preprocessing ? 'Processing…' : 'Continue'}
+            </button>
+          )}
+
+          {step === 3 && download.status === 'done' && (
+            <button type="button" className={btnPrimary} disabled={!metadataComplete} onClick={() => setStep(4)}>
               Next
             </button>
           )}
 
-          {step === 3 && !publishStarted && selectedRepos.size > 0 && (
+          {step === 4 && !publishStarted && selectedRepos.size > 0 && (
             <button type="button" className={btnPrimary} onClick={startConfiguring}>
               Start publishing{dryRun ? ' (dry run)' : ''}
             </button>

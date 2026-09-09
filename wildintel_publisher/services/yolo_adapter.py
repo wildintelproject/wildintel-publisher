@@ -152,15 +152,20 @@ class YoloAdapter:
     def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:
         return None  # a YOLO dataset's raw source isn't a git checkout in this pipeline's sense
 
-    def prepare(self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int) -> None:
-        # image_timeout is accepted for interface parity with
-        # CamtrapDPAdapter but unused: the images are already local files,
-        # nothing to download. mirror does matter, though, same as Camtrap
-        # DP: True copies the images/ (and labels/, if present) tree
-        # alongside data.yaml (the repo ends up self-contained); False
-        # copies only data.yaml — there's no "link to an external host" for
-        # YOLO images, so link mode simply means the images/labels aren't
-        # part of this particular publish.
+    def prepare(
+        self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
+        media_dir: Optional[Path] = None,
+    ) -> None:
+        # image_timeout and media_dir are accepted for interface parity with
+        # CamtrapDPAdapter but unused: the images are already local files
+        # alongside input_dir itself (a YOLO dataset has no split between
+        # small core files and separately-located media), nothing to
+        # download and nowhere else to read them from. mirror does matter,
+        # though, same as Camtrap DP: True copies the images/ (and labels/,
+        # if present) tree alongside data.yaml (the repo ends up
+        # self-contained); False copies only data.yaml — there's no "link to
+        # an external host" for YOLO images, so link mode simply means the
+        # images/labels aren't part of this particular publish.
         shutil.copy2(_data_yaml_path(input_dir), _data_yaml_path(output_dir))
 
         if mirror:
@@ -173,7 +178,7 @@ class YoloAdapter:
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
         pass  # a YOLO dataset has no GPS coordinates of its own
 
-    def randomize_media_ids(self, input_dir: Path) -> None:
+    def randomize_media_ids(self, input_dir: Path, *, domain: str = "localhost") -> None:
         pass  # a YOLO dataset has no mediaID of its own
 
     def extract_core_files(self, output_dir: Path, target_dir: Path) -> None:

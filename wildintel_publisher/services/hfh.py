@@ -9,6 +9,7 @@ ficheros copiar, cómo filtrar/mirror sus imágenes).
 """
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import httpx
 import yaml
@@ -58,6 +59,7 @@ def prepare_hfh_export(
     image_timeout: int = DEFAULT_IMAGE_TIMEOUT,
     overwrite: bool = False,
     mirror_images: bool = True,
+    media_dir: Optional[Path] = None,
 ) -> Path:
     """Copia el producto de `input_dir` a `output_dir` (vía el ProductAdapter
     de su tipo, leído de `input_dir`/metadata.json) y escribe README.md,
@@ -96,7 +98,7 @@ def prepare_hfh_export(
     adapter = product.get_adapter(product_meta["product_type"])
 
     console.print(f"Copying the product from {input_dir} to {output_dir} ...")
-    adapter.prepare(input_dir, output_dir, mirror=mirror_images, image_timeout=image_timeout)
+    adapter.prepare(input_dir, output_dir, mirror=mirror_images, image_timeout=image_timeout, media_dir=media_dir)
     product.copy_metadata_json(input_dir, output_dir)
 
     title = product_meta["title"]
@@ -104,6 +106,7 @@ def prepare_hfh_export(
     resolved_version = product_meta.get("version") or version
     license = product_meta["license"]
     authors = product_meta["authors"]
+    contact = product_meta.get("contact") or []
     date_released = datetime.now().date().isoformat()
 
     write_readme(
@@ -117,7 +120,7 @@ def prepare_hfh_export(
     )
     common.write_citation(
         CITATION_TEMPLATE_FILE, output_dir,
-        title=title, message=metadata.message, authors=authors, version=resolved_version,
+        title=title, message=metadata.message, authors=authors, contact=contact, version=resolved_version,
         date_released=date_released, license_id=license["id"], repository_code=metadata.repository_code,
     )
     if mirror_images:
