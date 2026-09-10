@@ -760,10 +760,21 @@ def format_apa_author(author: dict) -> str:
     return author.get("name", "")
 
 
-def format_apa_citation(*, authors: list, title: str, version: str, date_released: str, publisher: str, url: str) -> str:
+def format_apa_citation(
+    *, authors: list, title: str, version: str, date_released: str, publisher: str, url: str,
+    copyright_holders: list[str] | None = None,
+) -> str:
     """Cita en formato APA (7ª ed.) para un dataset, generada a partir de los
     mismos datos que CITATION.cff — mismo criterio que la tarjeta "Cite this
-    repository" de GitHub."""
+    repository" de GitHub. `publisher` es quien lo cita como editor (el
+    contributor con role "publisher" — ver resolve_publisher —, no el
+    nombre del repositorio de destino: cada caller resuelve ese fallback
+    por su cuenta, ver hfh.py/zenodo.py/b2share.py's own write_readme).
+    copyright_holders (los contributors con role "rightsHolder" — ver
+    resolve_copyright_holders) se añade como un "© <año> <nombre(s)>" al
+    final, después de la URL — patch_readme_citation_url localiza la URL
+    por su propio patrón (http(s)://...), no por ser el último token de la
+    línea, precisamente para que esto no la rompa."""
     author_strs = [format_apa_author(a) for a in authors]
     if len(author_strs) == 1:
         authors_part = author_strs[0]
@@ -774,7 +785,10 @@ def format_apa_citation(*, authors: list, title: str, version: str, date_release
 
     year = date_released.split("-")[0] if date_released else "n.d."
 
-    return f"{authors_part} ({year}). *{title}* (Version {version}) [Data set]. {publisher}. {url}"
+    citation = f"{authors_part} ({year}). *{title}* (Version {version}) [Data set]. {publisher}. {url}"
+    if copyright_holders:
+        citation += f" © {year} {', '.join(copyright_holders)}"
+    return citation
 
 
 def write_license(template_file: Path, output_dir: Path, *, license_id: str, license_name: str, license_url: str) -> Path:
@@ -920,12 +934,16 @@ def patch_citation_with_identifier(
 
 
 def patch_readme_citation_url(readme_path: Path, url: str) -> bool:
-    """Replaces the URL at the end of the rendered README's '## Citation'
-    blockquote (the APA citation line — see format_apa_citation, which
-    always ends the line with '<publisher>. <url>', nothing after it) with
-    `url`, whatever was already there — the dataset's own repo URL (the
-    default every write_readme renders), an already cross-referenced DOI
-    from an earlier call, or nothing meaningful yet.
+    """Replaces the URL in the rendered README's '## Citation' blockquote
+    (the APA citation line — see format_apa_citation) with `url`, whatever
+    was already there — the dataset's own repo URL (the default every
+    write_readme renders), an already cross-referenced DOI from an earlier
+    call, or nothing meaningful yet.
+
+    Matches on the http(s):// pattern itself, not on "last token on the
+    line" — format_apa_citation may append a "© <year> <holder(s)>" notice
+    AFTER the URL (see its own copyright_holders param), so the URL is no
+    longer necessarily the line's last word.
 
     Unlike a one-shot placeholder swap (e.g. zenodo.py's own
     PLACEHOLDER_CITATION_URL, resolved exactly once, always early — Zenodo/
@@ -952,7 +970,7 @@ def patch_readme_citation_url(readme_path: Path, url: str) -> bool:
     if not match:
         return False
     line = match.group(0)
-    new_line = re.sub(r"\S+$", url, line)
+    new_line = re.sub(r"https?://\S+", url, line)
     if new_line == line:
         return False
     start = heading_idx + match.start()
@@ -1013,6 +1031,7 @@ def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dir
 
 def download_public_images(
     output_dir: Path, *, input_dir: Path, images_dirname: str = IMAGES_DIRNAME, timeout: int = DEFAULT_IMAGE_TIMEOUT,
+    cache_dir: Path | None = None,
 ) -> None:
     """Trae a `output_dir`/<images_dirname>/ cada fichero referenciado en
     media.csv (ya filtrado a solo público) — su columna filePath admite las
@@ -1030,7 +1049,18 @@ def download_public_images(
     (`_image_bucket(fileName)`), no suelto en la raíz de <images_dirname>/
     — HuggingFace Hub rechaza el push si algún directorio del repo supera
     los 10 000 ficheros, y un dataset grande de cámaras trampa lo supera
-    con facilidad."""
+    con facilidad.
+
+    cache_dir, si se da, se consulta/rellena ANTES que la descarga/copia
+    real — cada fichero se materializa ahí como SIEMPRE (nunca un hardlink)
+    y luego se copia (copia real, independiente) a `destination`: cada
+    repo redimensiona sus propias imágenes in-place después, a su propio
+    min_image_edge/tamaño objetivo (ver fit_images_to_size) — un hardlink
+    compartido quedaría corrupto en cuanto el primer repo redimensionara.
+    Pensado para publish_orchestrator: una única caché por sesión
+    compartida entre todos los repos de una publicación multi-repo, para
+    que cada mediaID solo se descargue/copie de su origen real UNA vez por
+    sesión, sin importar a cuántos repos se publique."""
     media_csv = output_dir / MEDIA_CSV_FILENAME
     fieldnames, rows = read_csv(media_csv)
     if FILE_PATH_COLUMN not in fieldnames:
@@ -1045,7 +1075,7 @@ def download_public_images(
         return
 
     console.print(f"Fetching {len(rows)} public image(s) into {images_dir} ...")
-    downloaded = copied = skipped = failed = 0
+    downloaded = copied = cached = skipped = failed = 0
     with httpx.Client(timeout=timeout) as client:
         for row in track(rows, description="Fetching images"):
             file_path = row.get(FILE_PATH_COLUMN)
@@ -1054,12 +1084,29 @@ def download_public_images(
                 failed += 1
                 continue
 
-            bucket_dir = images_dir / _image_bucket(file_name)
+            bucket = _image_bucket(file_name)
+            bucket_dir = images_dir / bucket
             bucket_dir.mkdir(exist_ok=True)
             destination = bucket_dir / file_name
             if destination.exists():
                 skipped += 1
                 continue
+
+            cache_destination = None
+            if cache_dir is not None:
+                cache_bucket_dir = cache_dir / bucket
+                cache_bucket_dir.mkdir(parents=True, exist_ok=True)
+                cache_destination = cache_bucket_dir / file_name
+                if cache_destination.is_file():
+                    shutil.copy2(cache_destination, destination)
+                    cached += 1
+                    continue
+
+            # Absent a cache, fetched straight into `destination`; with one,
+            # fetched into the cache first so it's there for the next repo
+            # too, then copied (real copy, see the docstring) into
+            # `destination` just like a cache hit above would have.
+            fetch_destination = cache_destination or destination
 
             if file_path.startswith("http://") or file_path.startswith("https://"):
                 try:
@@ -1069,7 +1116,7 @@ def download_public_images(
                     console.print(f"  [red]✘  Could not download {file_name}: {exc}[/red]")
                     failed += 1
                     continue
-                destination.write_bytes(response.content)
+                fetch_destination.write_bytes(response.content)
                 downloaded += 1
             else:
                 source = input_dir / file_path
@@ -1077,11 +1124,15 @@ def download_public_images(
                     console.print(f"  [red]✘  {file_name}: local file not found at {source}[/red]")
                     failed += 1
                     continue
-                shutil.copy2(source, destination)
+                shutil.copy2(source, fetch_destination)
                 copied += 1
 
+            if cache_destination is not None:
+                shutil.copy2(fetch_destination, destination)
+
+    cache_note = f"{cached} reused from cache, " if cache_dir is not None else ""
     console.print(
-        f"[green]✔  Images: {downloaded} downloaded, {copied} copied locally, "
+        f"[green]✔  Images: {downloaded} downloaded, {copied} copied locally, {cache_note}"
         f"{skipped} already existed, {failed} failed.[/green]"
     )
 

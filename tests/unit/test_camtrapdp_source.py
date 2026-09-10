@@ -194,6 +194,21 @@ def test_resolve_local_source_always_recopies_ignoring_any_stale_destination(cam
     assert (destination / "datapackage.json").is_file()
 
 
+def test_resolve_local_source_use_hash_subdir_false_writes_straight_into_output_dir(camtrapdp_dir, tmp_path):
+    """use_hash_subdir=False is for a caller whose own output_dir is
+    already unique per source (the web backend's own session_dir/source —
+    see services.camtrapdp_source_service.resolve_local_source) — the hash
+    subfolder only exists to dedupe several distinct local sources sharing
+    ONE output_dir, which a per-session directory never does."""
+    source_dir = camtrapdp_dir()
+    output_dir = tmp_path / "session-1" / "source"
+
+    result = resolve_local_camtrapdp_source(source_dir, output_dir, use_hash_subdir=False)
+
+    assert result == output_dir
+    assert sorted(p.name for p in result.iterdir()) == ["datapackage.json", "deployments.csv", "media.csv", "observations.csv"]
+
+
 def test_resolve_local_source_never_mutates_the_original_directory(tmp_path):
     """The whole point of this function: generate_metadata_json's
     validate/anonymize/randomize steps, run against the returned working

@@ -26,3 +26,14 @@ def clone_status(task_id: str) -> dict:
     if status is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")
     return status
+
+
+@router.post("/clone/{task_id}/resume")
+async def resume_clone(task_id: str) -> dict:
+    """Resumes an interrupted git clone — same url as the original request
+    (persisted in the session); no credentials to re-enter."""
+    try:
+        resumed_task_id = software_service.resume_clone_task(task_id)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"task_id": resumed_task_id}

@@ -5,20 +5,21 @@ import ResumeSessionsPage from './pages/ResumeSessionsPage'
 import WelcomePage from './pages/WelcomePage'
 import WizardPage from './pages/WizardPage'
 import { api } from './api'
-import type { PublishSessionSummary } from './types'
+import type { SessionSummary } from './types'
 
 export default function App() {
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
   const [backendDown, setBackendDown] = useState(false)
   const [started, setStarted] = useState(false)
-  // Publish sessions an earlier interrupted run left on disk (see the
-  // backend's services.publish_orchestrator) — fetched once on startup and
-  // offered ahead of the welcome page; null while still loading (so nothing
-  // flashes before the check completes), empty once confirmed there's
-  // nothing to resume. Resuming or explicitly skipping clears it so the
-  // wizard/welcome page takes over for the rest of this browser session.
-  const [unfinishedSessions, setUnfinishedSessions] = useState<PublishSessionSummary[] | null>(null)
-  const [resumeSession, setResumeSession] = useState<PublishSessionSummary | null>(null)
+  // Sessions an earlier interruption left on disk, at any phase — fetching
+  // a source, preprocessing it, or publishing (see the backend's
+  // services.session_store) — fetched once on startup and offered ahead of
+  // the welcome page; null while still loading (so nothing flashes before
+  // the check completes), empty once confirmed there's nothing to resume.
+  // Resuming or explicitly skipping clears it so the wizard/welcome page
+  // takes over for the rest of this browser session.
+  const [unfinishedSessions, setUnfinishedSessions] = useState<SessionSummary[] | null>(null)
+  const [resumeSession, setResumeSession] = useState<SessionSummary | null>(null)
 
   useEffect(() => {
     let cancelled = false

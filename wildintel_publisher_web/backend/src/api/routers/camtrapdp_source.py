@@ -23,10 +23,13 @@ async def fetch_archive(req: CamtrapDPArchiveFetchRequest) -> dict:
 @router.post("/resolve-local-source")
 def resolve_local_source(req: LocalSourceResolveRequest) -> dict:
     """Copies req.path's core Camtrap DP files into an app-owned working
-    directory and validates it. Synchronous — unlike fetch-archive/Trapper's
-    download, this never touches the network, so it returns immediately
-    instead of a task_id to poll."""
-    return camtrapdp_source_service.resolve_local_source(req.path)
+    directory (inside a session — see services.session_store) and validates
+    it. Synchronous — unlike fetch-archive/Trapper's download, this never
+    touches the network, so it returns immediately instead of a task_id to
+    poll; the response's own "taskId" is what the caller should thread
+    through as req.session_task_id on every later call for this same form,
+    and into generate-metadata/publish-start afterwards."""
+    return camtrapdp_source_service.resolve_local_source(req.path, task_id=req.session_task_id)
 
 
 @router.get("/fetch-archive/{task_id}")
@@ -36,3 +39,14 @@ def fetch_archive_status(task_id: str) -> dict:
     if status is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")
     return status
+
+
+@router.post("/fetch-archive/{task_id}/resume")
+async def resume_fetch_archive(task_id: str) -> dict:
+    """Resumes an interrupted public-URL fetch — same url as the original
+    request (persisted in the session); no credentials to re-enter."""
+    try:
+        resumed_task_id = camtrapdp_source_service.resume_fetch_task(task_id)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"task_id": resumed_task_id}

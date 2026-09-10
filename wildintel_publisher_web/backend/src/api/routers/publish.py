@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from schemas.requests import PublishAllRequest, RepoPublishConfig, ResumePublishRequest
-from services import b2share_service, gbif_service, hfh_service, publish_orchestrator, zenodo_service
+from services import b2share_service, gbif_service, hfh_service, publish_orchestrator, session_store, zenodo_service
 
 router = APIRouter(prefix="/api/publish", tags=["publish"])
 
@@ -110,6 +110,11 @@ async def start(req: PublishAllRequest) -> dict:
     if "hfh" in repo_names and "gbif" in repo_names and repo_names.index("hfh") > repo_names.index("gbif"):
         raise HTTPException(400, "Hugging Face Hub must be listed before GBIF when both are selected.")
 
+    if req.session_task_id:
+        existing = session_store.read_manifest(req.session_task_id)
+        if existing and existing.get("phase") == "publishing" and existing.get("status") == "running":
+            raise HTTPException(409, "This session is already publishing — resume it instead of starting a new one.")
+
     resolved_repos = [
         _resolve_repo_config(cfg, version=req.version, timeout=req.timeout, dry_run=req.dry_run)
         for cfg in req.repos
@@ -118,6 +123,7 @@ async def start(req: PublishAllRequest) -> dict:
     task_id = publish_orchestrator.start_publish_all_task(
         input_dir=Path(req.input_dir), repos=resolved_repos, primary_doi_source=req.primary_doi_source,
         dry_run=req.dry_run, media_dir=Path(req.media_dir) if req.media_dir else None,
+        task_id=req.session_task_id,
     )
     return {"task_id": task_id}
 

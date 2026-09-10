@@ -71,18 +71,6 @@ def get_camtrapdp_archive_output_dir() -> Path:
     return get_app_documents_dir() / "camtrapdp-archive"
 
 
-def get_working_output_dir() -> Path:
-    """Directorio por defecto donde se guardan copias de trabajo propias de
-    la app — nunca la carpeta original del usuario, para no mutarla
-    in-place. Nombrado de forma genérica (a diferencia de camtrapdp-archive/
-    trapper, que sí son cachés del origen real) porque su contenido no es
-    "la fuente", sino una copia derivada y descartable de ella; hoy solo lo
-    usa la resolución de un Camtrap DP local (datapackage.json + sus 3
-    tablas — ver services.camtrapdp_source.resolve_local_camtrapdp_source),
-    pero cualquier otro flujo con la misma necesidad podría reutilizarlo."""
-    return get_app_documents_dir() / "working"
-
-
 def get_sessions_dir() -> Path:
     """Directorio donde persisten las sesiones de publicación en curso o
     interrumpidas — ver services.publish_orchestrator (web app)."""

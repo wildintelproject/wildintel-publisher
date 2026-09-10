@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
-import type { PublishSessionSummary } from '../types'
+import type { PreprocessingSession, PublishSessionSummary } from '../types'
 import WizardPage from './WizardPage'
 
 vi.mock('../api', () => ({
@@ -56,7 +56,7 @@ beforeEach(() => {
   // source tests, written before the working-copy split, keep passing
   // unchanged — only a test that cares about the split overrides this.
   mockedApi.resolveLocalSource.mockImplementation(async (path: string) => (
-    { status: 'valid' as const, workingDir: path, sourceDir: path, error: null }
+    { status: 'valid' as const, workingDir: path, sourceDir: path, taskId: 'local-session', error: null }
   ))
   mockedApi.generateProductMetadata.mockResolvedValue({ authors: [] })
   mockedApi.datapackageSummary.mockResolvedValue({ authors: [] })
@@ -258,6 +258,27 @@ describe('WizardPage local directory flow', () => {
     await waitFor(() => expect(screen.getByText('A local package.')).toBeInTheDocument())
   })
 
+  it('reuses the same session (never mints a second one) after Back then Next again', async () => {
+    render(<WizardPage />)
+
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    mockedApi.generateProductMetadata.mockResolvedValue({ title: 'My Camtrap DP', authors: [] })
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /^back$/i }))
+    // Re-mounts LocalDirectoryForm with the path it already had — this
+    // must reuse the very first call's own session (taskId
+    // 'local-session', from the default mock), never mint a fresh one.
+    await waitFor(() => expect(mockedApi.resolveLocalSource).toHaveBeenLastCalledWith('/data/camtrapdp', 'local-session'))
+
+    const sessionTaskIdsUsed = mockedApi.resolveLocalSource.mock.calls.map((call) => call[1])
+    expect(sessionTaskIdsUsed.filter((id) => id === undefined)).toHaveLength(1) // only the very first call ever mints one
+  })
+
   it('asks the user to complete missing metadata before letting them proceed', async () => {
     render(<WizardPage />)
 
@@ -403,7 +424,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalledWith(
-      '/data/camtrapdp', 'camtrapdp', true, 1, false, 'localhost',
+      '/data/camtrapdp', 'camtrapdp', true, 1, false, 'localhost', 'local-session',
     ))
   })
 })
@@ -1447,6 +1468,9 @@ const HFH_ONLY_RESUME_SESSION: PublishSessionSummary = {
   task_id: 'resume-task-1',
   created_at: '2026-09-01T10:00:00Z',
   status: 'error',
+  phase: 'publishing',
+  product_type: 'camtrapdp',
+  source_type: 'trapper',
   dry_run: false,
   input_dir: '/tmp/camtrapdp',
   media_dir: null,
@@ -1462,7 +1486,62 @@ const HFH_ONLY_RESUME_SESSION: PublishSessionSummary = {
   },
 }
 
+const PREPROCESSED_RESUME_SESSION: PreprocessingSession = {
+  task_id: 'resume-task-2',
+  created_at: '2026-09-01T10:00:00Z',
+  status: 'done',
+  phase: 'preprocessed',
+  product_type: 'camtrapdp',
+  source_type: 'local',
+  fetch: {
+    source_type: 'local', params: { path: '/data/camtrapdp' },
+    output_dir: '/sessions/resume-task-2/source', input_dir: '/sessions/resume-task-2/source/abc123',
+  },
+  preprocessing: {
+    status: 'done', anonymize_coordinates: true, coordinate_decimals: 1, randomize_media_ids: false, media_id_domain: 'localhost',
+  },
+}
+
 describe('WizardPage resume', () => {
+  it('lands on step 3 with a usable Next button, reading metadata.json back instead of re-preprocessing', async () => {
+    mockedApi.datapackageSummary.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+
+    render(<WizardPage resumeSession={PREPROCESSED_RESUME_SESSION} />)
+
+    await waitFor(() => expect(screen.getByText('My Camtrap DP')).toBeInTheDocument())
+    expect(mockedApi.datapackageSummary).toHaveBeenCalledWith('/sessions/resume-task-2/source/abc123')
+    expect(mockedApi.generateProductMetadata).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled()
+  })
+
+  it('lets a "preprocessed"-phase resume pick repos normally, instead of jumping straight to "ready to confirm"', async () => {
+    // Regression test: publishStarted/resumeTaskId used to seed from
+    // "any resumeSession at all" (`!!resumeSession`) instead of "one
+    // already past repo selection" (phase === 'publishing') — so a
+    // "fetched"/"preprocessed" resume (nothing chosen yet) skipped
+    // straight to the "all configured, ready to publish" screen with an
+    // EMPTY repo list, and clicking through it called resumePublishStart
+    // against a session with no "repos" key yet, which the backend
+    // rejects with "No interrupted publish session found".
+    mockedApi.datapackageSummary.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+
+    render(<WizardPage resumeSession={PREPROCESSED_RESUME_SESSION} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    expect(screen.getByRole('heading', { name: /where do you want to publish it\?/i })).toBeInTheDocument()
+    expect(screen.queryByText(/ready to publish|will now start/i)).not.toBeInTheDocument()
+    expect(mockedApi.resumePublishStart).not.toHaveBeenCalled()
+  })
+
   it('skips straight to configuring the persisted repos, pre-filled minus the token', async () => {
     render(<WizardPage resumeSession={HFH_ONLY_RESUME_SESSION} />)
 

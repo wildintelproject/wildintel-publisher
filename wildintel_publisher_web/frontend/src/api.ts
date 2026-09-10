@@ -1,6 +1,6 @@
 import type {
   BrowseResult, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment, OutputMode,
-  PublishRepoConfig, PublishSessionSummary, ResearchProject,
+  PublishRepoConfig, ResearchProject, SessionSummary,
 } from './types'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
@@ -68,6 +68,12 @@ export const api = {
       `/api/trapper/download/${taskId}`,
     ),
 
+  // Resumes a Trapper fetch an earlier interruption left on disk — same
+  // project/deployment as the original request (persisted server-side);
+  // only credentials need to be re-entered (never saved to disk).
+  trapperResumeDownload: (taskId: string, url: string, username: string, password: string) =>
+    post<{ task_id: string }>(`/api/trapper/download/${taskId}/resume`, { url, username, password }),
+
   softwareCloneStart: (url: string, clearCache = false) =>
     post<{ task_id: string }>('/api/software/clone', { url, clear_cache: clearCache }),
 
@@ -75,6 +81,11 @@ export const api = {
     req<{ status: 'running' | 'done' | 'error'; path: string | null; error: string | null }>(
       `/api/software/clone/${taskId}`,
     ),
+
+  // Resumes a git clone an earlier interruption left on disk — same url as
+  // the original request; no credentials involved.
+  softwareResumeClone: (taskId: string) =>
+    post<{ task_id: string }>(`/api/software/clone/${taskId}/resume`, {}),
 
   camtrapdpFetchArchiveStart: (url: string, clearCache = false) =>
     post<{ task_id: string }>('/api/camtrapdp/fetch-archive', { url, clear_cache: clearCache }),
@@ -84,17 +95,29 @@ export const api = {
       `/api/camtrapdp/fetch-archive/${taskId}`,
     ),
 
+  // Resumes a public-URL fetch an earlier interruption left on disk — same
+  // url as the original request; no credentials involved.
+  camtrapdpResumeFetchArchive: (taskId: string) =>
+    post<{ task_id: string }>(`/api/camtrapdp/fetch-archive/${taskId}/resume`, {}),
+
   // Copies path's core Camtrap DP files (datapackage.json + its 3 tables —
-  // never any media) into an app-owned working directory and validates it.
-  // Synchronous, unlike fetch-archive/Trapper's download above: it's just a
-  // few small local files, not a network fetch. workingDir is what the rest
-  // of the wizard should use as input_dir from here on; sourceDir (== path)
-  // is kept only so media.csv's locally-referenced images can still be
-  // found later, at the actual publish step (see mediaDir in
-  // publishAllStart below) — never copied here.
-  resolveLocalSource: (path: string) =>
-    post<{ status: 'valid' | 'invalid'; workingDir: string | null; sourceDir: string; error: string | null }>(
-      '/api/camtrapdp/resolve-local-source', { path },
+  // never any media) into an app-owned working directory (inside a
+  // session — see services.session_store) and validates it. Synchronous,
+  // unlike fetch-archive/Trapper's download above: it's just a few small
+  // local files, not a network fetch. workingDir is what the rest of the
+  // wizard should use as input_dir from here on; sourceDir (== path) is
+  // kept only so media.csv's locally-referenced images can still be found
+  // later, at the actual publish step (see mediaDir in publishAllStart
+  // below) — never copied here. taskId is that session's own task_id,
+  // present even on failure — pass it back in as sessionTaskId on every
+  // later call for this same form (see LocalDirectoryForm's own debounced
+  // live-preview) so a path edit reuses the same session_dir instead of
+  // minting a new one per keystroke, and thread it into
+  // generateProductMetadata/publishAllStart below exactly like a Trapper/
+  // git/archive session's own task_id.
+  resolveLocalSource: (path: string, sessionTaskId?: string) =>
+    post<{ status: 'valid' | 'invalid'; workingDir: string | null; sourceDir: string; taskId: string; error: string | null }>(
+      '/api/camtrapdp/resolve-local-source', { path, session_task_id: sessionTaskId },
     ),
 
   // anonymizeCoordinates/coordinateDecimals (Camtrap DP only) round
@@ -103,15 +126,21 @@ export const api = {
   // randomizeMediaIds (Camtrap DP only) replaces every mediaID that isn't
   // already a UUID with one derived from mediaIdDomain, same "applied once
   // here" shape — see WizardPage's mediaIdDomain state.
+  // sessionTaskId (the session a prior Trapper/git/archive fetch, or a
+  // Local Directory resolve, already started — see WizardPage's own
+  // sessionTaskId state) flips that session's phase to "preprocessing"/
+  // "preprocessed" server-side; undefined only for a request that
+  // predates this feature.
   generateProductMetadata: (
     inputDir: string, productType: string,
     anonymizeCoordinates = false, coordinateDecimals = 2, randomizeMediaIds = false,
-    mediaIdDomain = 'localhost',
+    mediaIdDomain = 'localhost', sessionTaskId?: string,
   ) =>
     post<DatapackageSummary>('/api/camtrapdp/generate-metadata', {
       input_dir: inputDir, product_type: productType,
       anonymize_coordinates: anonymizeCoordinates, coordinate_decimals: coordinateDecimals,
       randomize_media_ids: randomizeMediaIds, media_id_domain: mediaIdDomain,
+      session_task_id: sessionTaskId,
     }),
 
   completeProductMetadata: (inputDir: string, updates: Partial<Omit<DatapackageSummary, 'product_type' | 'hfh_repo_id'>>) =>
@@ -347,6 +376,14 @@ export const api = {
     // token/repo_id/community_id is required in this mode.
     dryRun?: boolean
     repos: PublishRepoConfig[]
+    // The session a prior Trapper/git/archive fetch, or a Local Directory
+    // resolve, (and, usually, preprocessing) already started — see
+    // WizardPage's own sessionTaskId state. When given, the backend reuses
+    // that exact session instead of minting a new one, so the fetched
+    // source/preprocessing choices and this publish's own build dirs all
+    // end up under the same folder. Undefined only for a request that
+    // predates this feature.
+    sessionTaskId?: string
   }) =>
     post<{ task_id: string }>('/api/publish/start', {
       input_dir: params.inputDir,
@@ -356,6 +393,7 @@ export const api = {
       primary_doi_source: params.primaryDoiSource,
       dry_run: params.dryRun ?? false,
       repos: params.repos.map(_repoConfigToApi),
+      session_task_id: params.sessionTaskId,
     }),
 
   publishAllStatus: (taskId: string) =>
@@ -375,11 +413,12 @@ export const api = {
       }>
     }>(`/api/publish/${taskId}`),
 
-  // Publish sessions an earlier interrupted run left on disk (see the
-  // backend's services.publish_orchestrator) — offered on web app startup
-  // so the user can resume or discard instead of starting over. Never
-  // carries credentials (see PublishSessionSummary's own docstring).
-  listPublishSessions: () => req<PublishSessionSummary[]>('/api/publish/sessions'),
+  // Sessions an earlier interruption left on disk, at ANY phase (fetching a
+  // source, preprocessing it, or publishing — see services.session_store) —
+  // offered on web app startup so the user can resume or discard instead of
+  // starting over. Never carries credentials (see SessionSummary's own
+  // docstring).
+  listPublishSessions: () => req<SessionSummary[]>('/api/publish/sessions'),
 
   // Resumes an interrupted session — same repos/order as the original run,
   // with freshly-supplied credentials (never persisted, so always required

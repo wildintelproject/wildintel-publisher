@@ -11,7 +11,6 @@ from wildintel_publisher.config import (
     get_b2share_output_dir,
     get_hfh_output_dir,
     get_trapper_output_dir,
-    get_working_output_dir,
     get_zenodo_output_dir,
     load_settings,
 )
@@ -68,16 +67,6 @@ def test_output_dir_helpers_are_distinct_siblings():
     assert len(dirs) == 4
     parents = {d.parent for d in dirs}
     assert len(parents) == 1  # all siblings under the same app documents dir
-
-
-def test_working_output_dir_is_named_generically_not_after_any_one_source():
-    # Named "working" (not e.g. "local-source") on purpose — unlike its
-    # siblings (camtrapdp-archive/trapper), it never holds a cache of the
-    # real source itself, only a disposable working copy the app is free to
-    # mutate; today only the local-directory source uses it (see
-    # services.camtrapdp_source.resolve_local_camtrapdp_source), but nothing
-    # here ties the name to that one source type.
-    assert get_working_output_dir().name == "working"
 
 
 def test_load_settings_creates_file_with_defaults_if_missing(tmp_path: Path):

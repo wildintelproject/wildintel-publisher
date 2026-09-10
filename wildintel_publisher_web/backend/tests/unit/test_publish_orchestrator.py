@@ -197,6 +197,49 @@ def test_publish_all_passes_media_dir_only_to_the_first_repo(tmp_path):
     assert captured["zenodo"] is None
 
 
+def test_publish_all_shares_one_media_cache_dir_across_every_repo(tmp_path):
+    """Unlike media_dir (only the first repo — see the test above),
+    media_cache_dir must reach EVERY repo's own prepare_*_export call, and
+    be the exact same directory each time — see
+    common.download_public_images's own docstring for why that's what lets
+    a later repo skip re-fetching a file an earlier one already mirrored."""
+    captured = {}
+
+    def fake_prepare_hfh(*, input_dir, output_dir, media_cache_dir=None, **kwargs):
+        captured["hfh"] = media_cache_dir
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_prepare_zenodo(*, input_dir, output_dir, media_cache_dir=None, **kwargs):
+        captured["zenodo"] = media_cache_dir
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", return_value="https://huggingface.co/datasets/alice/dataset"),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface"),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=lambda output_dir, **k: (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": None}), encoding="utf-8")),
+        patch("services.publish_orchestrator.zenodo_cli.release_on_zenodo", return_value={"doi": "10.5281/zenodo.1", "record_url": "https://zenodo.org/records/1"}),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/local-source/working",
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x", "environment": "sandbox"},
+                ],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done"
+    assert captured["hfh"] is not None
+    assert captured["hfh"] == captured["zenodo"]
+    assert captured["hfh"].name == "media-cache"
+
+
 def test_publish_all_passes_archive_size_options_through_to_zenodo_and_b2share(tmp_path):
     captured = {}
 
@@ -1043,3 +1086,97 @@ def test_resume_publish_all_task_skips_the_already_done_repo_and_completes(tmp_p
 
     from wildintel_publisher.config import get_sessions_dir
     assert not (get_sessions_dir() / task_id).exists()  # cleaned up on the eventual success
+
+
+def test_publish_all_reuses_a_prior_fetch_sessions_task_id(tmp_path):
+    """A session_task_id from an earlier fetch/preprocess phase (see
+    services.session_store) makes start_publish_all_task reuse that exact
+    session_dir instead of minting a new one — the fetched source and
+    preprocessing choices end up living alongside this publish's own build
+    dirs, and a fully successful run deletes the whole thing together
+    (confirmed with the user: including the fetched source itself)."""
+    from services import session_store
+
+    task_id = session_store.new_task_id()
+    session_store.write_fetch_phase(
+        task_id, product_type="camtrapdp", source_type="archive",
+        fetch={
+            "source_type": "archive", "params": {"url": "https://example.org/x.zip", "clear_cache": False},
+            "output_dir": str(tmp_path / "source"), "input_dir": str(tmp_path / "source"),
+        },
+        status="done", error=None,
+    )
+    session_store.write_preprocessing_phase(
+        task_id, status="done", error=None,
+        choices={"anonymize_coordinates": False, "coordinate_decimals": 2, "randomize_media_ids": False, "media_id_domain": "localhost"},
+    )
+
+    def fake_prepare(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", return_value="https://huggingface.co/datasets/alice/dataset"),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface"),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(tmp_path / "source"), "session_task_id": task_id,
+                "repos": [{"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"}],
+            })
+            assert start.status_code == 200, start.text
+            returned_task_id = start.json()["task_id"]
+            assert returned_task_id == task_id  # reused, not a fresh uuid4()
+            body = _poll(client, returned_task_id)
+
+    assert body["status"] == "done", body
+    from wildintel_publisher.config import get_sessions_dir
+    assert not (get_sessions_dir() / task_id).exists()  # the whole session, including the fetched source/, is gone
+
+
+def test_publish_all_keeps_the_fetch_and_preprocessing_sections_when_publishing_fails(tmp_path):
+    from services import session_store
+
+    task_id = session_store.new_task_id()
+    session_store.write_fetch_phase(
+        task_id, product_type="camtrapdp", source_type="trapper",
+        fetch={
+            "source_type": "trapper",
+            "params": {"url": "https://trapper.example", "project_id": 1, "deployment_id": "d1", "clear_cache": False, "include_events": True},
+            "output_dir": str(tmp_path / "source"), "input_dir": str(tmp_path / "source"),
+        },
+        status="done", error=None,
+    )
+
+    def failing_prepare(*, input_dir, output_dir, **kwargs):
+        raise RuntimeError("boom")
+
+    with patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=failing_prepare):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(tmp_path / "source"), "session_task_id": task_id,
+                "repos": [{"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"}],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "error"
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "publishing"
+    assert manifest["source_type"] == "trapper"
+    assert manifest["fetch"]["params"]["project_id"] == 1  # the fetch phase's own section survives
+
+
+def test_publish_all_rejects_starting_a_session_that_is_already_publishing():
+    from services import session_store
+
+    task_id = session_store.new_task_id()
+    session_store.write_manifest(task_id, {"task_id": task_id, "phase": "publishing", "status": "running"})
+
+    response = _client().post("/api/publish/start", json={
+        "input_dir": "/tmp/camtrapdp", "session_task_id": task_id,
+        "repos": [{"repo": "hfh", "output_dir": "/tmp/hfh", "repo_id": "alice/dataset", "token": "hf_x"}],
+    })
+
+    assert response.status_code == 409

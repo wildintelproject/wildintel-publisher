@@ -62,15 +62,18 @@ populate() itself are never mocked — only the network boundary is.
 
 Resumable sessions: every task's build directories (and the extra "chain"
 directories fed from one repo into the next) live under a persistent
-get_sessions_dir()/<task_id> directory instead of a throwaway tempdir, and
-a session.json manifest is written there after every state change (see
-_write_session_manifest) — deliberately EXCLUDING credentials (token/
-password: see _scrub_secrets), since resuming always requires the user to
-re-supply them. The whole session_dir is only deleted once the task
-actually finishes successfully (see _run's `finally`); on error, it's left
-on disk on purpose, so resume_publish_all_task can pick the task back up —
-already-downloaded images (download_public_images already skips what's on
-disk) and already-uploaded Zenodo/B2SHARE files (see zenodo.upload_to_zenodo/
+session_store.session_dir(task_id) directory instead of a throwaway
+tempdir (possibly the SAME session an earlier fetch/preprocess phase
+already created — see session_store's own docstring — when `task_id` is
+passed into start_publish_all_task), and a session.json manifest is
+written there after every state change (see _write_session_manifest) —
+deliberately EXCLUDING credentials (token/password: see _scrub_secrets),
+since resuming always requires the user to re-supply them. The whole
+session_dir is only deleted once the task actually finishes successfully
+(see _run's `finally`); on error, it's left on disk on purpose, so
+resume_publish_all_task can pick the task back up — already-downloaded
+images (download_public_images already skips what's on disk) and
+already-uploaded Zenodo/B2SHARE files (see zenodo.upload_to_zenodo/
 b2share.upload_to_b2share, which skip whatever the reused deposition/draft
 already lists) aren't redone, and any repo whose own "stage" is already
 "done" is skipped entirely rather than re-run."""
@@ -85,7 +88,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from wildintel_publisher.config import get_sessions_dir, load_settings
+from wildintel_publisher.config import load_settings
 from wildintel_publisher.services import b2share as b2share_cli
 from wildintel_publisher.services import doi_populate
 from wildintel_publisher.services import gbif as gbif_cli
@@ -93,7 +96,7 @@ from wildintel_publisher.services import hfh as hfh_cli
 from wildintel_publisher.services import product
 from wildintel_publisher.services import zenodo as zenodo_cli
 
-from services import b2share_service, camtrapdp_service, gbif_service, hfh_service, zenodo_service
+from services import b2share_service, camtrapdp_service, gbif_service, hfh_service, session_store, zenodo_service
 
 DEFAULT_TIMEOUT = 60
 
@@ -187,26 +190,37 @@ _SECRET_CFG_KEYS = {"token", "password"}
 
 
 def _scrub_secrets(cfg: dict) -> dict:
-    return {k: v for k, v in cfg.items() if k not in _SECRET_CFG_KEYS}
+    return session_store.scrub_secrets(cfg, _SECRET_CFG_KEYS)
 
 
 def _session_dir(task_id: str) -> Path:
-    return get_sessions_dir() / task_id
+    return session_store.session_dir(task_id)
 
 
 def _write_session_manifest(
-    task_id: str, *, session_dir: Path, repos: list[dict], primary_doi_source: str | None,
+    task_id: str, *, repos: list[dict], primary_doi_source: str | None,
     dry_run: bool, input_dir: Path, media_dir: Path | None, created_at: str,
     build_dirs: dict[str, Path], input_dirs: dict[str, Path],
 ) -> None:
     """Persists everything needed to resume this task after a crash/restart
     or a backend restart — see resume_publish_all_task. Written after every
     state change in _run so a session_dir left behind by an interrupted task
-    is never more than one step stale."""
+    is never more than one step stale.
+
+    Merges into whatever's already on disk (see session_store's own
+    docstring) rather than overwriting it wholesale — a session that
+    reached this point via a prior fetch/preprocess phase (see
+    session_store.write_fetch_phase/write_preprocessing_phase) keeps its
+    own "fetch"/"preprocessing"/"product_type"/"source_type" sections
+    alongside these publish-phase fields, whose own shape is unchanged from
+    before this module started sharing session_store with those phases."""
     task = _publish_tasks[task_id]
+    existing = session_store.read_manifest(task_id) or {}
     manifest = {
+        **existing,
         "task_id": task_id,
         "created_at": created_at,
+        "phase": "done" if task["status"] == "done" else "publishing",
         "status": task["status"],
         "error": task.get("error"),
         "dry_run": dry_run,
@@ -218,10 +232,7 @@ def _write_session_manifest(
         "build_dirs": {repo: str(d) for repo, d in build_dirs.items()},
         "input_dirs": {repo: str(d) for repo, d in input_dirs.items()},
     }
-    session_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = session_dir / "session.json.tmp"
-    tmp_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp_path.replace(session_dir / "session.json")
+    session_store.write_manifest(task_id, manifest)
 
 
 def list_unfinished_sessions() -> list[dict[str, Any]]:
@@ -229,33 +240,16 @@ def list_unfinished_sessions() -> list[dict[str, Any]]:
     task that reaches "done" always deletes its own session_dir (see _run's
     `finally`), so anything found here is either still running (backend
     hasn't restarted since) or was interrupted (backend restarted, or the
-    process died) — the web app offers both to resume on startup."""
-    sessions_dir = get_sessions_dir()
-    if not sessions_dir.is_dir():
-        return []
-    sessions = []
-    for entry in sorted(sessions_dir.iterdir()):
-        manifest_path = entry / "session.json"
-        if not manifest_path.is_file():
-            continue
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        if manifest.get("status") == "done":
-            # Shouldn't normally happen (a "done" task deletes session_dir
-            # itself) — defensive cleanup for a process that died between
-            # marking done and removing it.
-            shutil.rmtree(entry, ignore_errors=True)
-            continue
-        sessions.append(manifest)
-    return sessions
+    process died) — the web app offers both to resume on startup. Spans
+    every phase (fetching/preprocessing/publishing), not just this module's
+    own publish phase — see session_store.list_sessions."""
+    return session_store.list_sessions()
 
 
 def discard_session(task_id: str) -> None:
     """Permanently deletes an interrupted session's build directories and
     manifest — for when the user chooses not to resume it."""
-    shutil.rmtree(_session_dir(task_id), ignore_errors=True)
+    session_store.discard_session(task_id)
 
 
 def _detect_hfh_repo_id(input_dir: Path) -> str | None:
@@ -272,7 +266,7 @@ def _detect_hfh_repo_id(input_dir: Path) -> str | None:
 
 async def _upload_one(
     cfg: dict, *, input_dir: Path, build_dir: Path, settings, repo_status: dict, dry_run: bool,
-    media_dir: Path | None = None,
+    media_dir: Path | None = None, media_cache_dir: Path | None = None,
 ) -> None:
     """Phase 1 (and re-run as-is during phase 2 for a changed repo, minus
     the 'preparing' half — see _reupload_one): prepare + upload a single
@@ -281,7 +275,15 @@ async def _upload_one(
     prepare_*_export always runs for real, dry_run or not — it's pure local
     file generation (no network), and it's what gives doi_populate() and the
     UI real files to work with. Only the actual network upload is
-    swapped out for a simulated one in dry_run (see the _dry_run_* helpers)."""
+    swapped out for a simulated one in dry_run (see the _dry_run_* helpers).
+
+    media_cache_dir (unlike media_dir, passed for EVERY repo, not just the
+    first — see _run's own call site) is one shared cache under this same
+    task's own session_dir: each media file only gets downloaded/copied
+    from its real source once per session no matter how many repos publish
+    it — see common.download_public_images's own docstring for the
+    mechanics and why a later repo's own image-resizing step can't corrupt
+    it."""
     repo = cfg["repo"]
     version = cfg.get("version")
     timeout = cfg.get("timeout") or DEFAULT_TIMEOUT
@@ -303,7 +305,7 @@ async def _upload_one(
         await asyncio.to_thread(
             hfh_cli.prepare_hfh_export, input_dir=input_dir, output_dir=build_dir, metadata=settings.HFH,
             version=version or hfh_cli.DEFAULT_VERSION, image_timeout=timeout, overwrite=True,
-            mirror_images=cfg["mirror_images"], media_dir=media_dir,
+            mirror_images=cfg["mirror_images"], media_dir=media_dir, media_cache_dir=media_cache_dir,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -336,7 +338,7 @@ async def _upload_one(
             fit_archive_size=cfg.get("fit_archive_size", True),
             max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
             min_image_edge=cfg.get("min_image_edge") or zenodo_cli.DEFAULT_MIN_IMAGE_EDGE,
-            media_dir=media_dir,
+            media_dir=media_dir, media_cache_dir=media_cache_dir,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -357,7 +359,7 @@ async def _upload_one(
             fit_archive_size=cfg.get("fit_archive_size", True),
             max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
             min_image_edge=cfg.get("min_image_edge") or b2share_cli.DEFAULT_MIN_IMAGE_EDGE,
-            media_dir=media_dir,
+            media_dir=media_dir, media_cache_dir=media_cache_dir,
         )
         repo_status["stage"] = "uploading"
         if dry_run:
@@ -577,7 +579,14 @@ async def _run(
 ) -> None:
     task = _publish_tasks[task_id]
     session_dir = _session_dir(task_id)
-    created_at = task.get("created_at") or datetime.now(timezone.utc).isoformat()
+    # A fresh start_publish_all_task() call reusing a task_id an earlier
+    # fetch/preprocess phase already created (see session_store) has
+    # nothing in `task` (a brand new in-memory dict) yet, but the manifest
+    # on disk already knows when the whole session really began — prefer
+    # that over "now" so created_at reflects the session's actual start,
+    # not just whenever publishing happened to begin.
+    created_at = task.get("created_at") or (session_store.read_manifest(task_id) or {}).get("created_at") \
+        or datetime.now(timezone.utc).isoformat()
     task["created_at"] = created_at
 
     build_dirs: dict[str, Path] = {}
@@ -593,7 +602,7 @@ async def _run(
     input_dirs: dict[str, Path] = {}
 
     if resume:
-        manifest = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+        manifest = session_store.read_manifest(task_id) or {}
         for repo, path_str in manifest.get("build_dirs", {}).items():
             path = Path(path_str)
             if path.is_dir():
@@ -607,7 +616,7 @@ async def _run(
 
     def _persist() -> None:
         _write_session_manifest(
-            task_id, session_dir=session_dir, repos=repos, primary_doi_source=primary_doi_source,
+            task_id, repos=repos, primary_doi_source=primary_doi_source,
             dry_run=dry_run, input_dir=input_dir, media_dir=media_dir, created_at=created_at,
             build_dirs=build_dirs, input_dirs=input_dirs,
         )
@@ -651,6 +660,11 @@ async def _run(
                 # media mirrored into it if applicable (see
                 # _extract_chain_input below).
                 media_dir=media_dir if i == 0 else None,
+                # Unlike media_dir, shared by EVERY repo — each media file
+                # then only gets downloaded/copied from its real source once
+                # per session, regardless of how many repos mirror it (see
+                # _upload_one's own docstring).
+                media_cache_dir=session_dir / "media-cache",
             )
             repo_status["stage"] = "uploaded"
             _persist()
@@ -734,9 +748,17 @@ async def _run(
 
 def start_publish_all_task(
     *, input_dir: Path, repos: list[dict], primary_doi_source: str | None, dry_run: bool = False,
-    media_dir: Path | None = None,
+    media_dir: Path | None = None, task_id: str | None = None,
 ) -> str:
-    task_id = str(uuid.uuid4())
+    """`task_id`, when given, reuses a session an earlier fetch/preprocess
+    phase already created (see session_store's own docstring) instead of
+    minting a fresh one with uuid4() — everything about that run (its
+    fetched source, its preprocessing choices) then lives under the same
+    session_dir as this publish. Absent (the default), or naming a task_id
+    with no session on disk yet, behaves exactly as before: a brand new
+    session, e.g. for a Local Directory source (out of scope for this
+    mechanism) or any caller that predates it."""
+    task_id = task_id or str(uuid.uuid4())
     _publish_tasks[task_id] = {
         "status": "running", "dry_run": dry_run,
         "repos": {cfg["repo"]: _initial_repo_status() for cfg in repos},
@@ -754,11 +776,12 @@ def resume_publish_all_task(task_id: str, repos: list[dict]) -> str:
     (see list_unfinished_sessions) — `repos` must name the very same repos,
     in the same order, as the original run, but with fresh credentials
     (session.json never stores token/password — see _scrub_secrets)."""
-    session_dir = _session_dir(task_id)
-    manifest_path = session_dir / "session.json"
-    if not manifest_path.is_file():
+    manifest = session_store.read_manifest(task_id)
+    if manifest is None or "repos" not in manifest:
+        # Either no session at all, or one that never reached the publish
+        # phase yet (still fetching/preprocessing — see session_store's own
+        # docstring) — nothing to resume publishing here either way.
         raise RuntimeError(f"No interrupted publish session found for task {task_id!r}.")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     original_repo_order = [r["repo"] for r in manifest["repos"]]
     new_repo_order = [cfg["repo"] for cfg in repos]

@@ -154,10 +154,11 @@ class YoloAdapter:
 
     def prepare(
         self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
-        media_dir: Optional[Path] = None,
+        media_dir: Optional[Path] = None, media_cache_dir: Optional[Path] = None,
     ) -> None:
-        # image_timeout and media_dir are accepted for interface parity with
-        # CamtrapDPAdapter but unused: the images are already local files
+        # image_timeout, media_dir and media_cache_dir are accepted for
+        # interface parity with CamtrapDPAdapter but unused: the images are
+        # already local files
         # alongside input_dir itself (a YOLO dataset has no split between
         # small core files and separately-located media), nothing to
         # download and nowhere else to read them from. mirror does matter,

@@ -187,7 +187,7 @@ def test_prepare_mirrors_from_media_dir_when_given(tmp_path):
          patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
         CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60, media_dir=media_dir)
 
-    mock_download.assert_called_once_with(output_dir, input_dir=media_dir, timeout=60)
+    mock_download.assert_called_once_with(output_dir, input_dir=media_dir, timeout=60, cache_dir=None)
 
 
 def test_prepare_mirrors_from_input_dir_when_media_dir_not_given(tmp_path):
@@ -201,7 +201,23 @@ def test_prepare_mirrors_from_input_dir_when_media_dir_not_given(tmp_path):
          patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
         CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
 
-    mock_download.assert_called_once_with(output_dir, input_dir=input_dir, timeout=60)
+    mock_download.assert_called_once_with(output_dir, input_dir=input_dir, timeout=60, cache_dir=None)
+
+
+def test_prepare_passes_media_cache_dir_through_to_download_public_images(tmp_path):
+    """A multi-repo publish (see services.publish_orchestrator) passes the
+    same media_cache_dir for every repo so download_public_images can reuse
+    an earlier repo's own already-fetched images — see its own docstring."""
+    input_dir = _write_minimal_package(tmp_path / "working")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    cache_dir = tmp_path / "media-cache"
+
+    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
+        CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60, media_cache_dir=cache_dir)
+
+    mock_download.assert_called_once_with(output_dir, input_dir=input_dir, timeout=60, cache_dir=cache_dir)
 
 
 def test_extract_core_files_strips_the_self_contained_zips_root_folder(tmp_path):

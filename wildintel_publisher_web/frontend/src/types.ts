@@ -187,16 +187,79 @@ export interface PublishRepoStatus {
   doi_synced_to_hfh?: boolean | null
 }
 
+/** Every phase a session (see the backend's services.session_store) can be
+ * in — a session starts at "fetching" for a Trapper/git/public-URL source
+ * (skipped straight to "fetched" for a Local Directory one, resolved
+ * synchronously — see SourceType below) and, if the user gets that far,
+ * ends at "publishing"/"done"; "done" is never actually seen (the backend
+ * deletes the whole session as soon as it's reached). */
+export type SessionPhase = 'fetching' | 'fetched' | 'preprocessing' | 'preprocessed' | 'publishing' | 'done'
+
+/** A session's source-fetch section — present from the moment a Trapper/
+ * git/public-URL fetch starts (or a Local Directory resolves — instantly,
+ * so this always lands "fetched" already), kept (unscrubbed of its own
+ * non-secret fields) through every later phase. `params` never includes
+ * Trapper's username/password — see services.session_store.write_fetch_phase. */
+export interface SessionFetch {
+  source_type: 'trapper' | 'git' | 'archive' | 'local'
+  params: Record<string, unknown>
+  output_dir: string
+  input_dir: string | null
+}
+
+/** A session's preprocessing section — present once generate-metadata has
+ * run at least once for it (see services.session_store.
+ * write_preprocessing_phase) — informational only, the real field values
+ * live in metadata.json/datapackage.json at `fetch.input_dir`. */
+export interface SessionPreprocessing {
+  status: 'running' | 'done' | 'error'
+  anonymize_coordinates?: boolean
+  coordinate_decimals?: number
+  randomize_media_ids?: boolean
+  media_id_domain?: string
+}
+
+interface SessionSummaryBase {
+  task_id: string
+  created_at: string
+  // "done" here means only THIS session's OWN latest phase succeeded
+  // (write_fetch_phase/write_preprocessing_phase reuse "status" for
+  // that) — NOT that the whole run is finished; that's `phase` reaching
+  // the literal "done" instead, which a session never survives to report
+  // (see SessionPhase above and services.session_store.list_sessions).
+  status: 'running' | 'done' | 'error'
+  phase: SessionPhase
+  product_type: ProductType | null
+  source_type: 'trapper' | 'git' | 'archive' | 'local' | null
+  error?: string | null
+}
+
+/** A session still at (or that failed during) the source-fetch phase —
+ * nothing preprocessed yet. */
+export interface FetchSession extends SessionSummaryBase {
+  phase: 'fetching' | 'fetched'
+  fetch: SessionFetch
+}
+
+/** A session whose source is already fetched and is at (or failed during)
+ * the preprocessing phase. */
+export interface PreprocessingSession extends SessionSummaryBase {
+  phase: 'preprocessing' | 'preprocessed'
+  fetch: SessionFetch
+  preprocessing: SessionPreprocessing | null
+}
+
 /** A publish session an earlier interrupted run left on disk (see the
  * backend's services.publish_orchestrator — GET /api/publish/sessions) —
  * offered on web app startup so the user can resume or discard it instead
  * of starting over. Never carries credentials: `repos` only has whatever
  * services.publish_orchestrator._scrub_secrets keeps, so `token`/`password`
- * always come back empty and must be re-entered before resuming. */
-export interface PublishSessionSummary {
-  task_id: string
-  created_at: string
-  status: 'running' | 'error'
+ * always come back empty and must be re-entered before resuming. May also
+ * carry its own `fetch`/`preprocessing` sections, if this same session
+ * started earlier than the publish phase (see SessionFetch/
+ * SessionPreprocessing above) — informational only at this point. */
+export interface PublishSessionSummary extends SessionSummaryBase {
+  phase: 'publishing'
   dry_run: boolean
   input_dir: string
   media_dir: string | null
@@ -223,4 +286,12 @@ export interface PublishSessionSummary {
     timeout?: number | null
   }>
   repo_status: Record<string, PublishRepoStatus>
+  fetch?: SessionFetch
+  preprocessing?: SessionPreprocessing | null
 }
+
+/** Any session GET /api/publish/sessions can return, at whichever phase it
+ * was interrupted — see ResumeSessionsPage/WizardPage's own resumeSession
+ * prop, which branches on `phase` to decide what to pre-fill and which
+ * wizard step to land on. */
+export type SessionSummary = FetchSession | PreprocessingSession | PublishSessionSummary

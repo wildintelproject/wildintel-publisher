@@ -121,3 +121,17 @@ def download_status(task_id: str) -> dict:
     if status is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")
     return status
+
+
+@router.post("/download/{task_id}/resume")
+async def resume_download(task_id: str, req: TrapperCredentials) -> dict:
+    """Resumes an interrupted Trapper fetch — same project/deployment as
+    the original request (persisted in the session; url isn't secret, so
+    it's reused from there too), with freshly-supplied username/password
+    (never persisted — see services.session_store)."""
+    _url, username, password = _resolve(req)
+    try:
+        resumed_task_id = trapper_service.resume_download_task(task_id, username=username, password=password)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"task_id": resumed_task_id}

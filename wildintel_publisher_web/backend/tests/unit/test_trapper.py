@@ -222,3 +222,81 @@ def test_download_falls_back_to_saved_credentials_when_fields_blank():
     assert call_kwargs["trapper_url"] == "https://trapper.example"
     assert call_kwargs["trapper_user"] == "u"
     assert call_kwargs["trapper_password"] == "p"
+
+
+def test_download_persists_a_secret_free_session_that_flips_to_fetched(tmp_path):
+    from main import app
+    from services import session_store
+
+    fake_path = tmp_path / "project-1-d1-events1"
+    fake_path.mkdir()
+
+    with patch("services.trapper_service.fetch_camtrapdp_package", return_value=fake_path):
+        with TestClient(app) as client:
+            start = client.post("/api/trapper/download", json={**CREDS, "project_id": 1, "deployment_id": "d1"})
+            task_id = start.json()["task_id"]
+            _poll_download(client, task_id)
+
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "fetched"
+    assert manifest["source_type"] == "trapper"
+    assert manifest["product_type"] == "camtrapdp"
+    assert manifest["fetch"]["params"] == {
+        "url": "https://trapper.example", "project_id": 1, "deployment_id": "d1",
+        "clear_cache": False, "include_events": True,
+    }
+    assert manifest["fetch"]["input_dir"] == str(fake_path)
+    manifest_text = (session_store.session_dir(task_id) / "session.json").read_text(encoding="utf-8")
+    assert "\"username\"" not in manifest_text
+    assert "\"password\"" not in manifest_text
+
+
+def test_download_error_leaves_the_session_on_disk_with_the_fetching_phase():
+    from main import app
+    from services import session_store
+
+    with patch("services.trapper_service.fetch_camtrapdp_package", side_effect=RuntimeError("boom")):
+        with TestClient(app) as client:
+            start = client.post("/api/trapper/download", json={**CREDS, "project_id": 1, "deployment_id": "d1"})
+            task_id = start.json()["task_id"]
+            _poll_download(client, task_id)
+
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "fetching"
+    assert manifest["status"] == "error"
+    assert manifest["error"] == "boom"
+
+
+def test_resume_download_replays_the_original_project_and_deployment(tmp_path):
+    from main import app
+    from services import session_store
+
+    with patch("services.trapper_service.fetch_camtrapdp_package", side_effect=RuntimeError("boom")):
+        with TestClient(app) as client:
+            start = client.post("/api/trapper/download", json={**CREDS, "project_id": 1, "deployment_id": "d1"})
+            task_id = start.json()["task_id"]
+            _poll_download(client, task_id)
+
+    fake_path = tmp_path / "project-1-d1-events1"
+    fake_path.mkdir()
+    with patch("services.trapper_service.fetch_camtrapdp_package", return_value=fake_path) as mock_fetch:
+        with TestClient(app) as client:
+            resume = client.post(f"/api/trapper/download/{task_id}/resume", json=CREDS)
+            assert resume.status_code == 200, resume.text
+            resumed_task_id = resume.json()["task_id"]
+            assert resumed_task_id == task_id
+            body = _poll_download(client, resumed_task_id)
+
+    assert body["status"] == "done"
+    call_kwargs = mock_fetch.call_args.kwargs
+    assert call_kwargs["project_id"] == 1
+    assert call_kwargs["deployment_id"] == "d1"
+    assert call_kwargs["trapper_user"] == "u"
+
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "fetched"
+
+
+def test_resume_download_rejects_an_unknown_task_id():
+    response = _client().post("/api/trapper/download/does-not-exist/resume", json=CREDS)
+    assert response.status_code == 400

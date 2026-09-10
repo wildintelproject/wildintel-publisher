@@ -7,6 +7,8 @@ paquete ya cacheado) y devuelve una URL de descarga absoluta en
 (``?rt=...``), así que se descarga tal cual con ``client.make_request()``,
 sin pasar por la cabecera Authorization del cliente.
 """
+import re
+import shutil
 from pathlib import Path
 from typing import Optional
 from zipfile import ZipFile
@@ -27,6 +29,19 @@ CAMTRAPDP_ZIP_FILENAME = "camtrapdp.zip"
 # más en proyectos grandes, así que aquí el default es mucho más generoso.
 # Configurable con --timeout si aun así no basta.
 DEFAULT_TIMEOUT = 300
+
+
+def _slug(project_id: int, deployment_id: str, include_events: bool) -> str:
+    """Deriva un nombre de subcarpeta único por (project_id, deployment_id,
+    include_events) — los únicos parámetros que el wizard web hace variar
+    para un mismo project_id (title/description/version/license_id se
+    quedan siempre en su valor por defecto ahí, así que no participan en el
+    slug: si alguien desde el CLI los cambia a mano para el mismo proyecto/
+    deployment sin pasar --clear-cache, se sirve la copia ya cacheada con
+    los metadatos antiguos — limitación aceptada, igual de estrecha que el
+    resto de este slug)."""
+    dep = re.sub(r"[^\w.-]", "-", deployment_id).strip("-") or "all"
+    return f"project-{project_id}-{dep}-events{int(include_events)}"
 
 
 def fetch_camtrapdp_package(
@@ -81,14 +96,29 @@ def fetch_camtrapdp_package(
             False), así que siempre se envía explícito, nunca se omite.
 
     Returns:
-        `output_dir`, con el paquete ya extraído dentro (datapackage.json,
-        deployments.csv, media.csv, events.csv...) y el .zip original
-        (`camtrapdp.zip`) conservado junto a él.
+        `output_dir/<slug>` (slug derivado de project_id/deployment_id/
+        include_events — ver `_slug`), con el paquete ya extraído dentro
+        (datapackage.json, deployments.csv, media.csv, events.csv...) y el
+        .zip original (`camtrapdp.zip`) conservado junto a él. Si ese
+        destino ya existe y no está vacío, se devuelve directamente sin
+        tocar la red en absoluto (ni siquiera para regenerar/reutilizar el
+        paquete en el propio servidor) — mismo contrato "clear_cache borra
+        primero, si no existía o se acaba de borrar se descarga" que
+        camtrapdp_source.fetch_camtrap_dp_archive/git_source.clone_repository.
 
     Raises:
         RuntimeError: si Trapper no pudo generar el paquete, si se agota el
         tiempo de espera, o si el servidor es inalcanzable.
     """
+    destination = output_dir / _slug(project_id, deployment_id, include_events)
+
+    if clear_cache and destination.exists():
+        shutil.rmtree(destination)
+
+    if destination.is_dir() and any(destination.iterdir()):
+        console.print(f"[green]✔  Reusing the already-fetched Camtrap DP at {destination}[/green]")
+        return destination
+
     client = TrapperClient(
         base_url=trapper_url, user_name=trapper_user, user_password=trapper_password, timeout=timeout,
     )
@@ -137,25 +167,25 @@ def fetch_camtrapdp_package(
             "Try a higher --timeout."
         ) from exc
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = output_dir / CAMTRAPDP_ZIP_FILENAME
+    destination.mkdir(parents=True, exist_ok=True)
+    zip_path = destination / CAMTRAPDP_ZIP_FILENAME
     zip_path.write_bytes(file_response.content)
 
-    console.print(f"Extracting to {output_dir} ...")
+    console.print(f"Extracting to {destination} ...")
     with ZipFile(zip_path) as zf:
-        zf.extractall(output_dir)
+        zf.extractall(destination)
 
-    common.decompress_gzipped_tables(output_dir)
+    common.decompress_gzipped_tables(destination)
     if license_id:
         # WildINTEL project policy: every dataset is published under
         # CC-BY-NC-4.0 (see TrapperSettings.license_id's own comment in
         # config.py, the default `license_id` above resolves to unless the
         # caller passed something else) — deliberately fixed, not meant to
         # vary per project/dataset.
-        common.fix_datapackage_license(output_dir, license_id=license_id, license_name=license_name, license_url=license_url)
+        common.fix_datapackage_license(destination, license_id=license_id, license_name=license_name, license_url=license_url)
 
-    console.print(f"[green]✔  Camtrap DP for project {project_id} ready in {output_dir}[/green]")
-    return output_dir
+    console.print(f"[green]✔  Camtrap DP for project {project_id} ready in {destination}[/green]")
+    return destination
 
 
 def test_connection(

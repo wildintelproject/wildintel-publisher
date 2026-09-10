@@ -182,3 +182,31 @@ def test_format_apa_citation_three_or_more_authors_oxford_comma_ampersand():
 def test_format_apa_citation_missing_date_uses_nd():
     citation = format_apa_citation(authors=[{"name": "A"}], title="T", version="1.0", date_released="", publisher="P", url="U")
     assert "(n.d.)" in citation
+
+
+def test_format_apa_citation_appends_copyright_notice_after_the_url_when_given():
+    citation = format_apa_citation(
+        authors=[{"name": "Jane Doe"}], title="T", version="1.0", date_released="2026-07-16",
+        publisher="WildINTEL", url="https://example.org/record/1",
+        copyright_holders=["Institute of Nature Conservation PAS"],
+    )
+    assert citation == (
+        "Jane Doe (2026). *T* (Version 1.0) [Data set]. WildINTEL. https://example.org/record/1 "
+        "© 2026 Institute of Nature Conservation PAS"
+    )
+
+
+def test_format_apa_citation_joins_multiple_copyright_holders():
+    citation = format_apa_citation(
+        authors=[{"name": "A"}], title="T", version="1.0", date_released="2026-01-01",
+        publisher="P", url="U", copyright_holders=["Org One", "Org Two"],
+    )
+    assert citation.endswith("© 2026 Org One, Org Two")
+
+
+def test_format_apa_citation_omits_copyright_notice_when_no_holders():
+    citation = format_apa_citation(
+        authors=[{"name": "A"}], title="T", version="1.0", date_released="2026-01-01",
+        publisher="P", url="U", copyright_holders=[],
+    )
+    assert "©" not in citation

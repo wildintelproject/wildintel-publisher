@@ -123,11 +123,11 @@ class SoftwareAdapter:
 
     def prepare(
         self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
-        media_dir: Optional[Path] = None,
+        media_dir: Optional[Path] = None, media_cache_dir: Optional[Path] = None,
     ) -> None:
-        # image_timeout and media_dir accepted for interface parity with the
-        # other adapters but unused — a software application has no images
-        # to download.
+        # image_timeout, media_dir and media_cache_dir accepted for interface
+        # parity with the other adapters but unused — a software application
+        # has no images to download.
         if not mirror:
             # "Link" mode: no source copied — prepare_<repo>_export's own
             # generated README.md/CITATION.cff (written afterwards, on top

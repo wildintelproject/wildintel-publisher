@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { DatapackageSummary } from '../types'
 import DirectoryPicker from './DirectoryPicker'
@@ -34,6 +34,14 @@ export interface LocalSourceSelection {
    * locally-referenced media (media.csv's filePath) can still be found at
    * publish time, without ever having been copied. */
   sourcePath: string
+  /** The session this resolve started (see api.resolveLocalSource) — same
+   * role as WizardPage's own sessionTaskId for a Trapper/git/archive
+   * source, threaded the same way into generateProductMetadata/
+   * publishAllStart from here on. undefined for productType !== 'camtrapdp'
+   * (yolo works directly on `path`, with no working copy of its own to
+   * protect — see the effect below — so there's nothing to hang a session
+   * off of). */
+  sessionTaskId?: string
 }
 
 interface Props {
@@ -43,12 +51,30 @@ interface Props {
   /** Called once the directory's metadata.json has been generated
    * successfully, or `null` while it hasn't (or is no longer) valid. */
   onSelectionChange: (selection: LocalSourceSelection | null) => void
+  /** Pre-fills `path` — set when resuming a session whose local-directory
+   * resolve itself failed (see WizardPage's own resumeSession prop): the
+   * working copy never got created, so there's nothing to skip straight
+   * past like the "fetched"/"preprocessed" phases do, but retyping the
+   * exact same path shouldn't have to happen by memory. */
+  initialPath?: string
+  /** Pairs with `initialPath` — the same session that failed resolve
+   * started (see resumeSession.task_id), reused instead of minting a new
+   * one on the retry. */
+  initialSessionTaskId?: string
 }
 
-export default function LocalDirectoryForm({ productType, onSelectionChange }: Props) {
-  const [path, setPath] = useState('')
+export default function LocalDirectoryForm({ productType, onSelectionChange, initialPath, initialSessionTaskId }: Props) {
+  const [path, setPath] = useState(initialPath ?? '')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [check, setCheck] = useState<CheckState>({ status: 'idle', summary: null, error: null, workingDir: null })
+  // The session minted by this form's own first successful (or failed)
+  // resolveLocalSource call — reused for every later call, including
+  // every re-run of the debounced effect below as the user keeps editing
+  // `path`, so a session_dir is never left behind per keystroke. A ref
+  // (not state) so the very next debounced call already sees it — waiting
+  // on a state update/re-render here could race a fast retype into
+  // minting a second, orphaned session.
+  const sessionTaskIdRef = useRef<string | undefined>(initialSessionTaskId)
 
   // Debounced: validate `path` shortly after it stops changing, so typing
   // doesn't trigger a request per keystroke.
@@ -60,8 +86,8 @@ export default function LocalDirectoryForm({ productType, onSelectionChange }: P
     let cancelled = false
     setCheck({ status: 'checking', summary: null, error: null, workingDir: null })
 
-    const generatePreview = (workingDir: string) =>
-      api.generateProductMetadata(workingDir, productType)
+    const generatePreview = (workingDir: string, sessionTaskId?: string) =>
+      api.generateProductMetadata(workingDir, productType, undefined, undefined, undefined, undefined, sessionTaskId)
         .then((summary) => { if (!cancelled) setCheck({ status: 'valid', summary, error: null, workingDir }) })
         .catch((e) => {
           if (!cancelled) {
@@ -78,11 +104,12 @@ export default function LocalDirectoryForm({ productType, onSelectionChange }: P
         // working directory first (never mutate `path` itself — see
         // services.camtrapdp_source.resolve_local_camtrapdp_source), then
         // preview/write metadata.json into THAT copy.
-        api.resolveLocalSource(path)
+        api.resolveLocalSource(path, sessionTaskIdRef.current)
           .then((res) => {
+            sessionTaskIdRef.current = res.taskId
             if (cancelled) return
             if (res.status === 'valid' && res.workingDir) {
-              return generatePreview(res.workingDir)
+              return generatePreview(res.workingDir, res.taskId)
             }
             setCheck({ status: 'invalid', summary: null, workingDir: null, error: res.error ?? 'Not a valid Camtrap DP package.' })
           })
@@ -105,7 +132,11 @@ export default function LocalDirectoryForm({ productType, onSelectionChange }: P
   }, [path, productType])
 
   useEffect(() => {
-    onSelectionChange(check.status === 'valid' && check.workingDir ? { path: check.workingDir, sourcePath: path } : null)
+    onSelectionChange(
+      check.status === 'valid' && check.workingDir
+        ? { path: check.workingDir, sourcePath: path, sessionTaskId: sessionTaskIdRef.current }
+        : null,
+    )
   }, [check.status, check.workingDir, path, onSelectionChange])
 
   return (

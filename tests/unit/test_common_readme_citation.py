@@ -73,6 +73,24 @@ def test_returns_false_and_does_not_touch_a_missing_file(tmp_path):
     assert not missing.exists()
 
 
+def test_replaces_the_url_even_when_a_copyright_notice_follows_it(tmp_path):
+    """format_apa_citation may append '© <year> <holder(s)>' AFTER the url
+    (see its own copyright_holders param) — the URL is then no longer the
+    line's last token, which is exactly why this matches on the http(s)://
+    pattern instead of "last word on the line"."""
+    path = tmp_path / "README.md"
+    path.write_text(README_TEMPLATE.format(
+        url="https://huggingface.co/datasets/alice/dataset © 2026 Institute of Nature Conservation PAS",
+    ), encoding="utf-8")
+
+    changed = patch_readme_citation_url(path, "https://doi.org/10.5281/zenodo.1")
+
+    assert changed is True
+    text = path.read_text(encoding="utf-8")
+    assert "https://doi.org/10.5281/zenodo.1 © 2026 Institute of Nature Conservation PAS" in text
+    assert "huggingface.co/datasets/alice/dataset" not in text
+
+
 def test_returns_false_when_there_is_no_citation_section(tmp_path):
     path = tmp_path / "README.md"
     path.write_text("# My Dataset\n\nNo citation section here.\n", encoding="utf-8")

@@ -47,6 +47,61 @@ def test_generate_metadata_writes_the_file(tmp_path):
     assert (tmp_path / "metadata.json").is_file()
 
 
+def test_generate_metadata_flips_the_session_to_preprocessed_when_given(tmp_path):
+    from services import session_store
+
+    task_id = session_store.new_task_id()
+    session_store.write_fetch_phase(
+        task_id, product_type="camtrapdp", source_type="archive",
+        fetch={"source_type": "archive", "params": {"url": "https://example.org/x.zip", "clear_cache": False}, "output_dir": str(tmp_path), "input_dir": str(tmp_path)},
+        status="done", error=None,
+    )
+    _write_datapackage(
+        tmp_path,
+        title="My Camtrap DP", description="A test package.", version="1.0",
+        licenses=[{"name": "CC-BY-4.0", "title": "CC BY 4.0"}],
+        contributors=[{"title": "Alice", "organization": "Test Org"}],
+    )
+
+    with patch("wildintel_publisher.services.common.validate_camtrap_dp", return_value=None):
+        response = _client().post("/api/camtrapdp/generate-metadata", json={
+            "input_dir": str(tmp_path), "product_type": "camtrapdp", "session_task_id": task_id,
+            "randomize_media_ids": True, "media_id_domain": "example.org",
+        })
+
+    assert response.status_code == 200
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "preprocessed"
+    assert manifest["preprocessing"] == {
+        "status": "done", "anonymize_coordinates": False, "coordinate_decimals": 2,
+        "randomize_media_ids": True, "media_id_domain": "example.org",
+    }
+    # The fetch section this session started with survives untouched.
+    assert manifest["fetch"]["params"]["url"] == "https://example.org/x.zip"
+
+
+def test_generate_metadata_flips_the_session_to_error_on_failure(tmp_path):
+    from services import session_store
+
+    task_id = session_store.new_task_id()
+    session_store.write_fetch_phase(
+        task_id, product_type="camtrapdp", source_type="archive",
+        fetch={"source_type": "archive", "params": {"url": "https://example.org/x.zip", "clear_cache": False}, "output_dir": str(tmp_path), "input_dir": str(tmp_path)},
+        status="done", error=None,
+    )
+    # No datapackage.json at all — generate_metadata will fail validation.
+
+    response = _client().post("/api/camtrapdp/generate-metadata", json={
+        "input_dir": str(tmp_path), "product_type": "camtrapdp", "session_task_id": task_id,
+    })
+
+    assert response.status_code == 400
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "preprocessing"
+    assert manifest["status"] == "error"
+    assert manifest["error"]
+
+
 def test_generate_metadata_anonymizes_coordinates_when_requested(tmp_path):
     _write_datapackage(
         tmp_path,

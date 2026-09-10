@@ -60,6 +60,7 @@ def prepare_hfh_export(
     overwrite: bool = False,
     mirror_images: bool = True,
     media_dir: Optional[Path] = None,
+    media_cache_dir: Optional[Path] = None,
 ) -> Path:
     """Copia el producto de `input_dir` a `output_dir` (vía el ProductAdapter
     de su tipo, leído de `input_dir`/metadata.json) y escribe README.md,
@@ -98,7 +99,10 @@ def prepare_hfh_export(
     adapter = product.get_adapter(product_meta["product_type"])
 
     console.print(f"Copying the product from {input_dir} to {output_dir} ...")
-    adapter.prepare(input_dir, output_dir, mirror=mirror_images, image_timeout=image_timeout, media_dir=media_dir)
+    adapter.prepare(
+        input_dir, output_dir, mirror=mirror_images, image_timeout=image_timeout,
+        media_dir=media_dir, media_cache_dir=media_cache_dir,
+    )
     product.copy_metadata_json(input_dir, output_dir)
 
     title = product_meta["title"]
@@ -115,6 +119,7 @@ def prepare_hfh_export(
         output_dir, metadata, resolved_version, adapter,
         title=title, description=description, license_id=license["id"],
         authors=authors, date_released=date_released, mirror_images=mirror_images,
+        publisher=publisher, copyright_holders=copyright_holders,
     )
     common.write_license(
         LICENSE_TEMPLATE_FILE, output_dir,
@@ -146,11 +151,21 @@ def write_readme(
     output_dir: Path, metadata: HFHSettings, version: str, adapter: product.ProductAdapter, *,
     title: str, description: str, license_id: str, authors: list, date_released: str,
     mirror_images: bool = True,
+    publisher: dict | None = None,
+    copyright_holders: list[str] | None = None,
 ) -> Path:
     """Renders templates/common/README-{product_type}-body.md.j2 (shared by
     hfh/zenodo/b2share for the same product_type — see that file's own
     comment) with HFH's own format/location fragments slotted in (see
-    templates/hfh/_readme-format-{product_type}.md.j2/_readme-location.md.j2)."""
+    templates/hfh/_readme-format-{product_type}.md.j2/_readme-location.md.j2).
+
+    publisher/copyright_holders (Camtrap DP only — see
+    common.resolve_publisher/resolve_copyright_holders, same values
+    CITATION.cff's own preferred-citation gets — see common.write_citation)
+    feed the APA citation line: the contributor with role "publisher"
+    (e.g. WildINTEL) is cited as the publisher instead of "Hugging Face"
+    when there is one, and any "rightsHolder" contributor(s) get a
+    "© <year> <name(s)>" notice appended after the URL."""
     path = output_dir / README_FILENAME
     # The real destination repo_id isn't known at prepare time (see
     # PLACEHOLDER_REPO_ID) — upload_to_huggingface patches it in once it is.
@@ -170,7 +185,8 @@ def write_readme(
         location_template="hfh/_readme-location.md.j2",
         apa_citation=common.format_apa_citation(
             authors=authors, title=title, version=version, date_released=date_released,
-            publisher="Hugging Face", url=repo_url,
+            publisher=(publisher or {}).get("name") or "Hugging Face", url=repo_url,
+            copyright_holders=copyright_holders,
         ),
         **adapter.readme_context(output_dir),
     )

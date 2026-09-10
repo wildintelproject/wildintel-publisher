@@ -95,7 +95,7 @@ class ProductAdapter(Protocol):
 
     def prepare(
         self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
-        media_dir: Optional[Path] = None,
+        media_dir: Optional[Path] = None, media_cache_dir: Optional[Path] = None,
     ) -> None:
         """Copies/generates this product type's own files into output_dir
         (already created) — the product-specific equivalent of what used to
@@ -105,7 +105,15 @@ class ProductAdapter(Protocol):
         relative path should actually be read from during the mirror step —
         distinct from input_dir when input_dir is itself just a working copy
         of the small core files (see CamtrapDPAdapter, the only adapter that
-        currently uses it; others accept and ignore it)."""
+        currently uses it; others accept and ignore it).
+
+        media_cache_dir, when given, is a directory shared across every repo
+        of ONE multi-repo publish (see services.publish_orchestrator) where
+        each media file is checked/downloaded/copied only once per session,
+        then copied from there into every repo's own output_dir — see
+        common.download_public_images's own docstring for why that's a real
+        copy, never a hardlink. Only CamtrapDPAdapter currently uses it;
+        others accept and ignore it, same as media_dir."""
         ...
 
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:

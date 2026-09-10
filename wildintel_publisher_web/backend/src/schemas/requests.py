@@ -75,6 +75,13 @@ class LocalSourceResolveRequest(BaseModel):
     # anonymize/randomize, which mutate their input in place) never touch
     # this original path.
     path: str
+    # The session an earlier call for THIS SAME form already minted (see
+    # services.camtrapdp_source_service.resolve_local_source) — reused so
+    # every re-resolve while the user is still typing/editing the path (see
+    # the frontend's own debounced live-preview) lands in the same
+    # session_dir instead of minting a fresh one per keystroke. None on the
+    # very first call for a given LocalDirectoryForm instance.
+    session_task_id: Optional[str] = None
 
 
 class GenerateMetadataRequest(BaseModel):
@@ -104,6 +111,12 @@ class GenerateMetadataRequest(BaseModel):
     # sources' own numbering never collides. "localhost" by default for a
     # local-directory source, where there's no server domain to use.
     media_id_domain: str = "localhost"
+    # The session a prior Trapper/git/archive fetch — or a Local Directory
+    # resolve — started (see services.session_store). None only for a
+    # request that predates this feature. When given, flips that session's
+    # own phase to "preprocessing"/"preprocessed" (see
+    # services.camtrapdp_service.generate_metadata's router).
+    session_task_id: Optional[str] = None
 
 
 class UpdateMetadataRequest(BaseModel):
@@ -334,6 +347,14 @@ class PublishAllRequest(BaseModel):
     # token/repo_id/community_id is required in this mode, and nothing gets
     # persisted to settings.toml.
     dry_run: bool = False
+    # The session a prior Trapper/git/archive fetch or Local Directory
+    # resolve (and, usually, preprocessing) already started (see
+    # services.session_store) — when given, start_publish_all_task reuses
+    # that exact session_dir instead of minting a new one, so the fetched
+    # source, the preprocessing choices, and this publish's own build dirs
+    # all end up under the same folder. None only for a request that
+    # predates this feature — behaves exactly as before in that case.
+    session_task_id: Optional[str] = None
 
 
 class ResumePublishRequest(BaseModel):

@@ -17,7 +17,8 @@ import { api } from '../api'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
 import type {
-  DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary, TrapperDownloadSelection,
+  DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary, SessionFetch,
+  SessionPreprocessing, SessionSummary, TrapperDownloadSelection,
 } from '../types'
 
 const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish']
@@ -260,22 +261,63 @@ function repoConfigsFromSession(session: PublishSessionSummary): RepoConfigs {
   return configs
 }
 
+// A session's own "fetch"/"preprocessing" sections exist on every variant
+// except a bare FetchSession-before-any-fetch-completed... in practice all
+// three SessionSummary members carry `fetch` once past the "fetching"
+// phase, and PublishSessionSummary carries it too (informational) if this
+// same session started earlier than the publish phase — these two
+// accessors just narrow the union once, in one place, instead of at every
+// call site.
+function sessionFetch(session: SessionSummary | undefined): SessionFetch | undefined {
+  if (!session) return undefined
+  return 'fetch' in session ? session.fetch : undefined
+}
+
+function sessionPreprocessing(session: SessionSummary | undefined): SessionPreprocessing | null | undefined {
+  if (!session) return undefined
+  return 'preprocessing' in session ? session.preprocessing : undefined
+}
+
+// Which wizard step a resumed session should land on — mirrors the step
+// each phase is normally REACHED at during a fresh run (see
+// handleContinueToPreprocessing/handleNext's own setStep calls below).
+function initialStepForPhase(phase: SessionSummary['phase'] | undefined): number {
+  switch (phase) {
+    case 'publishing': return 4
+    case 'preprocessed': return 3
+    case 'fetched':
+    case 'preprocessing': return 2
+    case 'fetching': return 1
+    default: return 0
+  }
+}
+
 interface Props {
-  /** A publish session an earlier interrupted run left on disk — when
-   * given, the wizard skips straight to the publish step (0-3 are only
-   * relevant for choosing/downloading a fresh source), pre-selects the same
-   * repos in the same order, and pre-fills each one's own configuration
-   * form from it (see repoConfigsFromSession) — the user only has to
-   * retype credentials, then the whole per-repo "configure" flow works
-   * exactly as it would for a brand new publish. Never changes after the
-   * initial render (App.tsx mounts a fresh WizardPage per resume choice). */
-  resumeSession?: PublishSessionSummary
+  /** A session an earlier interruption left on disk — when given, the
+   * wizard lands on whichever step that session's own phase was reached at
+   * (see initialStepForPhase), pre-filled with whatever it had already
+   * done:
+   * - "fetching": lands on step 1 (source) with a "resume this fetch?"
+   *   prompt instead of the normal pick-a-source flow (see resumingFetch).
+   * - "fetched"/"preprocessing": lands on step 2 (metadata review) with
+   *   download already marked done from the session's own fetch.input_dir.
+   * - "preprocessed": lands on step 3 (download summary), re-running
+   *   generateProductMetadata isn't needed — see the effect that repopulates
+   *   `summary` via api.datapackageSummary instead.
+   * - "publishing": lands on step 4 (publish), pre-selects the same repos
+   *   in the same order, and pre-fills each one's own configuration form
+   *   (see repoConfigsFromSession) — the user only has to retype
+   *   credentials, then the whole per-repo "configure" flow works exactly
+   *   as it would for a brand new publish.
+   * Never changes after the initial render (App.tsx mounts a fresh
+   * WizardPage per resume choice). */
+  resumeSession?: SessionSummary
 }
 
 export default function WizardPage({ resumeSession }: Props) {
-  const [step, setStep] = useState(resumeSession ? 4 : 0)
-  const [productType, setProductType] = useState<ProductType | null>(null)
-  const [sourceType, setSourceType] = useState<SourceType | null>(null)
+  const [step, setStep] = useState(initialStepForPhase(resumeSession?.phase))
+  const [productType, setProductType] = useState<ProductType | null>(resumeSession?.product_type ?? null)
+  const [sourceType, setSourceType] = useState<SourceType | null>((resumeSession?.source_type ?? null) as SourceType | null)
   const [trapperSelection, setTrapperSelection] = useState<TrapperDownloadSelection | null>(null)
   const [localSelection, setLocalSelection] = useState<LocalSourceSelection | null>(null)
   const [gitUrl, setGitUrl] = useState<string | null>(null)
@@ -285,20 +327,46 @@ export default function WizardPage({ resumeSession }: Props) {
   // it's already confirmed public and a valid Camtrap DP by the same fetch
   // (see WizardPage's suggestedArchiveUrl for the GBIF form).
   const [archiveSourceUrl, setArchiveSourceUrl] = useState<string | null>(null)
+  // The session this run's source came from (see the backend's
+  // services.session_store) — seeded from an earlier interruption's own
+  // task_id when resuming ANY phase, set fresh the moment a Trapper/git/
+  // archive fetch starts (see handleNext below), or carried over from
+  // LocalDirectoryForm's own resolve call (see localSelection.sessionTaskId
+  // above — minted the moment the user picks a local directory, same as
+  // every other source). Threaded into generateProductMetadata/
+  // publishAllStart so the fetched source, preprocessing, and publish
+  // build dirs all end up under the same session_dir.
+  const [sessionTaskId, setSessionTaskId] = useState<string | null>(resumeSession?.task_id ?? null)
+  // True while step 1 should offer to resume an interrupted fetch instead
+  // of the normal pick-a-source flow — only ever true right after mounting
+  // with a resumeSession whose phase is still "fetching" (see
+  // handleResumeFetch/its own JSX block below). Never true for a Local
+  // Directory source: resolving one is synchronous, so "fetching" there
+  // only ever means the resolve itself failed (there's no background task
+  // to resume) — the normal flow handles that instead, by pre-filling
+  // LocalDirectoryForm's own path from this same session (see its
+  // initialPath/initialSessionTaskId props below). "Start a new source
+  // instead" sets this back to false, falling through to the normal flow.
+  const [resumingFetch, setResumingFetch] = useState(resumeSession?.phase === 'fetching' && resumeSession.source_type !== 'local')
+  // Trapper's own username/password are never persisted (see
+  // services.session_store's own docstring) — the resume-fetch prompt asks
+  // for just these two fields again, not the full TrapperConnectionForm.
+  const [resumeFetchUsername, setResumeFetchUsername] = useState('')
+  const [resumeFetchPassword, setResumeFetchPassword] = useState('')
   // Camtrap DP only — rounds deployments.csv's latitude/longitude, once, as
   // part of generateProductMetadata (a product-level preprocessing step —
   // see the useEffect below), so every repo that later prepares its own
   // export from this same download.path inherits the same already-
   // anonymized coordinates automatically, with no flag of its own.
-  const [anonymizeCoordinates, setAnonymizeCoordinates] = useState(false)
-  const [coordinateDecimals, setCoordinateDecimals] = useState(2)
+  const [anonymizeCoordinates, setAnonymizeCoordinates] = useState(sessionPreprocessing(resumeSession)?.anonymize_coordinates ?? false)
+  const [coordinateDecimals, setCoordinateDecimals] = useState(sessionPreprocessing(resumeSession)?.coordinate_decimals ?? 2)
   // Camtrap DP only — replaces every mediaID that isn't already a UUID,
   // once, as part of generateProductMetadata, same shape as
   // anonymizeCoordinates above.
-  const [randomizeMediaIds, setRandomizeMediaIds] = useState(false)
+  const [randomizeMediaIds, setRandomizeMediaIds] = useState(sessionPreprocessing(resumeSession)?.randomize_media_ids ?? false)
   // Namespace for those derived UUIDs — auto-suggested from the chosen
   // source (see the effect below) unless the user has edited it by hand.
-  const [mediaIdDomain, setMediaIdDomain] = useState('localhost')
+  const [mediaIdDomain, setMediaIdDomain] = useState(sessionPreprocessing(resumeSession)?.media_id_domain ?? 'localhost')
   const [mediaIdDomainEdited, setMediaIdDomainEdited] = useState(false)
   // Camtrap DP only — datapackage.json's own name/title/description/
   // homepage/version, editable in the new step between download and
@@ -333,9 +401,16 @@ export default function WizardPage({ resumeSession }: Props) {
   // True while handleContinueToPreprocessing (step === 2's "Continue"
   // button) is running.
   const [preprocessing, setPreprocessing] = useState(false)
-  const [download, setDownload] = useState<DownloadState>(() => resumeSession
-    ? { status: 'done', path: resumeSession.input_dir, sourcePath: resumeSession.media_dir ?? resumeSession.input_dir, error: null }
-    : { status: 'idle', path: null, sourcePath: null, error: null })
+  const [download, setDownload] = useState<DownloadState>(() => {
+    if (resumeSession?.phase === 'publishing') {
+      return { status: 'done', path: resumeSession.input_dir, sourcePath: resumeSession.media_dir ?? resumeSession.input_dir, error: null }
+    }
+    const fetch = sessionFetch(resumeSession)
+    if (fetch?.input_dir) {
+      return { status: 'done', path: fetch.input_dir, sourcePath: fetch.input_dir, error: null }
+    }
+    return { status: 'idle', path: null, sourcePath: null, error: null }
+  })
   const [summary, setSummary] = useState<DatapackageSummary | null>(null)
   // Set whenever generateProductMetadata itself fails (e.g. a Software
   // Application git clone with no CITATION.cff at its root — see
@@ -344,14 +419,14 @@ export default function WizardPage({ resumeSession }: Props) {
   const [metadataError, setMetadataError] = useState<string | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
   const [selectedRepos, setSelectedRepos] = useState<Set<RepoId>>(
-    () => new Set(resumeSession ? resumeSession.repos.map((r) => r.repo) : []),
+    () => new Set(resumeSession?.phase === 'publishing' ? resumeSession.repos.map((r) => r.repo) : []),
   )
   // The order in which the selected repos will be published — determines
   // each step's input: the first uses the original downloaded package, each
   // next one uses whatever the previous step wrote to its own output
   // directory (see outputDirs/getInputDirFor below).
   const [publishOrder, setPublishOrder] = useState<RepoId[]>(
-    () => resumeSession ? resumeSession.repos.map((r) => r.repo) : [],
+    () => resumeSession?.phase === 'publishing' ? resumeSession.repos.map((r) => r.repo) : [],
   )
   const [outputDirs, setOutputDirs] = useState<Partial<Record<RepoId, string>>>({})
   // Simulates the whole publish flow with no real uploads/creations on any
@@ -359,36 +434,52 @@ export default function WizardPage({ resumeSession }: Props) {
   // populate step still has something real to cross-reference (see
   // services.publish_orchestrator's dry-run branches). No token is required
   // in this mode.
-  const [dryRun, setDryRun] = useState(resumeSession?.dry_run ?? false)
+  const [dryRun, setDryRun] = useState(resumeSession?.phase === 'publishing' ? resumeSession.dry_run : false)
 
   // Once the user starts publishing, the wizard first COLLECTS each
   // repository's configuration (token, mode, etc.), one at a time, without
   // publishing anything yet — only once every selected repository has been
   // configured does a confirmation screen appear, and only after that does
   // the actual publish sequence run, automatically and without further
-  // pauses, one repository after another (see runPublishSequence).
-  const [publishStarted, setPublishStarted] = useState(!!resumeSession)
+  // pauses, one repository after another (see runPublishSequence). Only
+  // true for a resumeSession already past repo selection (phase
+  // "publishing") — a "fetched"/"preprocessed" one still needs the normal
+  // step 4 (pick repos, configure each) like a fresh run, it just starts
+  // from an already-fetched/preprocessed source instead of from scratch.
+  const [publishStarted, setPublishStarted] = useState(resumeSession?.phase === 'publishing')
   const [configureIndex, setConfigureIndex] = useState(0)
   const [repoConfigs, setRepoConfigs] = useState<RepoConfigs>(
-    () => resumeSession ? repoConfigsFromSession(resumeSession) : {},
+    () => resumeSession?.phase === 'publishing' ? repoConfigsFromSession(resumeSession) : {},
   )
-  // The interrupted session's own task_id, when resuming — every publish()
-  // call for the rest of this page's lifetime goes through
-  // api.resumePublishStart instead of api.publishAllStart while this is
-  // set (see publish() below), so a retry after a SECOND failure still
-  // continues the very same backend session instead of starting a brand
-  // new (non-resumable) one.
-  const [resumeTaskId, setResumeTaskId] = useState<string | null>(resumeSession?.task_id ?? null)
+  // The interrupted session's own task_id, when resuming a run already
+  // past repo selection (phase "publishing") — every publish() call for
+  // the rest of this page's lifetime goes through api.resumePublishStart
+  // instead of api.publishAllStart while this is set (see publish()
+  // below), so a retry after a SECOND failure still continues the very
+  // same backend session instead of starting a brand new (non-resumable)
+  // one. null for any earlier phase: session_store's own manifest has no
+  // "repos"/"repo_status" yet at that point (see publish_orchestrator.
+  // resume_publish_all_task), so there's nothing there to resume — that
+  // run instead flows through publishAllStart's own sessionTaskId (see
+  // WizardPage's own sessionTaskId state), which reuses the session
+  // without pretending it was already publishing.
+  const [resumeTaskId, setResumeTaskId] = useState<string | null>(
+    resumeSession?.phase === 'publishing' ? resumeSession.task_id : null,
+  )
   // The version every not-yet-finished repo was originally being published
   // as — session.json persists it per-repo (see RepoPublishConfig), but
   // it's the same value across all of them within one run.
-  const [resumeVersion, setResumeVersion] = useState<string | undefined>(resumeSession?.repos[0]?.version ?? undefined)
+  const [resumeVersion, setResumeVersion] = useState<string | undefined>(
+    resumeSession?.phase === 'publishing' ? resumeSession.repos[0]?.version ?? undefined : undefined,
+  )
   // Only relevant when hfh + zenodo + b2share are ALL selected — HFH never
   // has a DOI of its own, so with two possible DOI sources the user picks
   // which one is primary (see the "choose primary DOI" screen below).
   // Stays null (never asked) otherwise, and publishAllStart's own
   // primary_doi_source ends up undefined in that case.
-  const [primaryDoiSource, setPrimaryDoiSource] = useState<'zenodo' | 'b2share' | null>(resumeSession?.primary_doi_source ?? null)
+  const [primaryDoiSource, setPrimaryDoiSource] = useState<'zenodo' | 'b2share' | null>(
+    resumeSession?.phase === 'publishing' ? resumeSession.primary_doi_source : null,
+  )
   const [executing, setExecuting] = useState(false)
   const [executionDone, setExecutionDone] = useState(false)
   const [executionError, setExecutionError] = useState<string | null>(null)
@@ -580,6 +671,7 @@ export default function WizardPage({ resumeSession }: Props) {
             repos: reposThisCall.map(buildRepoPayload),
             primaryDoiSource: primaryDoiSource ?? undefined,
             dryRun,
+            sessionTaskId: sessionTaskId ?? undefined,
           })
 
       while (true) {
@@ -719,6 +811,20 @@ export default function WizardPage({ resumeSession }: Props) {
     }).catch(() => { /* best-effort — the fields just stay blank/editable */ })
   }, [download.status, download.path, productType])
 
+  // Resuming a "preprocessed" session (see initialStepForPhase) lands
+  // straight on step 3, skipping handleContinueToPreprocessing entirely —
+  // preprocessing already ran, so there's no need to re-run
+  // generateProductMetadata against the source again, just read back
+  // whatever it already wrote to metadata.json. Without this, `summary`
+  // stays null forever and metadataComplete (step 3's own "Next" button
+  // gate) stays permanently disabled with no way to tell why.
+  useEffect(() => {
+    if (resumeSession?.phase !== 'preprocessed' || !download.path) return
+    api.datapackageSummary(download.path)
+      .then(setSummary)
+      .catch((e) => setMetadataError(e instanceof Error ? e.message : 'Could not read this package.'))
+  }, [resumeSession, download.path])
+
   // Triggered by the new step's own "Continue" button (step === 2 below) —
   // no longer automatic, so the user gets to review/edit datapackage.json's
   // fields and the anonymize/randomize options before anything actually
@@ -746,6 +852,7 @@ export default function WizardPage({ resumeSession }: Props) {
       }
       const newSummary = await api.generateProductMetadata(
         download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds, mediaIdDomain,
+        sessionTaskId ?? undefined,
       )
       setSummary(newSummary)
       setStep(3)
@@ -771,6 +878,7 @@ export default function WizardPage({ resumeSession }: Props) {
     if (sourceType === 'local') {
       if (!localSelection) return
       setDownload({ status: 'done', path: localSelection.path, sourcePath: localSelection.sourcePath, error: null })
+      setSessionTaskId(localSelection.sessionTaskId ?? null)
       setStep(2)
       return
     }
@@ -779,6 +887,7 @@ export default function WizardPage({ resumeSession }: Props) {
       setDownload({ status: 'running', path: null, sourcePath: null, error: null })
       try {
         const { task_id } = await api.softwareCloneStart(gitUrl)
+        setSessionTaskId(task_id)
         // Poll until the background task finishes
         while (true) {
           await sleep(2000)
@@ -803,6 +912,7 @@ export default function WizardPage({ resumeSession }: Props) {
       setDownload({ status: 'running', path: null, sourcePath: null, error: null })
       try {
         const { task_id } = await api.camtrapdpFetchArchiveStart(archiveSourceUrl)
+        setSessionTaskId(task_id)
         // Poll until the background task finishes
         while (true) {
           await sleep(2000)
@@ -829,6 +939,7 @@ export default function WizardPage({ resumeSession }: Props) {
         trapperSelection.url, trapperSelection.username, trapperSelection.password,
         trapperSelection.projectId, trapperSelection.deploymentId, trapperSelection.includeEvents,
       )
+      setSessionTaskId(task_id)
       // Poll until the background task finishes
       while (true) {
         await sleep(2000)
@@ -845,6 +956,73 @@ export default function WizardPage({ resumeSession }: Props) {
       }
     } catch (e) {
       setDownload({ status: 'error', path: null, sourcePath: null, error: e instanceof Error ? e.message : 'Could not start the download.' })
+    }
+  }
+
+  // Resumes the fetch resumeSession itself was interrupted during (see
+  // resumingFetch) — same url/params as the original request, persisted
+  // server-side (see services.session_store), so only Trapper's own
+  // username/password (never saved) need to be re-typed. Mirrors
+  // handleNext's own git/archive/trapper branches; the only difference is
+  // which API call restarts the background task.
+  async function handleResumeFetch() {
+    if (!sessionTaskId) return
+    setDownload({ status: 'running', path: null, sourcePath: null, error: null })
+    try {
+      if (sourceType === 'git') {
+        const { task_id } = await api.softwareResumeClone(sessionTaskId)
+        while (true) {
+          await sleep(2000)
+          const status = await api.softwareCloneStatus(task_id)
+          if (status.status === 'done') {
+            setDownload({ status: 'done', path: status.path, sourcePath: status.path, error: null })
+            setResumingFetch(false)
+            setStep(2)
+            break
+          }
+          if (status.status === 'error') {
+            setDownload({ status: 'error', path: null, sourcePath: null, error: status.error ?? 'The clone failed.' })
+            break
+          }
+        }
+        return
+      }
+      if (sourceType === 'archive') {
+        const { task_id } = await api.camtrapdpResumeFetchArchive(sessionTaskId)
+        while (true) {
+          await sleep(2000)
+          const status = await api.camtrapdpFetchArchiveStatus(task_id)
+          if (status.status === 'done') {
+            setDownload({ status: 'done', path: status.path, sourcePath: status.path, error: null })
+            setResumingFetch(false)
+            setStep(2)
+            break
+          }
+          if (status.status === 'error') {
+            setDownload({ status: 'error', path: null, sourcePath: null, error: status.error ?? 'The fetch failed.' })
+            break
+          }
+        }
+        return
+      }
+      const url = String(sessionFetch(resumeSession)?.params.url ?? '')
+      const { task_id } = await api.trapperResumeDownload(sessionTaskId, url, resumeFetchUsername, resumeFetchPassword)
+      while (true) {
+        await sleep(2000)
+        const status = await api.trapperDownloadStatus(task_id)
+        if (status.status === 'done') {
+          setDownload({ status: 'done', path: status.path, sourcePath: status.path, error: null })
+          setResumingFetch(false)
+          setStep(2)
+          break
+        }
+        if (status.status === 'error') {
+          setDownload({ status: 'error', path: null, sourcePath: null, error: status.error ?? 'The download failed.' })
+          break
+        }
+      }
+    } catch (e) {
+      setDownload({ status: 'error', path: null, sourcePath: null, error: e instanceof Error ? e.message : 'Could not resume the fetch.' })
     }
   }
 
@@ -928,7 +1106,58 @@ export default function WizardPage({ resumeSession }: Props) {
       )}
 
       {/* ── Step 1: source ── */}
-      {step === 1 && (
+      {step === 1 && resumingFetch && (
+        <div>
+          <h4 className="text-lg font-semibold mb-1">Resume the interrupted fetch?</h4>
+          <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
+            {sourceType === 'trapper'
+              ? "This session was fetching from Trapper when it was interrupted — already-downloaded files won't be redone. Credentials are never saved, so re-enter them to continue."
+              : sourceType === 'git'
+              ? "This session was cloning a git repository when it was interrupted — already-cloned files won't be redone."
+              : "This session was fetching a Camtrap DP archive when it was interrupted — already-downloaded files won't be redone."}
+          </p>
+
+          {sourceType === 'trapper' && (
+            <div className="space-y-4 mb-6" style={{ maxWidth: 400 }}>
+              <div>
+                <label htmlFor="resume-trapper-username" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Username</label>
+                <input
+                  id="resume-trapper-username" type="text" value={resumeFetchUsername}
+                  onChange={(e) => setResumeFetchUsername(e.target.value)} autoComplete="username"
+                  className="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="resume-trapper-password" className="block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Password</label>
+                <input
+                  id="resume-trapper-password" type="password" value={resumeFetchPassword}
+                  onChange={(e) => setResumeFetchPassword(e.target.value)} autoComplete="current-password"
+                  className="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono"
+                />
+              </div>
+            </div>
+          )}
+
+          {download.status === 'error' && (
+            <p className="text-sm text-red-600 dark:text-red-400 mb-4">{download.error}</p>
+          )}
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button" className={btnPrimary} onClick={handleResumeFetch}
+              disabled={isDownloading || (sourceType === 'trapper' && (!resumeFetchUsername || !resumeFetchPassword))}
+            >
+              {isDownloading && <SmallSpinner />}
+              {isDownloading ? 'Resuming…' : 'Resume'}
+            </button>
+            <button type="button" className={btnOutline} onClick={() => setResumingFetch(false)} disabled={isDownloading}>
+              Start a new source instead
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 1 && !resumingFetch && (
         <div>
           <h4 className="text-lg font-semibold mb-1">Where is it located?</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">Choose where to fetch the package from.</p>
@@ -966,7 +1195,25 @@ export default function WizardPage({ resumeSession }: Props) {
           {sourceType === 'local' && productType && (
             <div className="mt-8">
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
-              <LocalDirectoryForm productType={productType} onSelectionChange={setLocalSelection} />
+              <LocalDirectoryForm
+                productType={productType} onSelectionChange={setLocalSelection}
+                // Re-mounts every time step 1 does (e.g. clicking "Back"
+                // from step 2) — falls back to whatever THIS SAME run's
+                // own localSelection already resolved (still alive at this
+                // component's level, unlike LocalDirectoryForm's own
+                // internal state) before falling back further to a
+                // resumed session's original path/task_id, so neither a
+                // Back-and-Next round trip nor a browser reload ever mints
+                // a second, orphaned session for the very same directory.
+                initialPath={
+                  localSelection?.sourcePath
+                  ?? (resumeSession?.source_type === 'local' ? String(sessionFetch(resumeSession)?.params.path ?? '') : undefined)
+                }
+                initialSessionTaskId={
+                  localSelection?.sessionTaskId
+                  ?? (resumeSession?.source_type === 'local' ? resumeSession.task_id : undefined)
+                }
+              />
             </div>
           )}
 
@@ -1789,7 +2036,7 @@ export default function WizardPage({ resumeSession }: Props) {
             Back
           </button>
 
-          {step === 1 && (
+          {step === 1 && !resumingFetch && (
             <div className="flex flex-col items-end gap-2">
               <button
                 type="button"

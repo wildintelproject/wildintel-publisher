@@ -21,14 +21,15 @@ long-running generate-and-download call.
 from __future__ import annotations
 
 import asyncio
-import uuid
 from pathlib import Path
 from typing import Any
 
 from dynaconf import loaders
 from trapper_client import TrapperClient
-from wildintel_publisher.config import DEFAULT_CONFIG_FILE, get_trapper_output_dir, load_settings
+from wildintel_publisher.config import DEFAULT_CONFIG_FILE, load_settings
 from wildintel_publisher.services.trapper import fetch_camtrapdp_package
+
+from services import session_store
 
 # Generous enough to avoid pagination round-trips for typical result sizes,
 # without trying to be "unlimited" (TrapperComponent.where() pages lazily
@@ -154,49 +155,121 @@ def list_deployments(url: str, username: str, password: str, classification_proj
     ]
 
 
+def _fetch_params(*, url: str, project_id: int, deployment_id: str, clear_cache: bool, include_events: bool) -> dict:
+    """The non-secret subset of a Trapper fetch request — persisted as-is
+    into session.json's own "fetch"."params" (see session_store), and later
+    replayed unchanged by resume_download_task. Never username/password."""
+    return {
+        "url": url, "project_id": project_id, "deployment_id": deployment_id,
+        "clear_cache": clear_cache, "include_events": include_events,
+    }
+
+
+async def _run_fetch(
+    task_id: str, *, username: str, password: str, output_dir: Path, settings,
+    url: str, project_id: int, deployment_id: str, clear_cache: bool, include_events: bool,
+) -> None:
+    """Shared by start_download_task (fresh request) and resume_download_task
+    (an earlier interruption's own params, replayed) — runs
+    'fetch_camtrapdp_package' as a background worker-thread task (it's a
+    blocking/synchronous call), updating both the in-memory poll status
+    (_download_tasks) and the session manifest (session_store) on success
+    or failure.
+
+    title/description/license default from the shared settings.toml's
+    TRAPPER section — same defaults 'trapper download' itself falls back to
+    when its own --title/--description/--license-* flags aren't given."""
+    trapper_defaults = settings.TRAPPER
+    fetch = {
+        "source_type": "trapper",
+        "params": _fetch_params(
+            url=url, project_id=project_id, deployment_id=deployment_id,
+            clear_cache=clear_cache, include_events=include_events,
+        ),
+        "output_dir": str(output_dir), "input_dir": None,
+    }
+    try:
+        path = await asyncio.to_thread(
+            fetch_camtrapdp_package,
+            trapper_url=url,
+            trapper_user=username,
+            trapper_password=password,
+            project_id=project_id,
+            deployment_id=deployment_id,
+            output_dir=output_dir,
+            clear_cache=clear_cache,
+            title=trapper_defaults.dataset_name,
+            description=trapper_defaults.description,
+            version=DEFAULT_VERSION,
+            license_id=trapper_defaults.license_id,
+            license_name=trapper_defaults.license_name,
+            license_url=trapper_defaults.license_url,
+            include_events=include_events,
+        )
+        _download_tasks[task_id] = {"status": "done", "path": str(path), "error": None}
+        fetch["input_dir"] = str(path)
+        session_store.write_fetch_phase(
+            task_id, product_type="camtrapdp", source_type="trapper", fetch=fetch, status="done", error=None,
+        )
+    except Exception as exc:
+        _download_tasks[task_id] = {"status": "error", "path": None, "error": str(exc)}
+        session_store.write_fetch_phase(
+            task_id, product_type="camtrapdp", source_type="trapper", fetch=fetch, status="error", error=str(exc),
+        )
+
+
 def start_download_task(
     *, url: str, username: str, password: str, project_id: int, deployment_id: str, clear_cache: bool = False,
     include_events: bool = True,
 ) -> str:
-    """Launches 'fetch_camtrapdp_package' as a background asyncio task (via a
-    worker thread, since it's a blocking/synchronous call) and returns a
-    task_id immediately. Poll get_download_task_status(task_id) for progress.
-
-    title/description/license default from the shared settings.toml's
-    TRAPPER section — same defaults 'trapper download' itself falls back to
-    when its own --title/--description/--license-* flags aren't given.
-    """
-    task_id = str(uuid.uuid4())
+    """Mints a brand new session (see session_store's own docstring) and
+    launches the fetch in it — its task_id then flows through preprocessing
+    and, if the user gets that far, into services.publish_orchestrator's
+    own start_publish_all_task(task_id=...), so the whole run — fetched
+    source, preprocessing, publish build dirs — ends up living under the
+    same session_dir. Poll get_download_task_status(task_id) for progress."""
+    task_id = session_store.new_task_id()
     _download_tasks[task_id] = {"status": "running", "path": None, "error": None}
 
     settings = load_settings()
-    trapper_defaults = settings.TRAPPER
-    output_dir = get_trapper_output_dir()
+    output_dir = session_store.session_dir(task_id) / "source"
+    params = _fetch_params(
+        url=url, project_id=project_id, deployment_id=deployment_id,
+        clear_cache=clear_cache, include_events=include_events,
+    )
+    session_store.write_fetch_phase(
+        task_id, product_type="camtrapdp", source_type="trapper",
+        fetch={"source_type": "trapper", "params": params, "output_dir": str(output_dir), "input_dir": None},
+        status="running", error=None,
+    )
 
-    async def _run() -> None:
-        try:
-            path = await asyncio.to_thread(
-                fetch_camtrapdp_package,
-                trapper_url=url,
-                trapper_user=username,
-                trapper_password=password,
-                project_id=project_id,
-                deployment_id=deployment_id,
-                output_dir=output_dir,
-                clear_cache=clear_cache,
-                title=trapper_defaults.dataset_name,
-                description=trapper_defaults.description,
-                version=DEFAULT_VERSION,
-                license_id=trapper_defaults.license_id,
-                license_name=trapper_defaults.license_name,
-                license_url=trapper_defaults.license_url,
-                include_events=include_events,
-            )
-            _download_tasks[task_id] = {"status": "done", "path": str(path), "error": None}
-        except Exception as exc:
-            _download_tasks[task_id] = {"status": "error", "path": None, "error": str(exc)}
+    asyncio.create_task(_run_fetch(
+        task_id, username=username, password=password, output_dir=output_dir, settings=settings, **params,
+    ))
+    return task_id
 
-    asyncio.create_task(_run())
+
+def resume_download_task(task_id: str, *, username: str, password: str) -> str:
+    """Resumes a Trapper fetch an earlier interruption left on disk — same
+    project/deployment/clear_cache/include_events as the original request
+    (see session_store.write_fetch_phase — url isn't secret, so it's reused
+    from the manifest too), with freshly-supplied credentials (never
+    persisted — see session_store's own docstring). Retrying the exact same
+    fetch is what actually skips redoing completed work, via
+    fetch_camtrapdp_package's own skip-if-already-fetched check (see
+    services.trapper) — this function itself has no partial-download logic
+    of its own."""
+    manifest = session_store.read_manifest(task_id)
+    if manifest is None or manifest.get("fetch", {}).get("source_type") != "trapper":
+        raise RuntimeError(f"No interrupted Trapper fetch session found for task {task_id!r}.")
+    params = manifest["fetch"]["params"]
+    output_dir = Path(manifest["fetch"]["output_dir"])
+
+    _download_tasks[task_id] = {"status": "running", "path": None, "error": None}
+    settings = load_settings()
+    asyncio.create_task(_run_fetch(
+        task_id, username=username, password=password, output_dir=output_dir, settings=settings, **params,
+    ))
     return task_id
 
 

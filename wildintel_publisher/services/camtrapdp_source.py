@@ -67,7 +67,7 @@ def _fix_license_from_trapper_settings(output_dir: Path) -> None:
         )
 
 
-def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
+def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path, *, use_hash_subdir: bool = True) -> Path:
     """Takes a local directory the user pointed at as a Camtrap DP source
     and returns a working COPY of just its core files (datapackage.json +
     deployments/media/observations.csv) under output_dir/<slug> — never the
@@ -77,6 +77,16 @@ def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
     media referenced by relative path in media.csv is deliberately NOT
     copied here — it stays at `source_dir`, read from there later (only) by
     the mirror step, via ProductAdapter.prepare's own media_dir parameter.
+
+    use_hash_subdir=False skips the <slug> subfolder, using `output_dir`
+    itself as the destination — for a caller whose own `output_dir` is
+    already unique per source (the web backend's own session_dir/source,
+    see services.camtrapdp_source_service.resolve_local_source), where the
+    hash exists only to dedupe several distinct local sources sharing ONE
+    output_dir — never the case there, so the extra nesting is pure noise.
+    True (the default) keeps that dedupe for a caller that DOES reuse one
+    shared output_dir across different local sources (the CLI's own
+    'prepare' commands, via a single get_*_output_dir()).
 
     Always re-copies from scratch (no caching): these are a handful of small
     CSV/JSON files, cheap to redo, and caching would risk serving a stale
@@ -106,8 +116,11 @@ def resolve_local_camtrapdp_source(source_dir: Path, output_dir: Path) -> Path:
     if not source_dir.is_dir():
         raise RuntimeError(f"{source_dir} does not exist or is not a directory.")
 
-    slug = hashlib.sha1(str(source_dir.resolve()).encode("utf-8")).hexdigest()[:16]
-    destination = output_dir / slug
+    if use_hash_subdir:
+        slug = hashlib.sha1(str(source_dir.resolve()).encode("utf-8")).hexdigest()[:16]
+        destination = output_dir / slug
+    else:
+        destination = output_dir
 
     if destination.exists():
         shutil.rmtree(destination)

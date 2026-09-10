@@ -68,3 +68,49 @@ def test_clone_reports_error_status_on_failure():
             body = _poll_clone(client, task_id)
 
     assert body == {"status": "error", "path": None, "error": "git clone failed"}
+
+
+def test_clone_persists_a_session_that_flips_to_fetched():
+    from main import app
+    from services import session_store
+
+    fake_path = Path("/tmp/fake-software-clone")
+    with patch("services.software_service.clone_repository", return_value=fake_path):
+        with TestClient(app) as client:
+            start = client.post("/api/software/clone", json={"url": "https://github.com/user/repo.git"})
+            task_id = start.json()["task_id"]
+            _poll_clone(client, task_id)
+
+    manifest = session_store.read_manifest(task_id)
+    assert manifest["phase"] == "fetched"
+    assert manifest["source_type"] == "git"
+    assert manifest["product_type"] == "software"
+    assert manifest["fetch"]["params"] == {"url": "https://github.com/user/repo.git", "clear_cache": False}
+    assert manifest["fetch"]["input_dir"] == str(fake_path)
+
+
+def test_resume_clone_replays_the_original_url():
+    from main import app
+    from services import session_store
+
+    with patch("services.software_service.clone_repository", side_effect=RuntimeError("boom")):
+        with TestClient(app) as client:
+            start = client.post("/api/software/clone", json={"url": "https://github.com/user/repo.git"})
+            task_id = start.json()["task_id"]
+            _poll_clone(client, task_id)
+
+    with patch("services.software_service.clone_repository", return_value=Path("/tmp/out")) as mock_clone:
+        with TestClient(app) as client:
+            resume = client.post(f"/api/software/clone/{task_id}/resume")
+            assert resume.status_code == 200, resume.text
+            assert resume.json()["task_id"] == task_id
+            body = _poll_clone(client, task_id)
+
+    assert body["status"] == "done"
+    assert mock_clone.call_args.args[0] == "https://github.com/user/repo.git"
+    assert session_store.read_manifest(task_id)["phase"] == "fetched"
+
+
+def test_resume_clone_rejects_an_unknown_task_id():
+    response = _client().post("/api/software/clone/does-not-exist/resume")
+    assert response.status_code == 400

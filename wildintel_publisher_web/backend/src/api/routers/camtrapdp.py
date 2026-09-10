@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from schemas.requests import (
     GenerateMetadataRequest, OpenFolderRequest, UpdateDatapackageRequest, UpdateMetadataRequest,
 )
-from services import camtrapdp_service
+from services import camtrapdp_service, session_store
 
 router = APIRouter(prefix="/api/camtrapdp", tags=["camtrapdp"])
 logger = logging.getLogger(__name__)
@@ -24,15 +24,29 @@ def generate_metadata(req: GenerateMetadataRequest) -> dict:
     metadata.json into req.input_dir (see
     services.product.generate_metadata_json) — required once, right after a
     product is obtained (download finishes, or a local directory is picked),
-    before any publish step or /summary call can use it."""
+    before any publish step or /summary call can use it.
+
+    req.session_task_id (absent for a Local Directory source, or any
+    request that predates this feature) flips that session's own phase to
+    "preprocessing"/"preprocessed" on the way in/out — a no-op if no session
+    with that task_id exists on disk (see session_store.write_preprocessing_phase)."""
+    choices = {
+        "anonymize_coordinates": req.anonymize_coordinates, "coordinate_decimals": req.coordinate_decimals,
+        "randomize_media_ids": req.randomize_media_ids, "media_id_domain": req.media_id_domain,
+    }
     try:
-        return camtrapdp_service.generate_metadata(
+        result = camtrapdp_service.generate_metadata(
             req.product_type, Path(req.input_dir),
             anonymize_coordinates=req.anonymize_coordinates, coordinate_decimals=req.coordinate_decimals,
             randomize_media_ids=req.randomize_media_ids, media_id_domain=req.media_id_domain,
         )
     except RuntimeError as exc:
+        if req.session_task_id:
+            session_store.write_preprocessing_phase(req.session_task_id, status="error", error=str(exc), choices=choices)
         raise HTTPException(400, str(exc)) from exc
+    if req.session_task_id:
+        session_store.write_preprocessing_phase(req.session_task_id, status="done", error=None, choices=choices)
+    return result
 
 
 @router.post("/complete-metadata")

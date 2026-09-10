@@ -76,7 +76,7 @@ class CamtrapDPAdapter:
 
     def prepare(
         self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
-        media_dir: Optional[Path] = None,
+        media_dir: Optional[Path] = None, media_cache_dir: Optional[Path] = None,
     ) -> None:
         common.copy_core_camtrapdp_files(input_dir, output_dir)
 
@@ -99,7 +99,9 @@ class CamtrapDPAdapter:
         public_media_ids = common.keep_only_public_media(output_dir)
         common.drop_observations_of_removed_media(output_dir, public_media_ids)
         if mirror:
-            common.download_public_images(output_dir, input_dir=media_dir or input_dir, timeout=image_timeout)
+            common.download_public_images(
+                output_dir, input_dir=media_dir or input_dir, timeout=image_timeout, cache_dir=media_cache_dir,
+            )
 
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
         common.anonymize_deployment_coordinates(input_dir, decimals=decimals)

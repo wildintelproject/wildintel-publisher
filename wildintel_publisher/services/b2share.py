@@ -128,6 +128,7 @@ def prepare_b2share_export(
     max_zip_bytes: Optional[int] = None,
     min_image_edge: int = DEFAULT_MIN_IMAGE_EDGE,
     media_dir: Optional[Path] = None,
+    media_cache_dir: Optional[Path] = None,
 ) -> Path:
     """Copia el producto de `input_dir` a `output_dir` (vía el ProductAdapter
     de su tipo, leído de `input_dir`/metadata.json) — mismos tres modos que
@@ -199,7 +200,10 @@ def prepare_b2share_export(
     common.ensure_output_dir(output_dir, overwrite=overwrite)
 
     console.print(f"Copying the product from {input_dir} to {output_dir} ...")
-    adapter.prepare(input_dir, output_dir, mirror=self_contained, image_timeout=image_timeout, media_dir=media_dir)
+    adapter.prepare(
+        input_dir, output_dir, mirror=self_contained, image_timeout=image_timeout,
+        media_dir=media_dir, media_cache_dir=media_cache_dir,
+    )
     product.copy_metadata_json(input_dir, output_dir)
 
     if not self_contained and hfh_repo_id:
@@ -221,6 +225,7 @@ def prepare_b2share_export(
         title=title, description=description, license_id=license["id"],
         authors=authors, date_released=date_released, hfh_repo_id=hfh_repo_id,
         homepage=product_meta.get("homepage"),
+        publisher=publisher, copyright_holders=copyright_holders,
     )
     common.write_license(
         LICENSE_TEMPLATE_FILE, output_dir,
@@ -275,6 +280,7 @@ def write_readme(
     output_dir: Path, version: str, adapter: product.ProductAdapter, *, self_contained: bool,
     title: str, description: str, license_id: str, authors: list, date_released: str,
     hfh_repo_id: Optional[str], homepage: Optional[str] = None,
+    publisher: Optional[dict] = None, copyright_holders: Optional[list[str]] = None,
 ) -> Path:
     """Renders templates/common/README-{product_type}-body.md.j2 (shared
     with hfh.py/zenodo.py for the same product_type) with B2SHARE's own
@@ -318,7 +324,8 @@ def write_readme(
         location_template=None,
         apa_citation=common.format_apa_citation(
             authors=authors, title=title, version=version, date_released=date_released,
-            publisher="B2SHARE (EUDAT)", url=publisher_url,
+            publisher=(publisher or {}).get("name") or "B2SHARE (EUDAT)", url=publisher_url,
+            copyright_holders=copyright_holders,
         ),
         **adapter.readme_context(output_dir),
     )
