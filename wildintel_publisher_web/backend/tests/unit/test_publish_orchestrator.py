@@ -678,11 +678,13 @@ def test_publish_all_gbif_surfaces_a_doi_when_gbif_returns_one(tmp_path):
 
 
 def test_publish_all_hfh_then_gbif_auto_syncs_doi_into_hfh_citation(tmp_path):
-    """Unlike Zenodo/B2SHARE (cross-referenced automatically by the populate
-    phase, before HFH ever gets tagged), GBIF only learns its own DOI during
-    its own lock call, which always runs after HFH's — so the orchestrator
-    syncs it in as one extra best-effort step once every repo's lock phase
-    has run (see publish_orchestrator's own docstring)."""
+    """GBIF now registers early (phase 1, alongside HFH's own upload), so its
+    DOI is already known by the time this sync runs — right after
+    doi_populate.populate(), BEFORE HFH's own tag gets created. It patches
+    HFH's own build_dir (still-untagged "main"), not the final,
+    user-configured output_dir, so the tag about to be created captures a
+    commit that already has GBIF's DOI cross-referenced into it (see
+    publish_orchestrator's own docstring)."""
     def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
         _write_product_files(output_dir)
         _write_citation(output_dir, {"cff-version": "1.2.0"})
@@ -728,10 +730,110 @@ def test_publish_all_hfh_then_gbif_auto_syncs_doi_into_hfh_citation(tmp_path):
     assert body["status"] == "done", body
     assert body["repos"]["gbif"]["doi"] == "10.21373/eet8jz"
     assert body["repos"]["gbif"]["doi_synced_to_hfh"] is True
-    mock_sync.assert_called_once_with(
-        gbif_output_dir=gbif_output_dir, hfh_output_dir=hfh_output_dir,
-        hfh_repo_id="alice/dataset", hfh_token="hf_x",
-    )
+    mock_sync.assert_called_once()
+    call_kwargs = mock_sync.call_args.kwargs
+    assert call_kwargs["gbif_output_dir"] == gbif_output_dir
+    assert call_kwargs["hfh_repo_id"] == "alice/dataset"
+    assert call_kwargs["hfh_token"] == "hf_x"
+    # HFH's own BUILD dir (still-untagged "main") — not hfh_output_dir, the
+    # final, user-configured output_dir, which only gets its files after
+    # phase 3's lock+finalize, later than this sync runs.
+    assert call_kwargs["hfh_output_dir"] != hfh_output_dir
+    assert call_kwargs["hfh_output_dir"].name == "hfh-build"
+
+
+def test_publish_all_hfh_zenodo_gbif_gbifs_doi_always_wins_hfhs_primary_slot(tmp_path):
+    """The one behavior change this covers: whenever GBIF has a DOI, it's
+    ALWAYS HFH's primary/top-level "doi" — any other repo's own DOI in the
+    same run (here, Zenodo's) only ever lands as a secondary "identifiers"
+    entry, never displacing it. Achieved by running the GBIF-DOI-into-HFH
+    sync BEFORE doi_populate.populate() (see publish_orchestrator's own
+    docstring) — no primary_doi_source is even given here, proving GBIF
+    wins unconditionally, not just as a side effect of "only one candidate
+    yet". Runs gbif_service.sync_doi_to_hfh for REAL (only its own
+    huggingface_hub.upload_file network call is stubbed out), so the actual
+    CITATION.cff-patching logic is what's under test, not just that some
+    mock got called."""
+    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_prepare_zenodo(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+
+    def fake_upload_zenodo(output_dir, **kwargs):
+        if not (output_dir / "CITATION.cff").is_file():
+            _write_citation(output_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1"})
+            (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": "10.5281/zenodo.1"}), encoding="utf-8")
+
+    def fake_register_gbif(archive_url, output_dir, **kwargs):
+        # Mirrors the real register_gbif_dataset's own side effect: writing
+        # its local record file is what lets sync_doi_to_hfh (running for
+        # real below) find GBIF's DOI at all.
+        record = {
+            "dataset_key": "xyz", "archive_url": archive_url,
+            "dataset_page_url": "https://registry.gbif-test.org/dataset/xyz", "doi": "10.21373/eet8jz",
+        }
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "gbif_linked_dataset_record.json").write_text(json.dumps(record), encoding="utf-8")
+        return record
+
+    hfh_citations_seen = []
+
+    def spying_upload_hfh(output_dir, **kwargs):
+        # Captures CITATION.cff's content at each call — the build_dir
+        # itself is deleted once the whole task finishes, so it can't be
+        # read back afterwards.
+        hfh_citations_seen.append(_read_citation(output_dir))
+        return "https://huggingface.co/datasets/alice/dataset"
+
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=spying_upload_hfh),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", return_value=None),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=fake_upload_zenodo),
+        patch(
+            "services.publish_orchestrator.zenodo_cli.release_on_zenodo",
+            return_value={"doi": "10.5281/zenodo.1", "record_url": "https://sandbox.zenodo.org/records/1"},
+        ),
+        patch("services.publish_orchestrator.gbif_cli.register_gbif_dataset", side_effect=fake_register_gbif),
+        # The only real network call inside the real gbif_service.sync_doi_to_hfh.
+        patch("services.gbif_service.upload_file", return_value=None),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"},
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x", "environment": "sandbox"},
+                    {
+                        "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
+                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip",
+                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                        "username": "alice", "password": "s3cret", "environment": "sandbox",
+                    },
+                ],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert body["repos"]["gbif"]["doi"] == "10.21373/eet8jz"
+    assert body["repos"]["gbif"]["doi_synced_to_hfh"] is True
+    # Populate's own cross-reference of Zenodo's DOI into HFH DID change
+    # HFH's CITATION.cff (a new "identifiers" entry), so it re-uploaded once
+    # more after the initial upload phase.
+    assert len(hfh_citations_seen) == 2
+    hfh_citation = hfh_citations_seen[-1]
+    assert hfh_citation["doi"] == "10.21373/eet8jz"
+    assert hfh_citation["identifiers"] == [
+        {"type": "doi", "value": "https://doi.org/10.5281/zenodo.1", "description": "Zenodo DOI"},
+    ]
 
 
 def test_publish_all_hfh_then_gbif_registers_the_homepage_hfh_just_set(tmp_path):
@@ -859,7 +961,9 @@ def test_publish_all_hfh_then_gbif_chains_without_breaking_doi_populate(tmp_path
     """GBIF has no CITATION.cff of its own — this proves doi_populate.populate()
     (which only knows about hfh/zenodo/b2share) never even sees it, and that
     chaining past a GBIF step doesn't try to extract core files out of its
-    (never populated) build_dir."""
+    (never populated) build_dir. register_gbif_dataset itself is called
+    TWICE — phase 1's early registration (against HFH's floating "main") and
+    the post-lock repoint (against HFH's own tag, once created)."""
     def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
         _write_product_files(output_dir)
         _write_citation(output_dir, {"cff-version": "1.2.0"})
@@ -899,7 +1003,12 @@ def test_publish_all_hfh_then_gbif_chains_without_breaking_doi_populate(tmp_path
     assert body["status"] == "done", body
     assert body["repos"]["hfh"]["repo_url"] == "https://huggingface.co/datasets/alice/dataset"
     assert body["repos"]["gbif"]["repo_url"] == "https://registry.gbif-test.org/dataset/xyz"
-    mock_register.assert_called_once()
+    assert body["repos"]["gbif"]["archive_repointed_to_tag"] is True
+    assert mock_register.call_count == 2
+    first_archive_url = mock_register.call_args_list[0].args[0]
+    second_archive_url = mock_register.call_args_list[1].args[0]
+    assert first_archive_url == "https://huggingface.co/datasets/alice/dataset/resolve/main/datapackage.json"
+    assert second_archive_url == "https://huggingface.co/datasets/alice/dataset/resolve/1.0/datapackage.json"
 
 
 # ── resumable sessions ───────────────────────────────────────────────────────

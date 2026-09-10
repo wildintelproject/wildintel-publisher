@@ -78,7 +78,10 @@ def test_gbif_sync_doi_to_hfh_patches_the_readme(camtrapdp_dir, tmp_path):
 
     assert doi == "10.21373/eet8jz"
     readme = (hfh_dir / hfh.README_FILENAME).read_text(encoding="utf-8")
-    assert "https://registry.gbif-test.org/dataset/abc-123" in readme
+    # The DOI resolver URL, not GBIF's own dataset_page_url — same
+    # convention Zenodo/B2SHARE's own sync already use above.
+    assert "https://doi.org/10.21373/eet8jz" in readme
+    assert "https://registry.gbif-test.org/dataset/abc-123" not in readme
 
 
 def test_gbif_sync_doi_to_hfh_raises_when_no_doi_and_leaves_readme_untouched(camtrapdp_dir, tmp_path):

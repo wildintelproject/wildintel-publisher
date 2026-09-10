@@ -426,11 +426,15 @@ def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path) -> str:
     if not hfh_citation_path.is_file():
         raise RuntimeError(f"{hfh_citation_path} not found — run 'hfh prepare' first.")
 
+    # The DOI resolver URL, not GBIF's own dataset_page_url — same
+    # convention doi_populate.py's own RepoIdentifier uses for Zenodo/
+    # B2SHARE's DOI, so a citation always resolves through doi.org
+    # regardless of which repo it came from.
+    doi_url = f"https://doi.org/{doi}"
     common.patch_citation_with_identifier(
-        hfh_citation_path, value=doi, kind="doi", url=record.get("dataset_page_url"), description="GBIF DOI",
+        hfh_citation_path, value=doi, kind="doi", url=doi_url, description="GBIF DOI",
     )
-    if record.get("dataset_page_url"):
-        common.patch_readme_citation_url(hfh_output_dir / README_FILENAME, record["dataset_page_url"])
+    common.patch_readme_citation_url(hfh_output_dir / README_FILENAME, doi_url)
     common.write_checksums(hfh_output_dir)
 
     console.print(f"[green]✔  DOI {doi} reflected in {hfh_citation_path}.[/green]")

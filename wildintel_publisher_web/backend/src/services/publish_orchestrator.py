@@ -31,26 +31,45 @@ throwaway build directories deleted.
 GBIF is not like the other three: it never prepares or uploads any files of
 its own — it only registers, in GBIF's Registry, a dataset whose CAMTRAP_DP
 endpoint points at a URL where the Camtrap DP is already hosted elsewhere
-(archive_url, typically another repo in the same `repos` list, once THAT
-one has published). So for repo == "gbif": phase 1 (_upload_one) is a
-no-op, it's excluded from the DOI cross-referencing dict entirely (it has no
-CITATION.cff of its own), and phase 3 (_lock_one) is where its one real
-network call happens — directly against its user-configured output_dir
-(there's nothing to stage in a temporary build_dir first, unlike the other
-three).
+(archive_url — typically another repo in the same `repos` list, once THAT
+one has published its OWN phase 1, e.g. HFH's floating "main" branch, not
+tagged yet at this point). Unlike the other three, though, it registers
+EARLY: repo == "gbif" makes its one real Registry call (create-or-update the
+dataset + its endpoint) during phase 1 itself (_upload_one), the moment its
+own turn in the chain comes up — not phase 3 — precisely so that whatever
+DOI GBIF auto-mints for it (most organizations don't get one — see
+gbif.register_gbif_dataset) is already known in time for phase 2 below.
+It's still excluded from doi_populate's own cross-referencing dict (it has
+no CITATION.cff of its own to write into), so its DOI doesn't flow through
+the generic multi-repo mechanism there — instead, right BEFORE
+doi_populate.populate() runs (still phase 2, before ANY repo gets
+tagged/released), a dedicated best-effort step reflects GBIF's own DOI into
+HFH's build_dir CITATION.cff/README.md (same gbif_service.sync_doi_to_hfh
+the CLI's manual "Sync DOI" section calls) and re-uploads just those files
+to HFH's still-untagged "main". Deliberately BEFORE populate(), not after:
+GBIF's DOI is always meant to be HFH's PRIMARY identifier, and
+common.patch_citation_with_identifier only ever claims HFH's top-level
+"doi" field for a value when none is set yet — going first is what lets
+GBIF's DOI win that slot unconditionally, so whatever Zenodo/B2SHARE DOI
+populate() cross-references into HFH moments later always lands as a
+secondary "identifiers" entry instead, never displacing it. It also means
+HFH's own tag, created moments later in phase 3, captures a commit that
+already has GBIF's DOI cross-referenced into it, instead of tagging first
+and patching main afterward (which would leave the tag stale relative to
+main). This only happens when HFH is part of the same run; standalone GBIF
+(or GBIF without HFH) skips it, same as before.
 
-Unlike Zenodo/B2SHARE (whose DOI/PID is already known before HFH ever gets
-tagged, so the populate phase cross-references it into HFH's CITATION.cff
-for free, within phase 2), GBIF only learns its own DOI (if any — most
-organizations don't get one auto-minted, see gbif.register_gbif_dataset)
-during its own phase-3 lock call, which always runs after HFH's — so once
-every repo's phase 3 has run, if HFH was part of this same run and GBIF's
-came back with a DOI, it's synced into HFH's already-published CITATION.cff
-as one extra best-effort step (same gbif_service.sync_doi_to_hfh the
-wizard's manual "Sync DOI" section calls) — no separate user action needed
-for the common case. That manual section stays as a fallback for whenever
-this can't happen automatically (GBIF published standalone, without HFH in
-the same run) or if the automatic attempt itself failed.
+phase 3 (_lock_one) is then a no-op for GBIF — nothing left to register.
+Instead, once every repo's own phase-3 lock+finalize has run (so HFH's tag,
+if any, already exists), one last best-effort step re-points GBIF's
+endpoint away from HFH's floating "main" branch to that tag's own
+permanent URL (e.g. ".../resolve/main/..." -> ".../resolve/1.0/...") via a
+SECOND call to gbif.register_gbif_dataset with the same dataset_key —
+leaving GBIF pointed at main forever would mean a LATER v2 publish's own
+phase-1 upload could silently change what THIS v1 GBIF dataset serves,
+before v2 ever gets its own tag. Skipped the same way as the DOI-sync step
+above when HFH isn't part of the run, or when archive_url doesn't look like
+one of HFH's own resolve URLs (a manually-provided external archive).
 
 Dry run (dry_run=True on start_publish_all_task): every step above still
 runs, EXCEPT the actual network upload/release calls to Zenodo/B2SHARE/HFH,
@@ -82,6 +101,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -172,11 +192,32 @@ def _initial_repo_status() -> dict:
     return {
         "status": "pending", "stage": "", "error": None,
         "repo_url": None, "doi": None, "pid": None, "output_dir": None,
-        # gbif only: None until its own lock phase runs; then True/False once
-        # an auto-sync into HFH's CITATION.cff was actually attempted (see
-        # the sync step after the main per-repo loop in start_publish_all_task).
+        # gbif only: None until phase 2's post-populate sync step runs (see
+        # _run) — then True/False once an auto-sync of GBIF's own DOI into
+        # HFH's (still untagged) CITATION.cff was actually attempted.
         "doi_synced_to_hfh": None,
+        # gbif only: None until the post-lock step runs (see _run) — then
+        # True/False once GBIF's endpoint was actually re-pointed from
+        # HFH's floating "main" branch to its own just-created tag.
+        "archive_repointed_to_tag": None,
     }
+
+
+def _archive_url_for_tag(archive_url: str, version: str) -> str | None:
+    """Swaps a HuggingFace Hub resolve URL's branch segment for `version` —
+    e.g. ".../datasets/alice/dataset/resolve/main/camtrapdp-remote.zip" ->
+    ".../resolve/1.0/camtrapdp-remote.zip". Used to re-point GBIF's endpoint
+    at HFH's own tag once it exists, instead of the floating "main" branch
+    it was initially registered against (see the module's own docstring).
+
+    Returns None if `archive_url` doesn't look like one of HFH's own
+    "resolve/<branch>/<file>" URLs — a manually-provided external archive,
+    or a URL already pointing somewhere else — in which case the caller
+    leaves it untouched rather than guess."""
+    match = re.match(r"^(https://huggingface\.co/datasets/[^/]+/[^/]+/resolve/)[^/]+(/.+)$", archive_url)
+    if not match:
+        return None
+    return f"{match.group(1)}{version}{match.group(2)}"
 
 
 def get_publish_task_status(task_id: str) -> dict[str, Any] | None:
@@ -252,6 +293,46 @@ def discard_session(task_id: str) -> None:
     session_store.discard_session(task_id)
 
 
+async def _register_gbif(cfg: dict, *, input_dir: Path, repo_status: dict, dry_run: bool) -> None:
+    """Creates or updates the GBIF Registry dataset for `cfg`, pointing its
+    CAMTRAP_DP endpoint at whatever `cfg["archive_url"]` currently is — the
+    ONE call this module ever needs for it, reused both in phase 1 (register
+    early, against HFH's still-untagged "main") and again in the post-lock
+    step (re-point at HFH's own tag — see the module's own docstring and
+    _archive_url_for_tag). register_gbif_dataset's own dataset_key fallback
+    (its own record file under `cfg["output_dir"]`) is what makes the second
+    call update the SAME dataset rather than create a new one, even across a
+    resume where `cfg["dataset_key"]` itself wasn't preserved."""
+    if dry_run:
+        dataset_key = cfg.get("dataset_key") or f"dry-run-{_dry_run_id()}"
+        environment = cfg.get("environment") or "sandbox"
+        host = "www.gbif.org" if environment == "production" else "registry.gbif-test.org"
+        repo_status["repo_url"] = f"https://{host}/dataset/{dataset_key}"
+        return
+    meta = await asyncio.to_thread(product.read_metadata_json, input_dir)
+    if meta.get("product_type") != product.CAMTRAPDP:
+        raise RuntimeError(
+            f"GBIF only accepts Camtrap DP (biodiversity occurrence data) — {input_dir} is a "
+            f"{meta.get('product_type')!r} product."
+        )
+    license_info = meta.get("license") or {}
+    record = await asyncio.to_thread(
+        gbif_cli.register_gbif_dataset,
+        cfg["archive_url"], Path(cfg["output_dir"]),
+        environment=cfg.get("environment") or "sandbox",
+        publishing_organization_key=cfg.get("publishing_organization_key"),
+        installation_key=cfg.get("installation_key"),
+        username=cfg.get("username"), password=cfg.get("password"),
+        title=meta["title"], description=meta["description"],
+        license_url=license_info.get("url") or "",
+        registry_language=cfg.get("registry_language") or "eng",
+        homepage=meta.get("homepage"),
+        dataset_key=cfg.get("dataset_key") or None,
+    )
+    repo_status["repo_url"] = record.get("dataset_page_url")
+    repo_status["doi"] = record.get("doi")
+
+
 def _detect_hfh_repo_id(input_dir: Path) -> str | None:
     """Same detection each PublishForm used to do live from the frontend
     (see camtrapdp_service.detect_hfh_repo_id) — now done server-side,
@@ -319,8 +400,10 @@ async def _upload_one(
         return
 
     if repo == "gbif":
-        # Nothing to prepare/upload — see the module's own docstring. Its
-        # one real network call happens later, in _lock_one.
+        # Registers (or updates) early, against whatever archive_url was
+        # configured (typically HFH's still-untagged "main") — see
+        # _register_gbif and the module's own docstring for why.
+        await _register_gbif(cfg, input_dir=input_dir, repo_status=repo_status, dry_run=dry_run)
         return
 
     hfh_repo_id = cfg.get("hfh_repo_id")
@@ -401,28 +484,20 @@ async def _reupload_one(cfg: dict, *, build_dir: Path, dry_run: bool) -> None:
         )
 
 
-async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
+async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
     """Phase 3: release_on_zenodo/release_on_b2share, or
-    tag_release_on_huggingface+release_on_huggingface for HFH — or, for
-    GBIF, the one and only network call it ever makes (see the module's own
-    docstring).
+    tag_release_on_huggingface+release_on_huggingface for HFH. GBIF has
+    nothing left to do here — it already registered back in phase 1 (see
+    _register_gbif and the module's own docstring) — so repo == "gbif"
+    is a no-op; re-pointing its endpoint at HFH's own tag, once one exists,
+    happens as a separate best-effort step in _run, after every repo's own
+    phase 3 has run.
 
     In dry_run, Zenodo/B2SHARE just flip their own simulated record's
     "published" flag (same doi/pid reserved back in _upload_one — a real
     release never changes the identifier, just publishes it); HFH has
     nothing to tag/release for real, so repo_status is filled from the
-    repo_url _dry_run_upload_hfh already set; GBIF fakes a plausible
-    dataset_page_url instead of calling the Registry API.
-
-    `input_dir` is this repo's OWN input directory, as of its own turn in the
-    chain (see _run's `input_dirs`) — only GBIF reads it, for the product's
-    title/description/license/homepage, since its own build_dir was never
-    populated (see _upload_one). Deliberately NOT the publish task's
-    original input_dir: if a repo publishing in mirror mode ahead of GBIF
-    (e.g. HFH) already set metadata.json's own "homepage" (see
-    product.write_homepage), that update lives in the chained copy, not the
-    original — reading the original here would send GBIF's registration a
-    stale/missing homepage even though the run just set a real one."""
+    repo_url _dry_run_upload_hfh already set."""
     repo = cfg["repo"]
     repo_status["stage"] = "releasing"
     if repo == "hfh":
@@ -457,39 +532,7 @@ async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status:
             record = await asyncio.to_thread(b2share_cli.release_on_b2share, build_dir, token=cfg["token"])
         repo_status["pid"] = record.get("pid")
         repo_status["repo_url"] = record.get("record_url")
-    elif repo == "gbif":
-        if dry_run:
-            dataset_key = f"dry-run-{_dry_run_id()}"
-            environment = cfg.get("environment") or "sandbox"
-            host = "www.gbif.org" if environment == "production" else "registry.gbif-test.org"
-            repo_status["repo_url"] = f"https://{host}/dataset/{dataset_key}"
-            return
-        meta = await asyncio.to_thread(product.read_metadata_json, input_dir)
-        if meta.get("product_type") != product.CAMTRAPDP:
-            raise RuntimeError(
-                f"GBIF only accepts Camtrap DP (biodiversity occurrence data) — {input_dir} is a "
-                f"{meta.get('product_type')!r} product."
-            )
-        license_info = meta.get("license") or {}
-        record = await asyncio.to_thread(
-            gbif_cli.register_gbif_dataset,
-            cfg["archive_url"], Path(cfg["output_dir"]),
-            environment=cfg.get("environment") or "sandbox",
-            publishing_organization_key=cfg.get("publishing_organization_key"),
-            installation_key=cfg.get("installation_key"),
-            username=cfg.get("username"), password=cfg.get("password"),
-            title=meta["title"], description=meta["description"],
-            license_url=license_info.get("url") or "",
-            registry_language=cfg.get("registry_language") or "eng",
-            homepage=meta.get("homepage"),
-            dataset_key=cfg.get("dataset_key") or None,
-        )
-        repo_status["repo_url"] = record.get("dataset_page_url")
-        # Only some organizations have their own DataCite arrangement
-        # configured with GBIF, which makes it auto-mint one — see
-        # gbif.register_gbif_dataset. None otherwise, same as HFH's own
-        # doi field, which the frontend already treats as "nothing to sync".
-        repo_status["doi"] = record.get("doi")
+    # repo == "gbif": nothing to do — see this function's own docstring.
 
 
 async def _extract_chain_input(build_dir: Path, chain_dir: Path) -> Path:
@@ -677,9 +720,49 @@ async def _run(
                 chain_dir = session_dir / f"chain-after-{repo}"
                 current_input_dir = await _extract_chain_input(build_dir, chain_dir)
 
+        if not dry_run:
+            gbif_status = task["repos"].get("gbif")
+            hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
+            if (
+                gbif_status and gbif_status.get("doi") and hfh_cfg is not None
+                and gbif_status.get("doi_synced_to_hfh") is None
+            ):
+                # BEFORE doi_populate.populate() below, on purpose: this is
+                # what makes GBIF's own DOI claim HFH's top-level "doi"
+                # field FIRST — patch_citation_with_identifier only ever
+                # writes a NEW value there when none is set yet (or it
+                # already matches), so whatever Zenodo/B2SHARE DOI populate()
+                # cross-references into HFH right after this always lands as
+                # a secondary "identifiers" entry instead, never displacing
+                # GBIF's. Also still BEFORE HFH's own tag (phase 3, below):
+                # patches build_dirs["hfh"] and re-uploads straight to HFH's
+                # still-untagged "main", so the tag about to be created
+                # captures a commit that already has GBIF's DOI
+                # cross-referenced into it, instead of tagging first and
+                # leaving the tag stale once main moves on afterward.
+                gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
+                try:
+                    await asyncio.to_thread(
+                        gbif_service.sync_doi_to_hfh,
+                        gbif_output_dir=Path(gbif_cfg["output_dir"]),
+                        hfh_output_dir=build_dirs["hfh"],
+                        hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
+                    )
+                    gbif_status["doi_synced_to_hfh"] = True
+                except Exception:
+                    # Best-effort — the manual "Sync DOI" section is
+                    # still there for the user to retry by hand.
+                    gbif_status["doi_synced_to_hfh"] = False
+                _persist()
+
         # GBIF has no CITATION.cff of its own to cross-reference DOIs
-        # into — excluded here so doi_populate.populate() (which only
-        # knows about hfh/zenodo/b2share) never sees it.
+        # into (and isn't otherwise integrated into this generic mechanism
+        # yet) — excluded here so doi_populate.populate() (which only
+        # knows about hfh/zenodo/b2share) never sees it. Its own DOI, when
+        # it has one, was already reflected into HFH's CITATION.cff just
+        # above, AS THE PRIMARY — any Zenodo/B2SHARE DOI cross-referenced
+        # below only ever lands as a secondary "identifiers" entry there,
+        # never overwriting it (see the block above's own comment).
         doi_dirs = {repo: d for repo, d in build_dirs.items() if repo != "gbif"}
         changed = await asyncio.to_thread(doi_populate.populate, doi_dirs, primary_doi_source=primary_doi_source)
         for cfg in repos:
@@ -699,7 +782,7 @@ async def _run(
                     previous_output_dir = repo_status["output_dir"]
                 continue
             build_dir = build_dirs[repo]
-            await _lock_one(cfg, input_dir=input_dirs[repo], build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
+            await _lock_one(cfg, build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
             final_output_dir = await _finalize_one(
                 cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
             )
@@ -710,25 +793,37 @@ async def _run(
             _persist()
 
         if not dry_run:
+            gbif_cfg = next((c for c in repos if c["repo"] == "gbif"), None)
             gbif_status = task["repos"].get("gbif")
             hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
             if (
-                gbif_status and gbif_status.get("doi") and hfh_cfg is not None
-                and gbif_status.get("doi_synced_to_hfh") is None
+                gbif_cfg is not None and gbif_status is not None and hfh_cfg is not None
+                and gbif_status.get("archive_repointed_to_tag") is None
             ):
-                gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
+                # AFTER HFH's own tag (just created above) — re-points
+                # GBIF's endpoint away from HFH's floating "main" branch to
+                # that tag's own permanent URL, via a second call to the
+                # same register_gbif_dataset (matched to the SAME dataset
+                # by its own dataset_key fallback — see _register_gbif).
                 try:
-                    await asyncio.to_thread(
-                        gbif_service.sync_doi_to_hfh,
-                        gbif_output_dir=Path(gbif_cfg["output_dir"]),
-                        hfh_output_dir=Path(hfh_cfg["output_dir"]),
-                        hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
-                    )
-                    gbif_status["doi_synced_to_hfh"] = True
+                    hfh_meta = await asyncio.to_thread(product.read_metadata_json, build_dirs["hfh"])
+                    version = hfh_meta.get("version") or hfh_cli.DEFAULT_VERSION
+                    tag_archive_url = _archive_url_for_tag(gbif_cfg["archive_url"], version)
+                    if tag_archive_url is None:
+                        # Not one of HFH's own resolve URLs (a manually
+                        # provided external archive) — nothing to re-point.
+                        gbif_status["archive_repointed_to_tag"] = False
+                    else:
+                        await _register_gbif(
+                            {**gbif_cfg, "archive_url": tag_archive_url},
+                            input_dir=input_dirs["gbif"], repo_status=gbif_status, dry_run=False,
+                        )
+                        gbif_status["archive_repointed_to_tag"] = True
                 except Exception:
-                    # Best-effort — the manual "Sync DOI" section is
-                    # still there for the user to retry by hand.
-                    gbif_status["doi_synced_to_hfh"] = False
+                    # Best-effort — GBIF's dataset still resolves fine
+                    # against "main" in the meantime; nothing else depends
+                    # on this having succeeded.
+                    gbif_status["archive_repointed_to_tag"] = False
                 _persist()
 
         task["status"] = "done"
