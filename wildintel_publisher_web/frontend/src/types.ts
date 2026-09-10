@@ -93,6 +93,35 @@ export interface DatapackageContributor {
   [key: string]: unknown
 }
 
+/** One selectable entry from settings.toml's own CAMTRAPDP.organizations
+ * (see the backend's wildintel_publisher.config.CamtrapdpSettings) —
+ * WizardPage's own Publisher/Rights holder dropdowns both draw from the
+ * same fetched list (see api.camtrapdpOrganizations), instead of two
+ * separate hardcoded ones. GBIFPublishForm fetches the same list
+ * independently for its own "Publishing organization UUID" quick-fill
+ * dropdown, using gbif_sandbox_organization_key/
+ * gbif_production_organization_key instead. */
+export interface CamtrapdpOrganization {
+  title: string
+  path?: string | null
+  email?: string | null
+  gbif_sandbox_organization_key?: string | null
+  gbif_production_organization_key?: string | null
+}
+
+/** One selectable entry from settings.toml's own GBIF.installations (see
+ * the backend's wildintel_publisher.config.GBIFInstallation) —
+ * GBIFPublishForm's own "Installation UUID" quick-fill dropdown, same
+ * pattern as CamtrapdpOrganization's own gbif_*_organization_key fields
+ * above but for a GBIF installation instead of an organization — a
+ * distinct GBIF concept with no Camtrap DP equivalent, so it isn't part of
+ * that same shared list. */
+export interface GBIFInstallation {
+  title: string
+  sandbox_installation_key?: string | null
+  production_installation_key?: string | null
+}
+
 /** name/title/description/version/homepage/contributors read straight from
  * datapackage.json itself (see services.common.read_datapackage_metadata in
  * the backend) — distinct from DatapackageSummary above, which comes from
@@ -171,6 +200,12 @@ export interface PublishRepoConfig {
   registryLanguage?: string
   username?: string
   password?: string
+  // UUID of an existing GBIF dataset to update — takes priority over
+  // whatever the backend's own gbif_linked_dataset_record.json remembers.
+  // Undefined (the default) falls back to that file, or creates a brand
+  // new dataset if there's nothing there either — see GBIFPublishForm's
+  // own dataset-picker/search button.
+  datasetKey?: string
 }
 
 /** A per-repo publish status entry — same shape api.publishAllStatus polls,
@@ -282,6 +317,7 @@ export interface PublishSessionSummary extends SessionSummaryBase {
     installation_key?: string | null
     registry_language?: string | null
     username?: string | null
+    dataset_key?: string | null
     version?: string | null
     timeout?: number | null
   }>

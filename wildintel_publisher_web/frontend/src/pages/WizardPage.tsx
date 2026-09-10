@@ -17,8 +17,8 @@ import { api } from '../api'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
 import type {
-  DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary, SessionFetch,
-  SessionPreprocessing, SessionSummary, TrapperDownloadSelection,
+  CamtrapdpOrganization, DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary,
+  SessionFetch, SessionPreprocessing, SessionSummary, TrapperDownloadSelection,
 } from '../types'
 
 const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish']
@@ -28,24 +28,17 @@ const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish'
 const DP_NAME_PATTERN = /^[a-z0-9._-]+$/
 const DP_VERSION_PATTERN = /^\d+(\.\d+){0,2}$/
 
-// The "publisher" contributor is always wildintel-publisher itself, never
-// user-editable — any other contributor's own "publisher" role gets
-// demoted (see the effect that loads datapackage.json's contributors).
-const CAMTRAPDP_PUBLISHER: DatapackageContributor = {
-  title: 'WildINTEL', email: 'wildintelproject@gmail.com', path: 'https://wildintel.eu/', role: 'publisher',
-}
-
-// The only organizations selectable as "rightsHolder" — exactly one of
-// these at a time (see dpRightsHolder state). Websites verified 2026-09.
-const CAMTRAPDP_RIGHTS_HOLDER_OPTIONS: { title: string; path: string }[] = [
-  { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/' },
-  { title: 'University of Huelva', path: 'https://www.uhu.es/' },
-  { title: 'University of South-Eastern Norway', path: 'https://www.usn.no/' },
-  { title: 'German Centre for Integrative Biodiversity Research', path: 'https://www.idiv.de/' },
-  { title: 'Spanish National Research Council', path: 'https://www.csic.es/' },
-  { title: 'Massachusetts Institute of Technology', path: 'https://www.mit.edu/' },
-  { title: 'Spanish Node of the Global Biodiversity Information Facility', path: 'https://www.gbif.es/' },
-]
+// Publisher and rights holder are both selected from the SAME list —
+// settings.toml's own CAMTRAPDP.organizations (see the backend's
+// wildintel_publisher.config.CamtrapdpSettings), fetched once on mount
+// (see organizationOptions state) — never hardcoded here, so adding/
+// removing a selectable organization is a settings.toml edit, not a
+// frontend code change. Absent a match from the source's own
+// datapackage.json (see the effect that loads its contributors), the
+// wizard defaults publisher to organizationOptions[0] and rightsHolder to
+// organizationOptions[1] — order settings.toml with the project's own
+// umbrella organization first and its partner institutions after to get
+// that same split.
 
 // "publisher" and "rightsHolder" are reserved for the two fixed rows above
 // — every OTHER contributor (from the source itself, e.g. Trapper) can
@@ -255,10 +248,28 @@ function repoConfigsFromSession(session: PublishSessionSummary): RepoConfigs {
         publishingOrganizationKey: r.publishing_organization_key ?? '',
         installationKey: r.installation_key ?? '', registryLanguage: r.registry_language ?? 'eng',
         username: r.username ?? '', password: '', outputDir: r.output_dir ?? '',
+        datasetKey: r.dataset_key ?? '',
       }
     }
   }
   return configs
+}
+
+// Builds datapackage.json's own publisher/rightsHolder contributor entry
+// from a configured organization (see organizationOptions) — path/email
+// are only included when actually set: Camtrap DP's own schema requires
+// "path"/"email" to be strings whenever present at all, so sending `null`
+// for an organization that simply doesn't have one (most of
+// settings.toml's own CAMTRAPDP.organizations, besides whichever the
+// deployment gave an email to) fails frictionless validation with
+// something like "None is not of type 'string' at property
+// 'contributors/0/email'" — omitting the key entirely is what the schema
+// actually wants for "not set".
+function organizationContributor(org: CamtrapdpOrganization, role: 'publisher' | 'rightsHolder'): DatapackageContributor {
+  const contributor: DatapackageContributor = { title: org.title, role }
+  if (org.path) contributor.path = org.path
+  if (role === 'publisher' && org.email) contributor.email = org.email
+  return contributor
 }
 
 // A session's own "fetch"/"preprocessing" sections exist on every variant
@@ -385,14 +396,24 @@ export default function WizardPage({ resumeSession }: Props) {
   // entry's own "role" (see the dropdown in step === 2 below); everything
   // else about each contributor round-trips untouched.
   const [dpContributors, setDpContributors] = useState<DatapackageContributor[]>([])
-  // The single selected rightsHolder organization's title — always one of
-  // CAMTRAPDP_RIGHTS_HOLDER_OPTIONS. The "publisher" row has no state of
-  // its own: it's always CAMTRAPDP_PUBLISHER, never user-editable.
-  const [dpRightsHolder, setDpRightsHolder] = useState(CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title)
+  // settings.toml's own CAMTRAPDP.organizations (see the backend's
+  // wildintel_publisher.config.CamtrapdpSettings) — fetched once on mount
+  // (see the effect below), offered as the options for BOTH dpPublisher
+  // and dpRightsHolder's own dropdowns. Empty until that fetch resolves —
+  // the Continue button stays disabled for Camtrap DP until it does (see
+  // its own disabled= below), so neither dropdown is ever shown, or a
+  // contributor list built, with nothing to choose from.
+  const [organizationOptions, setOrganizationOptions] = useState<CamtrapdpOrganization[]>([])
+  // The single selected publisher/rightsHolder organization's own title —
+  // always one of organizationOptions. Both start blank (organizationOptions
+  // itself starts empty) and get their real default once BOTH that fetch
+  // and datapackage.json's own fields have loaded — see the effect below.
+  const [dpPublisher, setDpPublisher] = useState('')
+  const [dpRightsHolder, setDpRightsHolder] = useState('')
   // Explains, when non-empty, which of the source's own contributors got
-  // silently excluded above (a "publisher" that isn't WildINTEL, or a
-  // "rightsHolder" not on the fixed list) — set once by the effect that
-  // loads datapackage.json's contributors below.
+  // silently excluded above (a "publisher"/"rightsHolder" not one of
+  // organizationOptions) — set once by the effect that loads
+  // datapackage.json's contributors below.
   const [dpContributorWarnings, setDpContributorWarnings] = useState<string[]>([])
   // Both fields are optional — only validated once the user has actually
   // typed something in them (an empty value just means "leave as-is").
@@ -484,6 +505,41 @@ export default function WizardPage({ resumeSession }: Props) {
   const [executionDone, setExecutionDone] = useState(false)
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [progress, setProgress] = useState<Partial<Record<RepoId, RepoProgress>>>({})
+
+  // A product type's own mandatory repos (e.g. GBIF for Camtrap DP) are
+  // normally seeded into selectedRepos/publishOrder by step 0's own
+  // product-type button (see its onClick below) — but a resumed session
+  // (any phase before "publishing", which already carries its own repos)
+  // skips step 0 entirely, landing straight on step 4's repo-picker with
+  // productType already set and nothing seeded. Without this, a mandatory
+  // repo showed up marked "Required" and permanently disabled, yet never
+  // actually selected — toggleRepo itself refuses to change a mandatory
+  // repo's own selection, so there was no way to turn it on by hand either.
+  // Purely additive (never resets an existing selection, unlike step 0's
+  // own handler) so it's a safe no-op once step 0 (or an earlier run of
+  // this same effect) has already seeded it. Skipped entirely for a
+  // "publishing"-phase resume: selectedRepos/publishOrder there are
+  // already the session's own authoritative, persisted repo list (see
+  // their own initializers) — injecting a mandatory repo that wasn't
+  // actually part of that original run would desync it from what
+  // resume_publish_all_task validates against on the backend.
+  useEffect(() => {
+    if (!productType || resumeSession?.phase === 'publishing') return
+    const mandatory = MANDATORY_REPOS_BY_PRODUCT_TYPE[productType] ?? []
+    if (mandatory.length === 0) return
+    setSelectedRepos((prev) => {
+      const missing = mandatory.filter((r) => !prev.has(r))
+      return missing.length === 0 ? prev : new Set([...prev, ...missing])
+    })
+    setPublishOrder((prev) => {
+      const missing = mandatory.filter((r) => !prev.includes(r))
+      if (missing.length === 0) return prev
+      const next = [...prev, ...missing]
+      return next.includes('hfh') && next.includes('gbif')
+        ? ['hfh' as const, ...next.filter((r) => r !== 'hfh')]
+        : next
+    })
+  }, [productType])
 
   const canProceed = (sourceType === 'trapper' && trapperSelection !== null) || (sourceType === 'local' && localSelection !== null) || (sourceType === 'git' && gitUrl !== null) || (sourceType === 'archive' && archiveSourceUrl !== null)
   const isDownloading = download.status === 'running'
@@ -579,7 +635,8 @@ export default function WizardPage({ resumeSession }: Props) {
     setDpHomepage('')
     setDpVersion('')
     setDpContributors([])
-    setDpRightsHolder(CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title)
+    setDpPublisher(organizationOptions[0]?.title ?? '')
+    setDpRightsHolder(organizationOptions[1]?.title ?? organizationOptions[0]?.title ?? '')
     setDpContributorWarnings([])
     setPreprocessing(false)
     setDownload({ status: 'idle', path: null, sourcePath: null, error: null })
@@ -636,6 +693,7 @@ export default function WizardPage({ resumeSession }: Props) {
       archiveUrl: cfg.archiveUrl, environment: cfg.environment,
       publishingOrganizationKey: cfg.publishingOrganizationKey, installationKey: cfg.installationKey,
       registryLanguage: cfg.registryLanguage, username: cfg.username, password: cfg.password,
+      datasetKey: cfg.datasetKey,
     }
   }
 
@@ -766,14 +824,26 @@ export default function WizardPage({ resumeSession }: Props) {
     }
   }, [sourceType, trapperSelection, archiveSourceUrl, mediaIdDomainEdited])
 
+  // Camtrap DP only — settings.toml's own selectable publisher/
+  // rightsHolder organizations (see organizationOptions above), fetched
+  // once on mount regardless of productType (cheap, and productType can
+  // still change later via step 0's own product-type buttons).
+  useEffect(() => {
+    api.camtrapdpOrganizations().then(setOrganizationOptions).catch(() => { /* dropdowns just stay empty */ })
+  }, [])
+
   // Pre-fills datapackage.json's own name/title/description/homepage/
   // version as soon as the source resolves, so the user can review/edit
   // them (step === 2 below) before preprocessing runs. Camtrap DP only —
-  // other product types have no datapackage.json of their own. Only
-  // depends on download.path, so it won't clobber the user's edits on a
-  // later re-render (e.g. going Back and Next again without re-downloading).
+  // other product types have no datapackage.json of their own. Also
+  // depends on organizationOptions (empty until its own fetch above
+  // resolves) so publisher/rightsHolder matching below always has
+  // something to match against — the effect just re-runs, harmlessly, once
+  // both are ready, whichever settled first. Otherwise only depends on
+  // download.path, so it won't clobber the user's edits on a later
+  // re-render (e.g. going Back and Next again without re-downloading).
   useEffect(() => {
-    if (download.status !== 'done' || !download.path || productType !== 'camtrapdp') return
+    if (download.status !== 'done' || !download.path || productType !== 'camtrapdp' || organizationOptions.length === 0) return
     api.datapackageFields(download.path).then((fields) => {
       setDpName(fields.name ?? '')
       setDpTitle(fields.title ?? '')
@@ -781,35 +851,41 @@ export default function WizardPage({ resumeSession }: Props) {
       setDpHomepage(fields.homepage ?? '')
       setDpVersion(fields.version ?? '')
       const allContributors = fields.contributors ?? []
-      // Pre-select whichever known institution is already the rightsHolder,
-      // if any — otherwise fall back to the first option. Any OTHER
-      // rightsHolder (not one of our known institutions) or any other
-      // "publisher" than wildintel-publisher itself gets excluded below:
-      // neither of those roles is ever left in the generic, per-contributor
-      // list. Warn about it whenever that actually changes something, so
-      // it's never a silent surprise once "Continue" overwrites it.
+      // Pre-select whichever configured organization is already the
+      // publisher/rightsHolder, if any — otherwise fall back to
+      // organizationOptions[0]/[1] (see their own docstring above). Any
+      // OTHER publisher/rightsHolder (not one of organizationOptions) gets
+      // excluded below: neither role is ever left in the generic,
+      // per-contributor list. Warn about it whenever that actually changes
+      // something, so it's never a silent surprise once "Continue"
+      // overwrites it.
+      const defaultPublisher = organizationOptions[0]
+      const defaultRightsHolder = organizationOptions[1] ?? organizationOptions[0]
       const warnings: string[] = []
       const existingPublisher = allContributors.find((c) => c.role === 'publisher')
-      if (existingPublisher && existingPublisher.title !== CAMTRAPDP_PUBLISHER.title) {
+      const matchedPublisher = organizationOptions.find((o) => o.title === existingPublisher?.title)
+      if (existingPublisher && !matchedPublisher) {
         warnings.push(
-          `"${existingPublisher.title || 'Unnamed'}" was listed as publisher in the source, but only ` +
-          `WildINTEL can be the publisher — it will be replaced when you continue.`,
+          `"${existingPublisher.title || 'Unnamed'}" was listed as publisher in the source, but isn't one of ` +
+          `the selectable organizations — choose one below, or it will default to "${defaultPublisher.title}" ` +
+          'when you continue.',
         )
       }
       const existingRightsHolder = allContributors.find((c) => c.role === 'rightsHolder')
-      const matchedRightsHolder = CAMTRAPDP_RIGHTS_HOLDER_OPTIONS.find((o) => o.title === existingRightsHolder?.title)
+      const matchedRightsHolder = organizationOptions.find((o) => o.title === existingRightsHolder?.title)
       if (existingRightsHolder && !matchedRightsHolder) {
         warnings.push(
-          `"${existingRightsHolder.title || 'Unnamed'}" was listed as rights holder in the source, but ` +
-          `isn't one of the selectable institutions — choose one below, or it will default to ` +
-          `"${CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title}" when you continue.`,
+          `"${existingRightsHolder.title || 'Unnamed'}" was listed as rights holder in the source, but isn't ` +
+          `one of the selectable organizations — choose one below, or it will default to ` +
+          `"${defaultRightsHolder.title}" when you continue.`,
         )
       }
       setDpContributorWarnings(warnings)
-      setDpRightsHolder(matchedRightsHolder?.title ?? CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0].title)
+      setDpPublisher(matchedPublisher?.title ?? defaultPublisher.title)
+      setDpRightsHolder(matchedRightsHolder?.title ?? defaultRightsHolder.title)
       setDpContributors(allContributors.filter((c) => c.role !== 'publisher' && c.role !== 'rightsHolder'))
     }).catch(() => { /* best-effort — the fields just stay blank/editable */ })
-  }, [download.status, download.path, productType])
+  }, [download.status, download.path, productType, organizationOptions])
 
   // Resuming a "preprocessed" session (see initialStepForPhase) lands
   // straight on step 3, skipping handleContinueToPreprocessing entirely —
@@ -838,14 +914,15 @@ export default function WizardPage({ resumeSession }: Props) {
     setSummary(null)
     setMetadataError(null)
     try {
-      if (productType === 'camtrapdp') {
-        const rightsHolderOption = CAMTRAPDP_RIGHTS_HOLDER_OPTIONS.find((o) => o.title === dpRightsHolder)
-          ?? CAMTRAPDP_RIGHTS_HOLDER_OPTIONS[0]
+      if (productType === 'camtrapdp' && organizationOptions.length > 0) {
+        const publisherOption = organizationOptions.find((o) => o.title === dpPublisher) ?? organizationOptions[0]
+        const rightsHolderOption = organizationOptions.find((o) => o.title === dpRightsHolder)
+          ?? organizationOptions[1] ?? organizationOptions[0]
         await api.updateDatapackageFields(download.path, {
           name: dpName, title: dpTitle, description: dpDescription, homepage: dpHomepage, version: dpVersion,
           contributors: [
-            CAMTRAPDP_PUBLISHER,
-            { title: rightsHolderOption.title, path: rightsHolderOption.path, role: 'rightsHolder' },
+            organizationContributor(publisherOption, 'publisher'),
+            organizationContributor(rightsHolderOption, 'rightsHolder'),
             ...dpContributors,
           ],
         })
@@ -1316,9 +1393,9 @@ export default function WizardPage({ resumeSession }: Props) {
               <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
               <h5 className="text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300">Contributors</h5>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-                Publisher and rights holder are fixed roles, always present. For everyone else, only their
-                role can be changed here — name, email and affiliation come from the source and are shown
-                for reference only.
+                Publisher and rights holder are always present, chosen from the organizations configured for
+                this app. For everyone else, only their role can be changed here — name, email and
+                affiliation come from the source and are shown for reference only.
               </p>
               {dpContributorWarnings.length > 0 && (
                 <div className="mb-3 space-y-1">
@@ -1329,13 +1406,19 @@ export default function WizardPage({ resumeSession }: Props) {
               )}
               <div className="space-y-3">
                 <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex-1 min-w-[10rem] text-sm">
-                    <div className="text-zinc-900 dark:text-zinc-100">{CAMTRAPDP_PUBLISHER.title}</div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">{CAMTRAPDP_PUBLISHER.email}</div>
+                  <div className="flex-1 min-w-[10rem] text-sm text-zinc-500 dark:text-zinc-400">
+                    Publisher
                   </div>
-                  <span className="px-2 py-1.5 text-sm rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400">
-                    publisher
-                  </span>
+                  <select
+                    aria-label="Publisher"
+                    value={dpPublisher}
+                    onChange={(e) => setDpPublisher(e.target.value)}
+                    className="px-2 py-1.5 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                  >
+                    {organizationOptions.map((option) => (
+                      <option key={option.title} value={option.title}>{option.title}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex-1 min-w-[10rem] text-sm text-zinc-500 dark:text-zinc-400">
@@ -1347,7 +1430,7 @@ export default function WizardPage({ resumeSession }: Props) {
                     onChange={(e) => setDpRightsHolder(e.target.value)}
                     className="px-2 py-1.5 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
                   >
-                    {CAMTRAPDP_RIGHTS_HOLDER_OPTIONS.map((option) => (
+                    {organizationOptions.map((option) => (
                       <option key={option.title} value={option.title}>{option.title}</option>
                     ))}
                   </select>
@@ -1876,7 +1959,19 @@ export default function WizardPage({ resumeSession }: Props) {
               : 'All the information needed has been collected. Publishing will now start for:'}{' '}
             {publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}.
           </p>
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center">
+            {/* Same "← Back to X" pattern each PublishForm's own backProps
+                already offers mid-configuration (see backProps above) — this
+                screen is otherwise a dead end: the page-level Back button
+                stays hidden for the whole step === 4 && publishStarted
+                stretch (see its own condition below), on purpose, so there
+                has to be an explicit way back from here too. */}
+            <button
+              type="button" className={btnOutline}
+              onClick={() => setConfigureIndex(publishOrder.length - 1)}
+            >
+              ← Back to {REPO_OPTIONS.find((o) => o.value === publishOrder[publishOrder.length - 1])?.title}
+            </button>
             <button type="button" className={btnPrimary} onClick={runPublishSequence}>
               {dryRun ? 'Start dry run now' : 'Start publishing now'}
             </button>
@@ -2058,7 +2153,10 @@ export default function WizardPage({ resumeSession }: Props) {
               type="button"
               className={btnPrimary}
               onClick={handleContinueToPreprocessing}
-              disabled={preprocessing || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid))}
+              disabled={
+                preprocessing
+                || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid || organizationOptions.length === 0))
+              }
             >
               {preprocessing && <SmallSpinner />}
               {preprocessing ? 'Processing…' : 'Continue'}

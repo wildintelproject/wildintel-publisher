@@ -121,11 +121,13 @@ def test_download_public_images_reuses_a_cache_hit_without_touching_the_network(
     assert (output_dir / "images" / bucket / "m1.jpg").read_bytes() == b"cached-bytes"
 
 
-def test_download_public_images_cache_copy_is_independent_not_a_hardlink(tmp_path):
-    """Regression guard: a later per-repo resize (fit_images_to_size, run
-    in-place on each repo's own output_dir/images/ after this) must never
-    reach back into the shared cache — only possible if every copy out of
-    (and into) the cache is a REAL, independent copy."""
+def test_download_public_images_links_from_the_cache_instead_of_duplicating_disk_space(tmp_path):
+    """A repo's own copy out of the cache (on both a hit and a miss) is a
+    hard link, not a real copy — same file, no duplicated disk space, no
+    extra I/O per repo that reuses it. Safe against a later per-repo resize
+    (fit_images_to_size) because THAT function writes to a temp file and
+    swaps it in, never reopening/overwriting a shared inode directly — see
+    its own dedicated regression test in test_common_fit_images_to_size.py."""
     output_dir = tmp_path / "output"
     input_dir = tmp_path / "input"
     cache_dir = tmp_path / "media-cache"
@@ -138,8 +140,9 @@ def test_download_public_images_cache_copy_is_independent_not_a_hardlink(tmp_pat
         download_public_images(output_dir, input_dir=input_dir, cache_dir=cache_dir)
 
     destination = output_dir / "images" / bucket / "m1.jpg"
-    destination.write_bytes(b"resized-bytes")  # simulates fit_images_to_size mutating it in place
-    assert (cache_dir / bucket / "m1.jpg").read_bytes() == b"cached-bytes"  # untouched
+    cache_file = cache_dir / bucket / "m1.jpg"
+    assert destination.stat().st_ino == cache_file.stat().st_ino
+    assert cache_file.stat().st_nlink == 2
 
 
 def test_download_public_images_copies_relative_filepath_into_cache_too(tmp_path):

@@ -85,6 +85,44 @@ def build_dataset_payload(
     return payload
 
 
+def search_organization_datasets(organization_key: str, environment: str) -> list[dict]:
+    """Lista los datasets ya publicados por `organization_key` en ese
+    entorno de GBIF — GET /organization/{key}/publishedDataset, un endpoint
+    de LECTURA público (sin autenticación, confirmado contra la API real).
+    Pensado para el buscador del wizard web: el usuario elige uno de la
+    lista para reutilizar su dataset_key (ver register_gbif_dataset) en vez
+    de fiarse del fichero local (gbif_linked_dataset_record.json), que solo
+    recuerda el último dataset publicado desde ESTA MISMA `output_dir`.
+
+    Returns:
+        Una lista de {"key", "title"} — solo lo que el buscador necesita
+        mostrar, no el objeto Dataset completo que devuelve GBIF.
+
+    Raises:
+        RuntimeError: si `environment` no es 'sandbox'/'production' o falla
+        la llamada a la Registry API.
+    """
+    if environment not in GBIF_REGISTRY_BASE_URLS:
+        raise RuntimeError(f"GBIF.environment must be 'sandbox' or 'production', got: {environment!r}")
+    base_url = GBIF_REGISTRY_BASE_URLS[environment]
+
+    datasets: list[dict] = []
+    offset = 0
+    limit = 100
+    while True:
+        response = httpx.get(
+            f"{base_url}/v1/organization/{organization_key}/publishedDataset",
+            params={"limit": limit, "offset": offset}, timeout=60,
+        )
+        _check_response(response, (200,), "List organization's published datasets")
+        page = response.json()
+        datasets.extend({"key": d["key"], "title": d.get("title") or "(untitled)"} for d in page["results"])
+        if page.get("endOfRecords", True):
+            break
+        offset += limit
+    return datasets
+
+
 def register_gbif_dataset(
     archive_url: str,
     output_dir: Path,
@@ -99,16 +137,34 @@ def register_gbif_dataset(
     license_url: str,
     registry_language: str,
     homepage: Optional[str] = None,
+    dataset_key: Optional[str] = None,
     dry_run: bool = False,
 ) -> dict:
     """Registra (primera vez) o actualiza (siguientes) el dataset en el
     Registry de GBIF, y reemplaza su endpoint CAMTRAP_DP por `archive_url` —
     nunca sube ningún fichero, solo le dice a GBIF dónde rastrearlo.
 
-    El dataset_key ya registrado (si lo hay) se lee de
-    `output_dir`/gbif_linked_dataset_record.json, escrito por una ejecución
-    anterior de esta misma función — así una segunda llamada actualiza el
-    dataset existente en vez de crear uno duplicado.
+    Qué dataset_key se actualiza (o si se crea uno nuevo) se decide así, en
+    este orden:
+
+    1. `dataset_key`, si se da explícitamente — la elección del caller (ver
+       el wizard web, donde el usuario lo escribe a mano o lo elige con el
+       buscador — ver search_organization_datasets) tiene siempre prioridad.
+    2. Si no, el que ya estuviera registrado de una ejecución ANTERIOR de
+       esta misma función contra el mismo `output_dir` — se lee de
+       `output_dir`/gbif_linked_dataset_record.json. Este mecanismo local
+       solo es fiable mientras `output_dir` sea exclusivo de ESTE dataset —
+       ver el aviso de más abajo.
+    3. Si tampoco hay eso, se crea un dataset nuevo (POST) y GBIF le asigna
+       un dataset_key nuevo.
+
+    Importante: `output_dir`/gbif_linked_dataset_record.json es UN solo
+    fichero de nombre fijo — si reutilizas el mismo `output_dir` para dos
+    datasets DISTINTOS, el segundo sobreescribe la referencia local del
+    primero (el dataset del primero sigue existiendo en GBIF, intacto, pero
+    esta función ya no sabe cuál es su dataset_key salvo que se lo des tú
+    explícitamente por (1)). Pasar dataset_key a mano es la forma robusta de
+    evitar esto.
 
     Returns:
         El registro local {"dataset_key", "environment", "archive_url",
@@ -145,7 +201,7 @@ def register_gbif_dataset(
     auth = (username, password)
 
     existing_record = _read_record(output_dir) or {}
-    dataset_key = existing_record.get("dataset_key")
+    dataset_key = dataset_key or existing_record.get("dataset_key")
 
     dataset_payload = build_dataset_payload(
         publishing_organization_key=publishing_organization_key,

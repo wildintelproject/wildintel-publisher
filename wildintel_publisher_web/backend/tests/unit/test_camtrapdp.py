@@ -454,6 +454,16 @@ def test_download_serves_the_file(tmp_path):
     assert "datapackage.json" in response.headers["content-disposition"]
 
 
+def test_organizations_returns_the_configured_list():
+    response = _client().get("/api/camtrapdp/organizations")
+
+    assert response.status_code == 200
+    titles = [org["title"] for org in response.json()]
+    assert "Institute of Nature Conservation PAS" in titles
+    institute = next(org for org in response.json() if org["title"] == "Institute of Nature Conservation PAS")
+    assert institute["path"] == "https://www.iop.krakow.pl/"
+
+
 def test_open_folder_returns_404_when_directory_missing(tmp_path):
     response = _client().post("/api/camtrapdp/open-folder", json={"path": str(tmp_path / "missing")})
     assert response.status_code == 404

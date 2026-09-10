@@ -81,6 +81,29 @@ def test_fit_images_to_size_leaves_non_image_files_untouched(tmp_path):
     assert (images_dir / "clip.mp4").read_bytes() == video_bytes
 
 
+def test_fit_images_to_size_never_mutates_a_hardlinked_files_other_name(tmp_path):
+    """Regression guard: services.publish_orchestrator's own media-cache
+    (see common.download_public_images's cache_dir) hardlinks one downloaded
+    file into every repo's own images/ dir instead of copying it, to avoid
+    duplicating disk space — safe only because resizing here writes to a
+    fresh temp file and swaps it in via Path.replace, rather than reopening
+    and overwriting image_path's own (possibly shared) inode directly."""
+    cache_dir = tmp_path / "media-cache"
+    cache_dir.mkdir()
+    images_dir = tmp_path / "hfh-build" / "images"
+    images_dir.mkdir(parents=True)
+    _write_random_jpeg(cache_dir / "m1.jpg", width=800, height=600)
+    original_bytes = (cache_dir / "m1.jpg").read_bytes()
+    (images_dir / "m1.jpg").hardlink_to(cache_dir / "m1.jpg")
+    assert (images_dir / "m1.jpg").stat().st_ino == (cache_dir / "m1.jpg").stat().st_ino  # sanity check
+
+    fit_images_to_size(images_dir, target_bytes=1, min_edge=100)  # absurdly tight budget — forces a resize
+
+    with Image.open(images_dir / "m1.jpg") as img:
+        assert max(img.size) == 100  # this repo's own copy WAS resized
+    assert (cache_dir / "m1.jpg").read_bytes() == original_bytes  # the cache's own copy was not
+
+
 def test_fit_images_to_size_noop_for_missing_or_empty_dir(tmp_path):
     fit_images_to_size(tmp_path / "does-not-exist", target_bytes=100)
 

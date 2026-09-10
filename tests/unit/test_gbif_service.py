@@ -10,6 +10,7 @@ from wildintel_publisher.services.gbif import (
     RECORD_FILENAME,
     build_dataset_payload,
     register_gbif_dataset,
+    search_organization_datasets,
     validate_camtrap_dp_archive,
 )
 
@@ -110,6 +111,80 @@ def test_register_dry_run_reports_update_when_a_record_already_exists(tmp_path):
     fake_post.assert_not_called()
     fake_put.assert_not_called()
     assert result["dataset_key"] == "existing-key"
+
+
+def test_register_explicit_dataset_key_takes_priority_over_the_local_record(tmp_path):
+    """Regression test for the web wizard's own dataset-picker (see
+    GBIFPublishForm.tsx): an explicitly chosen dataset_key must win over
+    whatever this output_dir's own gbif_linked_dataset_record.json
+    remembers — the whole point of exposing it is to let the user correct
+    a stale/wrong local reference, not have it silently overridden."""
+    (tmp_path / RECORD_FILENAME).write_text(
+        json.dumps({"dataset_key": "stale-local-key", "environment": "sandbox"}), encoding="utf-8",
+    )
+    with patch("httpx.post") as fake_post, patch("httpx.put") as fake_put:
+        result = register_gbif_dataset(
+            "https://example.org/x.zip", tmp_path, **_register_kwargs(dataset_key="chosen-key", dry_run=True),
+        )
+    fake_post.assert_not_called()
+    fake_put.assert_not_called()
+    assert result["dataset_key"] == "chosen-key"
+
+
+def test_register_explicit_dataset_key_used_even_with_no_local_record_at_all(tmp_path):
+    result = register_gbif_dataset(
+        "https://example.org/x.zip", tmp_path, **_register_kwargs(dataset_key="chosen-key", dry_run=True),
+    )
+    assert result["dataset_key"] == "chosen-key"
+    assert not (tmp_path / RECORD_FILENAME).exists()  # dry_run — nothing written
+
+
+def test_search_organization_datasets_rejects_unknown_environment():
+    with pytest.raises(RuntimeError, match="sandbox"):
+        search_organization_datasets("org-1", "staging")
+
+
+def test_search_organization_datasets_returns_key_and_title():
+    page = {
+        "offset": 0, "limit": 100, "endOfRecords": True, "count": 2,
+        "results": [
+            {"key": "uuid-1", "title": "Dataset One", "type": "OCCURRENCE"},
+            {"key": "uuid-2", "title": "Dataset Two", "type": "OCCURRENCE"},
+        ],
+    }
+    with patch("httpx.get", return_value=MagicMock(status_code=200, json=lambda: page)) as fake_get:
+        result = search_organization_datasets("org-1", "sandbox")
+
+    assert result == [{"key": "uuid-1", "title": "Dataset One"}, {"key": "uuid-2", "title": "Dataset Two"}]
+    fake_get.assert_called_once_with(
+        "https://api.gbif-test.org/v1/organization/org-1/publishedDataset",
+        params={"limit": 100, "offset": 0}, timeout=60,
+    )
+
+
+def test_search_organization_datasets_falls_back_to_untitled():
+    page = {"offset": 0, "limit": 100, "endOfRecords": True, "count": 1, "results": [{"key": "uuid-1"}]}
+    with patch("httpx.get", return_value=MagicMock(status_code=200, json=lambda: page)):
+        result = search_organization_datasets("org-1", "sandbox")
+
+    assert result == [{"key": "uuid-1", "title": "(untitled)"}]
+
+
+def test_search_organization_datasets_pages_through_multiple_requests():
+    page1 = {
+        "offset": 0, "limit": 1, "endOfRecords": False, "count": 2,
+        "results": [{"key": "uuid-1", "title": "Dataset One"}],
+    }
+    page2 = {
+        "offset": 1, "limit": 1, "endOfRecords": True, "count": 2,
+        "results": [{"key": "uuid-2", "title": "Dataset Two"}],
+    }
+    with patch("httpx.get", side_effect=[
+        MagicMock(status_code=200, json=lambda: page1), MagicMock(status_code=200, json=lambda: page2),
+    ]):
+        result = search_organization_datasets("org-1", "sandbox")
+
+    assert result == [{"key": "uuid-1", "title": "Dataset One"}, {"key": "uuid-2", "title": "Dataset Two"}]
 
 
 def _fake_stream_response(status_code: int, body: bytes) -> MagicMock:

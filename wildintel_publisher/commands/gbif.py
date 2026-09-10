@@ -125,6 +125,14 @@ def register(
         settings.GBIF.registry_language, "--registry-language",
         help="Language code (ISO 639-2/T) required by the Registry API. (GBIF.registry_language)",
     ),
+    dataset_key: Optional[str] = typer.Option(
+        None, "--dataset-key",
+        help=(
+            "UUID of an existing GBIF dataset to update — takes priority over whatever "
+            "--output-dir's own gbif_linked_dataset_record.json remembers. Omit to fall back "
+            "to that file, or to create a brand new dataset if there's nothing there either."
+        ),
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Shows what would be registered/updated, without calling the Registry API.",
     ),
@@ -177,6 +185,7 @@ def register(
             license_url=license_info.get("url") or "",
             registry_language=registry_language,
             homepage=metadata.get("homepage"),
+            dataset_key=dataset_key,
             dry_run=dry_run,
         )
     except Exception as exc:

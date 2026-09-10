@@ -145,6 +145,31 @@ def validate_archive(archive_url: str) -> dict:
     return {"ok": True}
 
 
+def list_installations() -> list[dict]:
+    """settings.toml's own GBIF.installations (see
+    wildintel_publisher.config.GBIFInstallation) — GBIFPublishForm's own
+    "Installation UUID" dropdown offers these, filtered to whichever have a
+    key set for the currently selected environment. Hand-edit settings.toml's
+    own [[GBIF.installations]] array-of-tables to add/remove one, no
+    frontend code change needed."""
+    return [installation.model_dump() for installation in load_settings().GBIF.installations]
+
+
+def search_organization_datasets(organization_key: str, environment: str) -> list[dict]:
+    """Thin wrapper around wildintel_publisher.services.gbif.
+    search_organization_datasets — GBIFPublishForm's own "search existing
+    datasets" button. A public GBIF Registry read, no credentials involved.
+
+    Returns:
+        A list of {"key", "title"}.
+
+    Raises:
+        RuntimeError: if `environment` isn't 'sandbox'/'production', or the
+        Registry API call itself fails.
+    """
+    return gbif_cli.search_organization_datasets(organization_key, environment)
+
+
 def sync_doi_to_hfh(
     *, gbif_output_dir: Path, hfh_output_dir: Path, hfh_repo_id: str, hfh_token: str,
 ) -> dict:

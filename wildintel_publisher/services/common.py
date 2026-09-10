@@ -1029,6 +1029,23 @@ def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dir
     return rewritten
 
 
+def _link_or_copy(source: Path, destination: Path) -> None:
+    """Hard links `destination` to `source` when possible — same directory
+    entry count as a real copy would give in disk usage terms (near-zero:
+    just another name for the same inode), but instant, and always safe
+    against later mutation: the only code that ever rewrites a mirrored
+    image's own bytes (fit_images_to_size) writes to a temp file and swaps
+    it in via Path.replace, which dereferences the old inode rather than
+    overwriting its shared content. Falls back to a real copy if hardlinking
+    isn't possible (e.g. source/destination on different filesystems —
+    never the case for download_public_images's own cache_dir, always under
+    the same session_dir, but cheap to guard against regardless)."""
+    try:
+        destination.hardlink_to(source)
+    except OSError:
+        shutil.copy2(source, destination)
+
+
 def download_public_images(
     output_dir: Path, *, input_dir: Path, images_dirname: str = IMAGES_DIRNAME, timeout: int = DEFAULT_IMAGE_TIMEOUT,
     cache_dir: Path | None = None,
@@ -1052,15 +1069,19 @@ def download_public_images(
     con facilidad.
 
     cache_dir, si se da, se consulta/rellena ANTES que la descarga/copia
-    real — cada fichero se materializa ahí como SIEMPRE (nunca un hardlink)
-    y luego se copia (copia real, independiente) a `destination`: cada
-    repo redimensiona sus propias imágenes in-place después, a su propio
-    min_image_edge/tamaño objetivo (ver fit_images_to_size) — un hardlink
-    compartido quedaría corrupto en cuanto el primer repo redimensionara.
-    Pensado para publish_orchestrator: una única caché por sesión
-    compartida entre todos los repos de una publicación multi-repo, para
-    que cada mediaID solo se descargue/copie de su origen real UNA vez por
-    sesión, sin importar a cuántos repos se publique."""
+    real — cada fichero se materializa ahí una vez y de ahí a `destination`
+    va como HARDLINK (ver _link_or_copy), no una copia real: sin coste de
+    espacio ni de tiempo extra por cada repo que lo reutiliza. Seguro pese a
+    que cada repo redimensiona después sus propias imágenes in-place a su
+    propio min_image_edge/tamaño objetivo (ver fit_images_to_size), porque
+    esa función nunca reescribe el contenido de un inode compartido: escribe
+    a un fichero temporal y lo intercambia con Path.replace, que solo
+    desreferencia el inode antiguo. Pensado para publish_orchestrator: una
+    única caché por sesión compartida entre todos los repos de una
+    publicación multi-repo, para que cada mediaID solo se descargue/copie de
+    su origen real UNA vez por sesión, sin importar a cuántos repos se
+    publique — y sin duplicar el espacio en disco entre `cache_dir` y el
+    images/ propio de cada repo."""
     media_csv = output_dir / MEDIA_CSV_FILENAME
     fieldnames, rows = read_csv(media_csv)
     if FILE_PATH_COLUMN not in fieldnames:
@@ -1098,14 +1119,14 @@ def download_public_images(
                 cache_bucket_dir.mkdir(parents=True, exist_ok=True)
                 cache_destination = cache_bucket_dir / file_name
                 if cache_destination.is_file():
-                    shutil.copy2(cache_destination, destination)
+                    _link_or_copy(cache_destination, destination)
                     cached += 1
                     continue
 
             # Absent a cache, fetched straight into `destination`; with one,
             # fetched into the cache first so it's there for the next repo
-            # too, then copied (real copy, see the docstring) into
-            # `destination` just like a cache hit above would have.
+            # too, then hardlinked (see _link_or_copy) into `destination`
+            # just like a cache hit above would have.
             fetch_destination = cache_destination or destination
 
             if file_path.startswith("http://") or file_path.startswith("https://"):
@@ -1128,7 +1149,7 @@ def download_public_images(
                 copied += 1
 
             if cache_destination is not None:
-                shutil.copy2(fetch_destination, destination)
+                _link_or_copy(fetch_destination, destination)
 
     cache_note = f"{cached} reused from cache, " if cache_dir is not None else ""
     console.print(
@@ -1202,12 +1223,22 @@ def fit_images_to_size(images_dir: Path, *, target_bytes: int, min_edge: int = 6
                 new_size = (max(1, round(width * image_scale)), max(1, round(height * image_scale)))
                 save_format = img.format or "JPEG"
                 resized_img = img.resize(new_size, Image.LANCZOS)
-                save_kwargs: dict[str, Any] = {"optimize": True}
-                if save_format == "JPEG":
-                    if resized_img.mode not in ("RGB", "L"):
-                        resized_img = resized_img.convert("RGB")
-                    save_kwargs["quality"] = quality
-                resized_img.save(image_path, format=save_format, **save_kwargs)
+            # img (and its file handle) is closed before writing anything —
+            # saved to a fresh temp file, then swapped onto image_path via
+            # Path.replace, rather than reopened/overwritten in place: a
+            # file that reached here as a hardlink (see
+            # download_public_images's own cache_dir, shared across every
+            # repo of one session) has its shared inode simply dereferenced
+            # by the swap, never mutated — the cache's own copy (and any
+            # OTHER repo's still-hardlinked one) stays exactly as it was.
+            save_kwargs: dict[str, Any] = {"optimize": True}
+            if save_format == "JPEG":
+                if resized_img.mode not in ("RGB", "L"):
+                    resized_img = resized_img.convert("RGB")
+                save_kwargs["quality"] = quality
+            tmp_path = image_path.with_name(f"{image_path.name}.tmp")
+            resized_img.save(tmp_path, format=save_format, **save_kwargs)
+            tmp_path.replace(image_path)
             resized += 1
         except Exception as exc:
             console.print(f"  [red]✘  Could not resize {image_path.name}: {exc}[/red]")

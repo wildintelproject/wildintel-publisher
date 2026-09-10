@@ -128,6 +128,38 @@ def test_validate_archive_maps_a_validation_failure_to_400():
     assert "not a valid zip archive" in response.json()["detail"]
 
 
+def test_installations_returns_the_configured_list():
+    response = _client().get("/api/gbif/installations")
+
+    assert response.status_code == 200
+    wildintel = next(i for i in response.json() if i["title"] == "WildINTEL")
+    assert wildintel["sandbox_installation_key"] == "9970e64a-f762-11e1-a439-00145eb45e9a"
+    assert wildintel["production_installation_key"] is None
+
+
+def test_organization_datasets_returns_the_results():
+    fake_datasets = [{"key": "uuid-1", "title": "Dataset One"}, {"key": "uuid-2", "title": "Dataset Two"}]
+    with patch("services.gbif_service.gbif_cli.search_organization_datasets", return_value=fake_datasets) as mock_search:
+        response = _client().post("/api/gbif/organization-datasets", json={
+            "organization_key": "org-1", "environment": "sandbox",
+        })
+    assert response.status_code == 200
+    assert response.json() == fake_datasets
+    mock_search.assert_called_once_with("org-1", "sandbox")
+
+
+def test_organization_datasets_maps_a_bad_environment_to_400():
+    with patch(
+        "services.gbif_service.gbif_cli.search_organization_datasets",
+        side_effect=RuntimeError("GBIF.environment must be 'sandbox' or 'production', got: 'staging'"),
+    ):
+        response = _client().post("/api/gbif/organization-datasets", json={
+            "organization_key": "org-1", "environment": "staging",
+        })
+    assert response.status_code == 400
+    assert "sandbox" in response.json()["detail"]
+
+
 def test_sync_doi_success(tmp_path):
     with (
         patch("services.gbif_service.gbif_cli.sync_doi_to_hfh", return_value="10.21373/eet8jz") as mock_sync,

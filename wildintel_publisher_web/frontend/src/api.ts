@@ -1,6 +1,6 @@
 import type {
-  BrowseResult, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment, OutputMode,
-  PublishRepoConfig, ResearchProject, SessionSummary,
+  BrowseResult, CamtrapdpOrganization, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment,
+  GBIFInstallation, OutputMode, PublishRepoConfig, ResearchProject, SessionSummary,
 } from './types'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
@@ -167,6 +167,14 @@ export const api = {
 
   datapackageDownloadUrl: (path: string) =>
     `/api/camtrapdp/download?path=${encodeURIComponent(path)}`,
+
+  // Camtrap DP only — settings.toml's own CAMTRAPDP.organizations (see
+  // wildintel_publisher.config.CamtrapdpSettings), offered as the
+  // selectable options for BOTH the "publisher" and "rightsHolder"
+  // contributor roles in WizardPage's metadata-editing step. Hand-edit
+  // settings.toml's own [[CAMTRAPDP.organizations]] to add/remove one —
+  // no frontend code change needed.
+  camtrapdpOrganizations: () => req<CamtrapdpOrganization[]>('/api/camtrapdp/organizations'),
 
   openFolder: (path: string) =>
     post<{ ok: boolean }>('/api/camtrapdp/open-folder', { path }),
@@ -344,8 +352,24 @@ export const api = {
   gbifTestCredentials: (username: string, password: string, environment: string) =>
     post<{ ok: boolean }>('/api/gbif/test-credentials', { username, password, environment }),
 
+  // settings.toml's own GBIF.installations — GBIFPublishForm's own
+  // "Installation UUID" quick-fill dropdown, same idea as
+  // camtrapdpOrganizations but for a GBIF installation (a distinct GBIF
+  // concept, no Camtrap DP equivalent) instead of an organization.
+  gbifInstallations: () => req<GBIFInstallation[]>('/api/gbif/installations'),
+
   gbifValidateArchive: (archiveUrl: string) =>
     post<{ ok: boolean }>('/api/gbif/validate-archive', { archive_url: archiveUrl }),
+
+  // Datasets already published by organizationKey on `environment`
+  // (sandbox/production) — GBIFPublishForm's own "search existing
+  // datasets" button, so the user can pick a dataset_key instead of
+  // typing/tracking a UUID by hand. A public GBIF Registry read; no
+  // credentials involved.
+  gbifOrganizationDatasets: (organizationKey: string, environment: string) =>
+    post<{ key: string; title: string }[]>('/api/gbif/organization-datasets', {
+      organization_key: organizationKey, environment,
+    }),
 
   gbifSyncDoi: (params: { gbifOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ doi: string; repo_url: string }>('/api/gbif/sync-doi', {
@@ -457,5 +481,6 @@ function _repoConfigToApi(r: PublishRepoConfig) {
     registry_language: r.registryLanguage,
     username: r.username,
     password: r.password,
+    dataset_key: r.datasetKey,
   }
 }

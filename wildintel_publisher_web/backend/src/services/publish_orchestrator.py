@@ -482,6 +482,7 @@ async def _lock_one(cfg: dict, *, input_dir: Path, build_dir: Path, repo_status:
             license_url=license_info.get("url") or "",
             registry_language=cfg.get("registry_language") or "eng",
             homepage=meta.get("homepage"),
+            dataset_key=cfg.get("dataset_key") or None,
         )
         repo_status["repo_url"] = record.get("dataset_page_url")
         # Only some organizations have their own DataCite arrangement

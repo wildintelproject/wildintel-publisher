@@ -314,6 +314,21 @@ class RepoPublishConfig(BaseModel):
     registry_language: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
+    # UUID of an existing GBIF dataset to update — takes priority over
+    # whatever output_dir's own gbif_linked_dataset_record.json remembers
+    # (see wildintel_publisher.services.gbif.register_gbif_dataset's own
+    # docstring). None (the default) falls back to that file, or creates a
+    # brand new dataset if there's nothing there either — see
+    # GBIFPublishForm.tsx's own dataset-picker/search button.
+    dataset_key: Optional[str] = None
+
+
+class GBIFOrganizationDatasetsRequest(BaseModel):
+    """See services.gbif.search_organization_datasets — GBIFPublishForm's
+    own "search existing datasets" button, so the user can pick a
+    dataset_key instead of typing/tracking a UUID by hand."""
+    organization_key: str
+    environment: str
 
 
 class PublishAllRequest(BaseModel):

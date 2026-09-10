@@ -617,6 +617,36 @@ def test_publish_all_single_gbif_repo_registers_dataset(tmp_path):
     assert body["repos"]["gbif"]["doi"] is None  # most organizations don't get one automatically
 
 
+def test_publish_all_gbif_threads_an_explicit_dataset_key_through(tmp_path):
+    """GBIFPublishForm's own dataset-picker (see search_organization_datasets)
+    lets the user choose an existing dataset to update instead of relying on
+    gbif_linked_dataset_record.json — that choice must reach
+    register_gbif_dataset unchanged."""
+    input_dir = tmp_path / "input"
+    _write_product_files(input_dir)
+
+    with patch(
+        "services.publish_orchestrator.gbif_cli.register_gbif_dataset",
+        return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/existing-uuid"},
+    ) as mock_register:
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(input_dir),
+                "repos": [{
+                    "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
+                    "archive_url": "https://example.org/datapackage.json",
+                    "publishing_organization_key": "org-1", "installation_key": "inst-1",
+                    "username": "alice", "password": "s3cret", "environment": "sandbox",
+                    "dataset_key": "existing-uuid",
+                }],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert mock_register.call_args.kwargs["dataset_key"] == "existing-uuid"
+
+
 def test_publish_all_gbif_surfaces_a_doi_when_gbif_returns_one(tmp_path):
     """Some organizations have their own DataCite arrangement configured
     with GBIF, which makes it auto-mint a DOI on registration (see

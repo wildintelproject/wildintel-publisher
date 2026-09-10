@@ -11,6 +11,9 @@ vi.mock('../api', () => ({
     gbifValidateArchive: vi.fn(),
     gbifSyncDoi: vi.fn(),
     hfhGetConfig: vi.fn(),
+    camtrapdpOrganizations: vi.fn(),
+    gbifOrganizationDatasets: vi.fn(),
+    gbifInstallations: vi.fn(),
   },
 }))
 
@@ -24,6 +27,11 @@ beforeEach(() => {
   mockedApi.hfhGetConfig.mockResolvedValue({
     username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
   })
+  // No organizations/installations have a GBIF key configured by default —
+  // both quick-fill dropdowns then stay hidden, same as before this
+  // feature existed, unless a test opts in with its own mockResolvedValue.
+  mockedApi.camtrapdpOrganizations.mockResolvedValue([])
+  mockedApi.gbifInstallations.mockResolvedValue([])
 })
 
 describe('GBIFPublishForm', () => {
@@ -207,8 +215,139 @@ describe('GBIFPublishForm', () => {
     expect(onConfigured).toHaveBeenCalledWith({
       archiveUrl: 'https://example.org/datapackage.json', environment: 'sandbox',
       publishingOrganizationKey: 'org-1', installationKey: 'inst-1', registryLanguage: 'eng',
-      username: 'alice', password: 's3cret', outputDir: '/gbif/output',
+      username: 'alice', password: 's3cret', outputDir: '/gbif/output', datasetKey: '',
     })
+  })
+})
+
+describe('GBIFPublishForm organization quick-fill', () => {
+  it('offers only organizations with a key for the current environment, and fills the UUID on selection', async () => {
+    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+      { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
+      { title: 'University of Huelva', path: 'https://www.uhu.es/', email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: 'prod-uuid-2' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    // University of Huelva has no sandbox key — not offered while sandbox
+    // is the selected environment.
+    const dropdown = screen.getByLabelText('Publishing organization')
+    expect(Array.from(dropdown.querySelectorAll('option')).map((o) => o.textContent)).toEqual([
+      '— pick a configured organization, or type a UUID below —', 'WildINTEL',
+    ])
+
+    await userEvent.selectOptions(dropdown, 'WildINTEL')
+    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('sandbox-uuid-1')
+  })
+
+  it('follows the selected organization across an environment switch, using its own key for the new one', async () => {
+    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+      { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.selectOptions(screen.getByLabelText('Publishing organization'), 'WildINTEL')
+    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('sandbox-uuid-1')
+
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('prod-uuid-1')
+  })
+
+  it('stops following the selected organization once the UUID is edited by hand', async () => {
+    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+      { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.selectOptions(screen.getByLabelText('Publishing organization'), 'WildINTEL')
+
+    await userEvent.clear(screen.getByLabelText('Publishing organization UUID'))
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'my-own-uuid')
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('my-own-uuid')
+  })
+
+  it('hides the dropdown entirely when no organization has a key for either environment', async () => {
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.queryByLabelText('Publishing organization')).not.toBeInTheDocument()
+  })
+})
+
+describe('GBIFPublishForm installation quick-fill', () => {
+  it('offers only installations with a key for the current environment, and fills the UUID on selection', async () => {
+    mockedApi.gbifInstallations.mockResolvedValue([
+      { title: 'WildINTEL', sandbox_installation_key: 'sandbox-inst-1', production_installation_key: 'prod-inst-1' },
+      { title: 'Another Installation', sandbox_installation_key: null, production_installation_key: 'prod-inst-2' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    // "Another Installation" has no sandbox key — not offered while
+    // sandbox is the selected environment.
+    const dropdown = screen.getByLabelText('Installation')
+    expect(Array.from(dropdown.querySelectorAll('option')).map((o) => o.textContent)).toEqual([
+      '— pick a configured installation, or type a UUID below —', 'WildINTEL',
+    ])
+
+    await userEvent.selectOptions(dropdown, 'WildINTEL')
+    expect(screen.getByLabelText('Installation UUID')).toHaveValue('sandbox-inst-1')
+  })
+
+  it('follows the selected installation across an environment switch, using its own key for the new one', async () => {
+    mockedApi.gbifInstallations.mockResolvedValue([
+      { title: 'WildINTEL', sandbox_installation_key: 'sandbox-inst-1', production_installation_key: 'prod-inst-1' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.selectOptions(screen.getByLabelText('Installation'), 'WildINTEL')
+    expect(screen.getByLabelText('Installation UUID')).toHaveValue('sandbox-inst-1')
+
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.getByLabelText('Installation UUID')).toHaveValue('prod-inst-1')
+  })
+
+  it('stops following the selected installation once the UUID is edited by hand', async () => {
+    mockedApi.gbifInstallations.mockResolvedValue([
+      { title: 'WildINTEL', sandbox_installation_key: 'sandbox-inst-1', production_installation_key: 'prod-inst-1' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.selectOptions(screen.getByLabelText('Installation'), 'WildINTEL')
+
+    await userEvent.clear(screen.getByLabelText('Installation UUID'))
+    await userEvent.type(screen.getByLabelText('Installation UUID'), 'my-own-uuid')
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.getByLabelText('Installation UUID')).toHaveValue('my-own-uuid')
+  })
+
+  it('hides the dropdown entirely when no installation has a key for either environment', async () => {
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.queryByLabelText('Installation')).not.toBeInTheDocument()
+  })
+
+  it('keeps the organization and installation dropdowns independent of each other', async () => {
+    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+      { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', email: null, gbif_sandbox_organization_key: 'org-uuid-1', gbif_production_organization_key: null },
+    ])
+    mockedApi.gbifInstallations.mockResolvedValue([
+      { title: 'WildINTEL', sandbox_installation_key: 'inst-uuid-1', production_installation_key: null },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    await userEvent.selectOptions(screen.getByLabelText('Publishing organization'), 'Institute of Nature Conservation PAS')
+    await userEvent.selectOptions(screen.getByLabelText('Installation'), 'WildINTEL')
+
+    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('org-uuid-1')
+    expect(screen.getByLabelText('Installation UUID')).toHaveValue('inst-uuid-1')
   })
 })
 
@@ -251,5 +390,90 @@ describe('GBIFSyncDoiSection', () => {
     await userEvent.click(screen.getByRole('button', { name: /^sync doi$/i }))
 
     expect(await screen.findByText('has no DOI')).toBeInTheDocument()
+  })
+})
+
+describe('GBIFPublishForm dataset picker', () => {
+  it('keeps "Search existing datasets" disabled until an organization UUID is typed', async () => {
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.getByRole('button', { name: /search existing datasets/i })).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+    expect(screen.getByRole('button', { name: /search existing datasets/i })).toBeEnabled()
+  })
+
+  it('lists results and fills the dataset UUID when one is picked', async () => {
+    mockedApi.gbifOrganizationDatasets.mockResolvedValue([
+      { key: 'uuid-1', title: 'Dataset One' },
+      { key: 'uuid-2', title: 'Dataset Two' },
+    ])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing datasets/i }))
+
+    expect(mockedApi.gbifOrganizationDatasets).toHaveBeenCalledWith('org-1', 'sandbox')
+    await screen.findByText('Dataset One')
+    expect(screen.getByText('Dataset Two')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Dataset One'))
+
+    expect(screen.getByLabelText('Dataset UUID (leave blank to create a new dataset)')).toHaveValue('uuid-1')
+    // The results list collapses once a pick is made.
+    expect(screen.queryByText('Dataset Two')).not.toBeInTheDocument()
+  })
+
+  it('reports no datasets found instead of an empty, silent list', async () => {
+    mockedApi.gbifOrganizationDatasets.mockResolvedValue([])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing datasets/i }))
+
+    expect(await screen.findByText('No datasets found for this organization yet.')).toBeInTheDocument()
+  })
+
+  it('shows an error message when the search itself fails', async () => {
+    mockedApi.gbifOrganizationDatasets.mockRejectedValue(new Error('GBIF returned an unexpected error.'))
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing datasets/i }))
+
+    expect(await screen.findByText('GBIF returned an unexpected error.')).toBeInTheDocument()
+  })
+
+  it('clears stale results when the organization or environment changes', async () => {
+    mockedApi.gbifOrganizationDatasets.mockResolvedValue([{ key: 'uuid-1', title: 'Dataset One' }])
+    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+    await userEvent.click(screen.getByRole('button', { name: /search existing datasets/i }))
+    await screen.findByText('Dataset One')
+
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.queryByText('Dataset One')).not.toBeInTheDocument()
+  })
+
+  it('sends the typed dataset UUID when Continue is clicked', async () => {
+    const onConfigured = vi.fn()
+    render(<GBIFPublishForm onConfigured={onConfigured} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    await userEvent.type(screen.getByLabelText('Archive URL'), 'https://example.org/datapackage.json')
+    await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
+    await userEvent.type(screen.getByLabelText('Installation UUID'), 'inst-1')
+    await userEvent.type(screen.getByLabelText('Dataset UUID (leave blank to create a new dataset)'), 'existing-uuid')
+    await userEvent.type(screen.getByLabelText('GBIF username'), 'alice')
+    await userEvent.type(screen.getByLabelText('GBIF password'), 's3cret')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({ datasetKey: 'existing-uuid' }))
   })
 })

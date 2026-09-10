@@ -24,6 +24,7 @@ vi.mock('../api', () => ({
     datapackageFields: vi.fn(),
     updateDatapackageFields: vi.fn(),
     datapackageSummary: vi.fn(),
+    camtrapdpOrganizations: vi.fn(),
     datapackageDownloadUrl: vi.fn((path: string) => `/api/camtrapdp/download?path=${path}`),
     openFolder: vi.fn(),
     fsBrowse: vi.fn(),
@@ -39,6 +40,8 @@ vi.mock('../api', () => ({
     gbifTestCredentials: vi.fn(),
     gbifValidateArchive: vi.fn(),
     gbifSyncDoi: vi.fn(),
+    gbifInstallations: vi.fn(),
+    gbifOrganizationDatasets: vi.fn(),
     publishAllStart: vi.fn(),
     publishAllStatus: vi.fn(),
     listPublishSessions: vi.fn(),
@@ -66,6 +69,19 @@ beforeEach(() => {
   // care about this step's own fields aren't forced to mock it themselves.
   mockedApi.datapackageFields.mockResolvedValue({ name: null, title: null, description: null, version: null, homepage: null })
   mockedApi.updateDatapackageFields.mockResolvedValue({ ok: true })
+  // Mirrors settings.toml's own CAMTRAPDP.organizations default (see
+  // wildintel_publisher.config.CamtrapdpSettings) — WizardPage defaults
+  // dpPublisher/dpRightsHolder to organizationOptions[0]/[1] respectively,
+  // so this order matters for tests that rely on those defaults.
+  mockedApi.camtrapdpOrganizations.mockResolvedValue([
+    { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', email: null },
+    { title: 'University of Huelva', path: 'https://www.uhu.es/', email: null },
+    { title: 'University of South-Eastern Norway', path: 'https://www.usn.no/', email: null },
+    { title: 'German Centre for Integrative Biodiversity Research', path: 'https://www.idiv.de/', email: null },
+    { title: 'Spanish National Research Council', path: 'https://www.csic.es/', email: null },
+    { title: 'Massachusetts Institute of Technology', path: 'https://www.mit.edu/', email: null },
+    { title: 'Spanish Node of the Global Biodiversity Information Facility', path: 'https://www.gbif.es/', email: null },
+  ])
   mockedApi.hfhGetConfig.mockResolvedValue({ username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false })
   mockedApi.zenodoGetConfig.mockResolvedValue({
     environment: 'sandbox', communities: null, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false,
@@ -77,6 +93,7 @@ beforeEach(() => {
     environment: 'sandbox', publishing_organization_key: null, installation_key: null,
     registry_language: 'eng', output_dir: '/gbif/output', has_credentials: false,
   })
+  mockedApi.gbifInstallations.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -439,13 +456,72 @@ describe('WizardPage contributors editor', () => {
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
     await screen.findByText('Contributors')
-    expect(screen.getByText('WildINTEL')).toBeInTheDocument()
-    expect(screen.getByText('wildintelproject@gmail.com')).toBeInTheDocument()
-    expect(screen.getByText('Rights holder')).toBeInTheDocument()
-    // Defaults to the first option — nothing else to identify a specific
-    // contributor by, so no generic per-contributor row is shown.
-    expect(screen.getByLabelText('Rights holder')).toHaveValue('Institute of Nature Conservation PAS')
+    // Both default to organizationOptions[0]/[1] respectively (see the
+    // mocked camtrapdpOrganizations list in beforeEach) — nothing else to
+    // identify a specific contributor by, so no generic per-contributor
+    // row is shown.
+    expect(screen.getByLabelText('Publisher')).toHaveValue('Institute of Nature Conservation PAS')
+    expect(screen.getByLabelText('Rights holder')).toHaveValue('University of Huelva')
     expect(screen.queryByText('Unnamed contributor')).not.toBeInTheDocument()
+  })
+
+  it('never sends a null "email" for an organization that has none configured (Camtrap DP schema rejects it)', async () => {
+    // Regression test: organizationContributor used to always include an
+    // "email" key, defaulting to `null` for any organization without one
+    // configured — which is every default entry now that WildINTEL isn't
+    // one of them. frictionless then rejected the whole package with
+    // "None is not of type 'string' at property 'contributors/0/email'".
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await screen.findByText('Contributors')
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    const call = mockedApi.updateDatapackageFields.mock.calls[0]
+    const publisherContributor = call[1].contributors?.[0]
+    expect(publisherContributor).not.toHaveProperty('email')
+  })
+
+  it('lets the user pick a different publisher, from the same configured organization list as rights holder', async () => {
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await screen.findByText('Contributors')
+
+    // Both dropdowns draw from the exact same configured list.
+    const publisherOptionTitles = Array.from(screen.getByLabelText('Publisher').querySelectorAll('option')).map((o) => o.textContent)
+    const rightsHolderOptionTitles = Array.from(screen.getByLabelText('Rights holder').querySelectorAll('option')).map((o) => o.textContent)
+    expect(publisherOptionTitles).toEqual(rightsHolderOptionTitles)
+    expect(publisherOptionTitles).toContain('University of Huelva')
+
+    await userEvent.selectOptions(screen.getByLabelText('Publisher'), 'University of Huelva')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await waitFor(() => expect(mockedApi.updateDatapackageFields).toHaveBeenCalledWith('/data/camtrapdp', expect.objectContaining({
+      // No "email" key at all — Camtrap DP's own schema rejects `null`
+      // there, and this organization has none configured (see
+      // organizationContributor's own docstring).
+      contributors: expect.arrayContaining([
+        { title: 'University of Huelva', path: 'https://www.uhu.es/', role: 'publisher' },
+      ]),
+    })))
   })
 
   it('lets the user change only a contributor\'s role, and sends the full array back untouched otherwise', async () => {
@@ -478,8 +554,8 @@ describe('WizardPage contributors editor', () => {
 
     await waitFor(() => expect(mockedApi.updateDatapackageFields).toHaveBeenCalledWith('/data/camtrapdp', expect.objectContaining({
       contributors: [
-        { title: 'WildINTEL', email: 'wildintelproject@gmail.com', path: 'https://wildintel.eu/', role: 'publisher' },
-        { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', role: 'rightsHolder' },
+        { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', role: 'publisher' },
+        { title: 'University of Huelva', path: 'https://www.uhu.es/', role: 'rightsHolder' },
         { title: 'Alice', email: 'alice@example.org', organization: 'Test Org', role: 'contact' },
         { title: 'Bob', role: 'contributor' },
       ],
@@ -509,7 +585,7 @@ describe('WizardPage contributors editor', () => {
 
     await screen.findByText('Alice')
     // "Someone Else" (the source's own "publisher") is gone from the
-    // generic list — publisher is exclusively WildINTEL.
+    // generic list — publisher is always one of organizationOptions.
     expect(screen.queryByText('Someone Else')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Rights holder')).toHaveValue('University of Huelva')
     // Warned about the publisher swap (a real change) but not about rights
@@ -521,7 +597,7 @@ describe('WizardPage contributors editor', () => {
 
     await waitFor(() => expect(mockedApi.updateDatapackageFields).toHaveBeenCalledWith('/data/camtrapdp', expect.objectContaining({
       contributors: [
-        { title: 'WildINTEL', email: 'wildintelproject@gmail.com', path: 'https://wildintel.eu/', role: 'publisher' },
+        { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', role: 'publisher' },
         { title: 'University of Huelva', path: 'https://www.uhu.es/', role: 'rightsHolder' },
         { title: 'Alice', role: 'principalInvestigator' },
       ],
@@ -542,8 +618,10 @@ describe('WizardPage contributors editor', () => {
 
     await screen.findByText(/was listed as rights holder/)
     expect(screen.getByText(/"Some Other University" was listed as rights holder/)).toBeInTheDocument()
-    // Falls back to the first option, since nothing matched.
-    expect(screen.getByLabelText('Rights holder')).toHaveValue('Institute of Nature Conservation PAS')
+    // Falls back to organizationOptions[1] (the rightsHolder default —
+    // see WizardPage's own docstring for the [0]=publisher/[1]=rightsHolder
+    // convention), since nothing matched.
+    expect(screen.getByLabelText('Rights holder')).toHaveValue('University of Huelva')
   })
 })
 
@@ -995,6 +1073,33 @@ describe('WizardPage publish order', () => {
     // Both configured — confirmation screen, still nothing published.
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
     expect(screen.getByText(/Hugging Face Hub, GBIF/)).toBeInTheDocument()
+    expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
+  })
+
+  it('lets the user go back from "Ready to publish" to reconfigure the last repo, pre-filled', async () => {
+    // Regression test: once every repo is configured, "Ready to publish"
+    // used to be a dead end — the page-level Back button stays hidden for
+    // the whole step 4 && publishStarted stretch on purpose (see its own
+    // condition), and this screen had no button of its own to get back
+    // into the per-repo configuration forms.
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await configureHfhAndContinue()
+    await configureGbifAndContinue()
+    await screen.findByText('Ready to publish')
+
+    await userEvent.click(screen.getByRole('button', { name: /back to gbif/i }))
+
+    expect(await screen.findByText('Step 2 of 2.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('org-1')
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
   })
 
@@ -1540,6 +1645,31 @@ describe('WizardPage resume', () => {
     expect(screen.getByRole('heading', { name: /where do you want to publish it\?/i })).toBeInTheDocument()
     expect(screen.queryByText(/ready to publish|will now start/i)).not.toBeInTheDocument()
     expect(mockedApi.resumePublishStart).not.toHaveBeenCalled()
+  })
+
+  it('pre-selects the mandatory repo on a resumed repo-picker screen, so it can actually be published', async () => {
+    // Regression test: a mandatory repo (GBIF, for Camtrap DP) is normally
+    // seeded into selectedRepos/publishOrder by step 0's own product-type
+    // button — a resumed session skips step 0 entirely, so it showed up
+    // marked "Required" and permanently disabled, yet was never actually
+    // selected (toggleRepo refuses to change a mandatory repo's own
+    // selection either), leaving no way to turn it on and no "Start
+    // publishing" button at all (gated on selectedRepos.size > 0).
+    mockedApi.datapackageSummary.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+
+    render(<WizardPage resumeSession={PREPROCESSED_RESUME_SESSION} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: /where do you want to publish it\?/i })).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: /gbif/i })).toHaveClass('border-blue-500')
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    expect(await screen.findByText('Configure GBIF')).toBeInTheDocument()
   })
 
   it('skips straight to configuring the persisted repos, pre-filled minus the token', async () => {

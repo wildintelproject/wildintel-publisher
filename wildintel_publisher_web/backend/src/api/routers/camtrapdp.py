@@ -73,6 +73,15 @@ def datapackage_fields(path: str) -> dict:
     return camtrapdp_service.read_datapackage_fields(Path(path))
 
 
+@router.get("/organizations")
+def organizations() -> list[dict]:
+    """Camtrap DP only — settings.toml's own CAMTRAPDP.organizations,
+    offered as the selectable options for BOTH the "publisher" and
+    "rightsHolder" contributor roles in the wizard's metadata-editing step
+    (see WizardPage.tsx)."""
+    return camtrapdp_service.list_organizations()
+
+
 @router.post("/update-datapackage")
 def update_datapackage(req: UpdateDatapackageRequest) -> dict:
     """Patches <req.input_dir>/datapackage.json itself (not metadata.json —

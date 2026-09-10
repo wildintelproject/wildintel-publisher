@@ -13,7 +13,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from schemas.requests import GBIFSyncDoiRequest, GBIFTestCredentialsRequest, GBIFValidateArchiveRequest
+from schemas.requests import (
+    GBIFOrganizationDatasetsRequest, GBIFSyncDoiRequest, GBIFTestCredentialsRequest, GBIFValidateArchiveRequest,
+)
 from services import gbif_service, hfh_service
 
 router = APIRouter(prefix="/api/gbif", tags=["gbif"])
@@ -59,6 +61,26 @@ def validate_archive(req: GBIFValidateArchiveRequest) -> dict:
     doesn't point to a real archive."""
     try:
         return gbif_service.validate_archive(req.archive_url)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/installations")
+def installations() -> list[dict]:
+    """settings.toml's own GBIF.installations, offered as the selectable
+    options for GBIFPublishForm's own "Installation UUID" dropdown."""
+    return gbif_service.list_installations()
+
+
+@router.post("/organization-datasets")
+def organization_datasets(req: GBIFOrganizationDatasetsRequest) -> list[dict]:
+    """Datasets already published by req.organization_key on req.environment
+    (sandbox/production) — GBIFPublishForm's own "search existing datasets"
+    button, so the user can pick a dataset_key from a list instead of
+    typing/tracking a UUID by hand. A public GBIF Registry read — no
+    credentials involved."""
+    try:
+        return gbif_service.search_organization_datasets(req.organization_key, req.environment)
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
 
