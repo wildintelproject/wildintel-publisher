@@ -99,6 +99,12 @@ function SessionCard({ session, onResume, onDiscarded }: { session: SessionSumma
             const label = status?.status === 'done' ? 'Done'
               : status?.status === 'error' ? `Failed${status.error ? `: ${status.error}` : ''}`
               : status?.stage ? `Interrupted (${status.stage})`
+              // A repo whose upload was cut off before its own stage got
+              // recorded (see publish_orchestrator._run: "status" is
+              // persisted "running" a moment before "stage" is) — the
+              // process behind it is gone, so it reads as interrupted, not
+              // "Not started".
+              : status?.status === 'running' ? 'Interrupted (uploading)'
               : 'Not started'
             const color = status?.status === 'done' ? 'text-emerald-600 dark:text-emerald-400'
               : status?.status === 'error' ? 'text-red-600 dark:text-red-400'

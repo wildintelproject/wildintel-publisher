@@ -73,6 +73,20 @@ describe('ResumeSessionsPage', () => {
     expect(screen.getByText('Failed: network blip')).toBeInTheDocument()
   })
 
+  it('shows a repo cut off mid-upload (status "running", stage not yet recorded) as interrupted, not "Not started"', () => {
+    const session: PublishSessionSummary = {
+      ...SESSION,
+      repo_status: {
+        ...SESSION.repo_status,
+        hfh: { status: 'running', stage: '', error: null, repo_url: null, doi: null, pid: null, output_dir: null },
+      },
+    }
+    render(<ResumeSessionsPage sessions={[session]} onResume={() => {}} onDiscarded={() => {}} onSkip={() => {}} />)
+
+    expect(screen.getByText('Interrupted (uploading)')).toBeInTheDocument()
+    expect(screen.queryByText('Not started')).not.toBeInTheDocument()
+  })
+
   it('calls onResume with the session when Resume is clicked', async () => {
     const onResume = vi.fn()
     render(<ResumeSessionsPage sessions={[SESSION]} onResume={onResume} onDiscarded={() => {}} onSkip={() => {}} />)
