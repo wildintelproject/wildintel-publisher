@@ -1,7 +1,7 @@
 # B2SHARE (EUDAT) — AI Dataset
 
 This publishes what's described in AI Dataset's
-[What gets published](product-yolo.md#3-what-gets-published) — its common description,
+[What gets published](product-yolo.md#4-what-gets-published) — its common description,
 the dataset itself, and the generated documentation — to
 [B2SHARE](publishing-b2share.md). Here's exactly what ends up stored there.
 

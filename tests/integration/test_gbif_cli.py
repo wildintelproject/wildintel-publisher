@@ -194,6 +194,12 @@ def test_gbif_sync_doi_reflects_the_doi_into_hfh_citation(tmp_path):
     hfh_dir = tmp_path / "hfh_out"
     hfh_dir.mkdir()
     (hfh_dir / "CITATION.cff").write_text(yaml.safe_dump({"cff-version": "1.2.0", "title": "T"}), encoding="utf-8")
+    # sync_doi_to_hfh now updates (never recreates from scratch) an
+    # ALREADY-PUBLISHED checksums-sha256.txt — see
+    # common.update_checksums_entries, used precisely because
+    # hfh_output_dir might not have the rest of the export's own files
+    # physically present anymore.
+    (hfh_dir / "checksums-sha256.txt").write_text("deadbeef  CITATION.cff\n", encoding="utf-8")
 
     result = runner.invoke(app, [
         "gbif", "sync-doi", "--gbif-output-dir", str(gbif_dir), "--hfh-output-dir", str(hfh_dir),
@@ -202,7 +208,8 @@ def test_gbif_sync_doi_reflects_the_doi_into_hfh_citation(tmp_path):
     assert result.exit_code == 0, result.output
     citation = yaml.safe_load((hfh_dir / "CITATION.cff").read_text(encoding="utf-8"))
     assert citation["doi"] == "10.21373/eet8jz"
-    assert (hfh_dir / "checksums-sha256.txt").is_file()
+    checksums_text = (hfh_dir / "checksums-sha256.txt").read_text(encoding="utf-8")
+    assert "deadbeef" not in checksums_text  # CITATION.cff's own hash was refreshed
 
 
 def test_gbif_sync_doi_fails_when_the_dataset_has_no_doi(tmp_path, caplog):

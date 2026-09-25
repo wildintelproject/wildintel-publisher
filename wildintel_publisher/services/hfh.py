@@ -7,6 +7,7 @@ services.product.generate_metadata_json), delegando en el ProductAdapter del
 tipo de producto correspondiente todo lo específico de su formato (qué
 ficheros copiar, cómo filtrar/mirror sus imágenes).
 """
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -18,7 +19,7 @@ from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from rich.console import Console
 
 from wildintel_publisher.config import REPO_ROOT, HFHSettings
-from wildintel_publisher.services import common, product
+from wildintel_publisher.services import common, product, yolo_adapter
 
 console = Console()
 
@@ -41,6 +42,15 @@ CITATION_TEMPLATE_FILE = COMMON_TEMPLATES_DIR / "CITATION.cff.j2"
 
 README_FILENAME = "README.md"
 CITATION_FILENAME = "CITATION.cff"
+
+# Unlike Zenodo/B2SHARE, HFH never used to keep a local record of its own —
+# everything about it (repo_id, version to tag) was inferred straight from
+# metadata.json, always read from wherever build_dir happened to still be.
+# This file exists so that a caller who won't keep build_dir around after
+# upload (see services.publish_orchestrator's own docstring on why) still
+# has somewhere small and dedicated to learn version/repo_id from before
+# tagging — same role as zenodo.RECORD_FILENAME/b2share.RECORD_FILENAME.
+RECORD_FILENAME = "hfh_record.json"
 
 # Written into README.md's/CITATION.cff's repo_id/url at prepare time — the
 # real destination repo_id isn't known yet ('hfh prepare' has no --repo-id
@@ -97,6 +107,7 @@ def prepare_hfh_export(
 
     product_meta = product.read_metadata_json(input_dir)
     adapter = product.get_adapter(product_meta["product_type"])
+    mirror_images = mirror_images or adapter.always_mirror
 
     console.print(f"Copying the product from {input_dir} to {output_dir} ...")
     adapter.prepare(
@@ -104,6 +115,12 @@ def prepare_hfh_export(
         media_dir=media_dir, media_cache_dir=media_cache_dir,
     )
     product.copy_metadata_json(input_dir, output_dir)
+    if adapter.product_type == product.YOLO:
+        for split in yolo_adapter.shard_large_splits(output_dir):
+            console.print(
+                f"  {split}: over {yolo_adapter.HFH_MAX_FILES_PER_DIRECTORY:,} files in one folder — spread "
+                "over hash-named subfolders (Hugging Face Hub's own per-folder limit)."
+            )
 
     title = product_meta["title"]
     description = product_meta["description"]
@@ -131,11 +148,13 @@ def prepare_hfh_export(
         date_released=date_released, license_id=license["id"], repository_code=metadata.repository_code,
         publisher=publisher, copyright_holders=copyright_holders,
     )
-    if mirror_images:
+    # Not for YOLO: its loose files already ARE the whole dataset (images
+    # included), so a zip of them would only double the repository's size.
+    if mirror_images and adapter.product_type != product.YOLO:
         # Named per product type — the Camtrap DP adapter's own default
         # (common.LOCAL_ZIP_FILENAME) is "camtrapdp-local.zip"; other
-        # product types (e.g. yolo) get their own type-named zip instead of
-        # a filename that only makes sense for Camtrap DP.
+        # product types get their own type-named zip instead of a filename
+        # that only makes sense for Camtrap DP.
         local_zip_filename = (
             common.LOCAL_ZIP_FILENAME if adapter.product_type == product.CAMTRAPDP
             else f"{adapter.product_type}-local.zip"
@@ -231,6 +250,10 @@ def _patch_citation_with_repo_id(citation_path: Path, repo_id: str) -> None:
 
 
 
+def _write_record(output_dir: Path, record: dict) -> None:
+    (output_dir / RECORD_FILENAME).write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def tag_exists(repo_id: str, tag: str, token: str) -> bool:
     """Whether `tag` already exists as a git tag on the HFH dataset repo
     `repo_id` — used both to fail fast in upload_to_huggingface (before
@@ -307,6 +330,7 @@ def upload_to_huggingface(
 
     product_meta = product.read_metadata_json(output_dir)
     adapter = product.get_adapter(product_meta["product_type"])
+    mirror_images = mirror_images or adapter.always_mirror
     version = product_meta.get("version") or DEFAULT_VERSION
 
     api = HfApi(token=token)
@@ -356,16 +380,26 @@ def upload_to_huggingface(
             repo_id=repo_id,
             repo_type="dataset",
             token=token,
-            commit_message="Publish Camtrap DP dataset via wildintel-publisher",
-            # metadata.json is internal pipeline bookkeeping (product_type,
-            # publish_history...), kept locally for chaining/re-reading —
-            # never meant to be part of the published dataset itself.
-            ignore_patterns=[product.METADATA_FILENAME],
+            commit_message=f"Publish version {version} via wildintel-publisher",
+            # metadata.json/hfh_record.json are internal pipeline bookkeeping
+            # (product_type, publish_history..., this file's own repo_id/
+            # version), kept locally for chaining/re-reading — never meant
+            # to be part of the published dataset itself.
+            ignore_patterns=[product.METADATA_FILENAME, RECORD_FILENAME],
+            # Makes the repo's "main" (and the tag created from it right
+            # after) hold exactly this export: anything a previous version
+            # had that this one doesn't — a removed image, a file this tool
+            # no longer generates, loose files a now-sharded split used to
+            # have — is deleted in the same commit. Earlier versions stay
+            # intact under their own tags. huggingface_hub never deletes
+            # .gitattributes, and never deletes a file being re-uploaded.
+            delete_patterns="*",
         )
     except Exception as exc:
         raise RuntimeError(f"Could not upload the export to {repo_id}: {exc}") from exc
 
     repo_url = f"https://huggingface.co/datasets/{repo_id}"
+    _write_record(output_dir, {"repo_id": repo_id, "version": version, "repo_url": repo_url, "tagged": False})
     console.print(f"[green]✔  Uploaded to {repo_url} (not tagged yet — see 'hfh release').[/green]")
     return repo_url
 

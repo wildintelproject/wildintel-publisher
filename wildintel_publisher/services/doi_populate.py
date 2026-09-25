@@ -26,6 +26,17 @@ propia URL por defecto, la de una llamada anterior...) por la del DOI
 cruzado, sin depender de un marcador de una sola vez como el
 PLACEHOLDER_CITATION_URL de Zenodo/B2SHARE (que sí resuelven su propio DOI
 siempre pronto, al subir).
+
+`outputs`' propios directorios NO necesitan ser el build_dir completo de
+cada repo — deliberadamente: para cuando populate() corre, el build_dir ya
+podría no existir (ver services.publish_orchestrator's propio docstring).
+Esta función solo necesita, por cada repo, tres ficheros pequeños
+(CITATION.cff, README.md, checksums-sha256.txt) y su propio RECORD_FILENAME
+si provee DOI — de ahí que el checksum se actualice con
+common.update_checksums_entries (que solo re-hashea los 1-2 ficheros que
+de verdad cambiaron aquí) en vez de con common.write_checksums (que
+necesitaría re-hashear TODOS los ficheros del export, físicamente
+presentes en ese mismo directorio, para no dejar el checksums incompleto).
 """
 import json
 from pathlib import Path
@@ -88,7 +99,10 @@ def collect_identifiers(outputs: dict[str, Path]) -> list[RepoIdentifier]:
     return identifiers
 
 
-def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = None) -> dict[str, bool]:
+def populate(
+    outputs: dict[str, Path], *, primary_doi_source: Optional[str] = None,
+    checksums_paths: Optional[dict[str, Path]] = None,
+) -> dict[str, bool]:
     """Para cada repo en `outputs`, cruza en su propio CITATION.cff (y
     README.md, si el módulo tiene su propio marcador — ver el docstring del
     módulo) los DOI ya obtenidos por LOS DEMÁS repos.
@@ -101,6 +115,13 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
       identifiers. Sin indicarlo: si solo hay un candidato, se usa ese
       automáticamente; con más de uno, ninguno se marca como principal.
 
+    `checksums_paths` — opcional, {repo: ruta a SU checksums-sha256.txt} —
+    solo hace falta cuando ese fichero no vive junto al CITATION.cff/
+    README.md de `outputs` (p.ej. una caché aparte — ver
+    publish_orchestrator's own docstring sobre por qué build_dir podría no
+    seguir existiendo). Un repo ausente de este dict usa el valor por
+    defecto de siempre: `outputs[repo] / checksums-sha256.txt`.
+
     Returns:
         {repo: True/False} — si el CITATION.cff (y checksums-sha256.txt)
         de ese repo cambiaron de verdad. El caller debe entonces volver a
@@ -111,6 +132,7 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
     """
     identifiers = collect_identifiers(outputs)
     changed: dict[str, bool] = {repo: False for repo in outputs}
+    checksums_paths = checksums_paths or {}
 
     for repo, output_dir in outputs.items():
         others = [i for i in identifiers if i.repo != repo]
@@ -126,6 +148,11 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
         citation_path = output_dir / "CITATION.cff"
         readme_path = output_dir / "README.md"
         repo_changed = False
+        # Only the (up to 2) files that actually changed get re-hashed —
+        # see update_checksums_entries below, and the module's own
+        # docstring on why the rest of the export's files are never
+        # touched (or even present) here.
+        changed_files: dict[str, Path] = {}
 
         for ident in others:
             allow_as_primary = (not own_provides_doi) and ident.repo == effective_primary
@@ -133,6 +160,8 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
                 citation_path, value=ident.value, kind="doi", url=ident.url,
                 description=f"{REPO_LABELS.get(ident.repo, ident.repo)} DOI", allow_as_primary=allow_as_primary,
             )
+            if file_changed:
+                changed_files["CITATION.cff"] = citation_path
             repo_changed = repo_changed or file_changed
             if allow_as_primary:
                 # Only a repo that never provides its own DOI (HFH — see
@@ -143,10 +172,13 @@ def populate(outputs: dict[str, Path], *, primary_doi_source: Optional[str] = No
                 # common.patch_readme_citation_url — value-aware, so this
                 # works regardless of what's currently there).
                 readme_changed = common.patch_readme_citation_url(readme_path, ident.url)
+                if readme_changed:
+                    changed_files["README.md"] = readme_path
                 repo_changed = repo_changed or readme_changed
 
         if repo_changed:
-            common.write_checksums(output_dir)
+            checksums_path = checksums_paths.get(repo) or (output_dir / common.CHECKSUM_FILENAME)
+            common.update_checksums_entries(checksums_path, changed_files)
         changed[repo] = repo_changed
 
     return changed

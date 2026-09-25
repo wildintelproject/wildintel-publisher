@@ -4,7 +4,6 @@ HuggingFace Hub end to end — 'product generate-metadata' -> 'hfh prepare' ->
 beyond Camtrap DP, not just in theory. HuggingFace Hub API calls are mocked
 out (no real network)."""
 import json
-import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -56,9 +55,8 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
     assert metadata["title"] == "Test YOLO Dataset"
     assert metadata["publish_history"] == []
 
-    # Step 2: prepare (mirror mode, default) — copies data.yaml + images/ +
-    # labels/, writes README/LICENSE/CITATION/checksums/metadata.json and
-    # bundles a local zip, exactly like it would for a Camtrap DP input.
+    # Step 2: prepare — copies data.yaml + images/ + labels/ and writes
+    # README/LICENSE/CITATION/checksums/metadata.json.
     prepare_result = runner.invoke(app, [
         "hfh", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
     ])
@@ -81,16 +79,10 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
     assert "Camtrap DP" not in readme
     assert "datapackage.json" not in readme
 
-    # Named per product type, not Camtrap DP's own "camtrapdp-local.zip"
-    # (see services/hfh.py's prepare_hfh_export).
-    zip_path = output_dir / "yolo-local.zip"
-    assert zip_path.is_file()
-    with zipfile.ZipFile(zip_path) as zf:
-        names = set(zf.namelist())
-    assert "data.yaml" in names
-    assert "images/train/img0.jpg" in names
-    assert "labels/train/img0.txt" in names
-    assert "README.md" not in names  # only the product's own files get bundled
+    # No yolo-local.zip: the loose files already are the whole dataset, a
+    # zip of them would only double the repository's size.
+    assert not list(output_dir.glob("*.zip"))
+    assert "yolo-local.zip" not in readme
 
     # Step 3: upload (mocked HF calls) — mirror mode calls the adapter's
     # link_media_to_hfh (a no-op for YOLO, no CSV to rewrite) and sets
@@ -113,3 +105,32 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
 
     uploaded_metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
     assert uploaded_metadata["homepage"] == "https://huggingface.co/datasets/alice/yolo-dataset"
+
+
+def test_yolo_publisher_and_copyright_holders_reach_citation_cff(tmp_path):
+    """data.yaml's publisher/copyright_holders (set by the web wizard's
+    editor from PRODUCT.organizations) end up in CITATION.cff's
+    preferred-citation, same as a Camtrap DP's publisher/rightsHolder."""
+    input_dir = _write_yolo_dataset(tmp_path / "yolo_dataset")
+    data = yaml.safe_load((input_dir / "data.yaml").read_text(encoding="utf-8"))
+    data["publisher"] = {"name": "University of Huelva", "website": "https://www.uhu.es/"}
+    data["copyright_holders"] = ["Spanish National Research Council"]
+    (input_dir / "data.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    output_dir = tmp_path / "hfh_out"
+
+    assert runner.invoke(app, [
+        "product", "generate-metadata", "--input-dir", str(input_dir), "--product-type", "yolo",
+    ]).exit_code == 0
+    metadata = json.loads((input_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["publisher"] == {"name": "University of Huelva", "website": "https://www.uhu.es/"}
+    assert metadata["copyright_holders"] == ["Spanish National Research Council"]
+
+    prepare_result = runner.invoke(app, [
+        "hfh", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+    ])
+    assert prepare_result.exit_code == 0, prepare_result.output
+
+    citation = yaml.safe_load((output_dir / "CITATION.cff").read_text(encoding="utf-8"))
+    preferred = citation["preferred-citation"]
+    assert preferred["publisher"]["name"] == "University of Huelva"
+    assert "Spanish National Research Council" in preferred["copyright"]

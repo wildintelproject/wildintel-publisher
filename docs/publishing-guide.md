@@ -99,9 +99,9 @@ individually (Hugging Face Hub) or bundles them into a single zip (Zenodo/B2SHAR
 also needed because [B2SHARE caps a record at 100 files](publishing-b2share.md#2-main-characteristics)),
 rewriting `media.csv`'s media references accordingly; link instead rewrites those same
 references to point at an existing Hugging Face Hub copy, without downloading anything.
-For YOLO, mirror always copies the whole `images/` tree — it's already local, so
-there's nothing to resolve — while link leaves the images out of that particular
-export, since YOLO has no external host its images could already point to instead.
+For YOLO, both modes are the same: the whole `images/` (and `labels/`) tree is always
+copied — it's already local, so there's nothing to resolve, and there's no external host
+its images could point to instead.
 
 ## What you get back locally
 
@@ -159,8 +159,9 @@ relying on it being (or not being) reversible:
   types and repositories, GBIF included (Camtrap DP only). Selecting more than one
   repository publishes them automatically, one after another, and — uniquely to the web
   app — cross-references whatever DOI Zenodo/B2SHARE each managed to reserve into the
-  *other's* `CITATION.cff` before either one locks, asking you which one Hugging Face Hub
-  should treat as primary if all three repositories are selected together. This
+  *other's* `CITATION.cff` before either one locks. Hugging Face Hub cites Zenodo's DOI
+  as primary, or B2SHARE's without Zenodo — except for Camtrap DP, where you're asked
+  which one if all three repositories are selected together. This
   cross-repository DOI reflection isn't available from the CLI; the CLI's own
   `sync-doi`/`sync-pid` commands only ever push a DOI/PID one way, into a Hugging Face
   Hub export, and only after the

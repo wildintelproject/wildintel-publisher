@@ -2,8 +2,8 @@
 resolved as "publisher" (see common.resolve_publisher) instead of the repo's
 own name, and append a "© <year> <holder(s)>" notice for any "rightsHolder"
 contributor(s) (see common.resolve_copyright_holders) — falling back to the
-old hardcoded repo name when there's no contributor-based publisher (e.g.
-YOLO/Software, which have no publisher/rightsHolder concept of their own)."""
+old hardcoded repo name when there's no publisher at all (e.g. Software,
+or a YOLO dataset whose data.yaml sets none)."""
 from wildintel_publisher.config import B2ShareSettings, HFHSettings, ZenodoSettings
 from wildintel_publisher.services import b2share, hfh, product, zenodo
 

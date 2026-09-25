@@ -41,8 +41,10 @@ B2SHARE on top of Zenodo, a **publish order** list lets you reorder them: the fi
 repository publishes the local dataset itself, and each next one publishes whatever the
 previous one wrote to its own output — so, for example, publishing to Hugging Face Hub
 before Zenodo lets Zenodo's record link back to it. A YOLO dataset's images always travel
-together with `data.yaml` in self-contained/mirror mode — there's no external repository
-for them to link to instead the way Camtrap DP can.
+together with `data.yaml` — there's no external repository for them to link to instead
+the way Camtrap DP can, so the repository forms don't offer a Mirror/Link choice at all:
+Hugging Face Hub gets `data.yaml`, `images/` and `labels/` as loose files, and Zenodo and
+B2SHARE get them bundled into a single `yolo.zip`.
 
 This is the same mandatory-repo mechanic used for [Software
 Application](guide-web-software.md#4-choose-repositories) (Zenodo there too), just with
@@ -55,14 +57,12 @@ configuration form — see that repository's own page for the full form, field-b
 with a screenshot: [Hugging Face Hub](guide-web-hfh.md), [Zenodo](guide-web-zenodo.md),
 [B2SHARE](guide-web-b2share.md).
 
-## 6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)
+## 6. The primary DOI
 
-If Hugging Face Hub, Zenodo, and B2SHARE are all selected together, you're asked which
-of Zenodo's or B2SHARE's DOI should be treated as *primary* in Hugging Face Hub's own
-citation file — Hugging Face Hub never has a DOI of its own, so this only comes up when
-there's more than one candidate to choose from.
-
-![Choosing the primary DOI](img/web/primary-doi-choice.png)
+Hugging Face Hub never has a DOI of its own, so its citation file cites another
+repository's as *primary*: always Zenodo's (mandatory for this product type), with
+B2SHARE's, if selected too, added as an alternate identifier. Unlike Camtrap DP, there's
+no question to answer here.
 
 ## 7. Confirm and publish
 
@@ -76,8 +76,8 @@ with a single live progress view showing every repository's status as it goes.
 The wizard confirms which repositories were published, but doesn't print each one's
 resulting URL/DOI/PID directly on this screen — check the repository itself, or the
 record file its own output directory holds (`zenodo_record.json`, `b2share_record.json`).
-If Zenodo and/or B2SHARE were published, you can also use the **Sync DOI**/**Sync PID**
-sections shown here — besides reflecting the DOI/PID into an already-published Hugging
+If Zenodo and/or B2SHARE were published without Hugging Face Hub in the same run, you
+can also use the **Sync DOI**/**Sync PID** sections shown here — besides reflecting the DOI/PID into an already-published Hugging
 Face Hub export, they confirm success with a direct link back to it (see
 [Zenodo](guide-web-zenodo.md#sync-doi-to-hugging-face-hub)/
 [B2SHARE](guide-web-b2share.md#sync-piddoi-to-hugging-face-hub)). If B2SHARE is still

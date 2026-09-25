@@ -125,6 +125,22 @@ def _zenodo_base_url(environment: str) -> str:
     return "https://sandbox.zenodo.org" if environment == "sandbox" else "https://zenodo.org"
 
 
+def search_depositions(environment: str, token: str, query: str | None) -> list[dict]:
+    """Thin wrapper around wildintel_publisher.services.zenodo.
+    search_my_depositions — ZenodoPublishForm's own "Search existing
+    depositions" button, so the user can pick an existing_deposition_id
+    from a list instead of typing/tracking a numeric id by hand.
+
+    Returns:
+        A list of {"id", "title"}.
+
+    Raises:
+        RuntimeError: if the token is invalid, or the API call itself fails.
+    """
+    api_base_url = f"{_zenodo_base_url(environment)}/api"
+    return zenodo_service.search_my_depositions(api_base_url, token, query=query)
+
+
 def download_files_from_zenodo(*, environment: str, deposition_id: int, token: str, target_dir: Path) -> Path:
     """Downloads the deposition's current files (the ones that were just
     uploaded/published) into `target_dir` — used by output_mode='downloaded'

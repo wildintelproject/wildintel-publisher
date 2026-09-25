@@ -11,14 +11,18 @@ import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
 import type { LocalSourceSelection } from '../components/LocalDirectoryForm'
 import TrapperConnectionForm from '../components/TrapperConnectionForm'
+import YoloMetadataEditor from '../components/YoloMetadataEditor'
 import ZenodoPublishForm, { SyncDoiSection } from '../components/ZenodoPublishForm'
 import type { ZenodoPublishConfig } from '../components/ZenodoPublishForm'
 import { api } from '../api'
+import { initialLicense } from '../licenses'
+import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
 import type {
-  CamtrapdpOrganization, DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary,
-  SessionFetch, SessionPreprocessing, SessionSummary, TrapperDownloadSelection,
+  Organization, DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary,
+  SessionFetch, SessionPreprocessing, SessionSummary, TrapperDownloadSelection, YoloDataYamlFields,
+  YoloDataYamlMetadata,
 } from '../types'
 
 const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish']
@@ -29,8 +33,8 @@ const DP_NAME_PATTERN = /^[a-z0-9._-]+$/
 const DP_VERSION_PATTERN = /^\d+(\.\d+){0,2}$/
 
 // Publisher and rights holder are both selected from the SAME list —
-// settings.toml's own CAMTRAPDP.organizations (see the backend's
-// wildintel_publisher.config.CamtrapdpSettings), fetched once on mount
+// settings.toml's own PRODUCT.organizations (see the backend's
+// wildintel_publisher.config.ProductSettings), fetched once on mount
 // (see organizationOptions state) — never hardcoded here, so adding/
 // removing a selectable organization is a settings.toml edit, not a
 // frontend code change. Absent a match from the source's own
@@ -186,6 +190,8 @@ const IMAGE_TIMEOUT = 60
 const STAGE_LABELS: Record<string, string> = {
   preparing: 'Preparing…',
   uploading: 'Uploading…',
+  finalizing: 'Saving output…',
+  finalized: 'Waiting to publish…',
   releasing: 'Publishing…',
   done: 'Done',
 }
@@ -234,6 +240,7 @@ function repoConfigsFromSession(session: PublishSessionSummary): RepoConfigs {
         mirrorImages: r.mirror_images ?? true, outputMode: r.output_mode ?? 'prepared',
         outputDir: r.output_dir ?? '', fitArchiveSize: r.fit_archive_size ?? true,
         maxZipFile: r.max_zip_file ?? undefined, minImageEdge: r.min_image_edge ?? 640,
+        existingDepositionId: r.existing_deposition_id ?? '',
       }
     } else if (r.repo === 'b2share') {
       configs.b2share = {
@@ -241,6 +248,7 @@ function repoConfigsFromSession(session: PublishSessionSummary): RepoConfigs {
         mirrorImages: r.mirror_images ?? true, outputMode: r.output_mode ?? 'prepared',
         outputDir: r.output_dir ?? '', fitArchiveSize: r.fit_archive_size ?? true,
         maxZipFile: r.max_zip_file ?? undefined, minImageEdge: r.min_image_edge ?? 640,
+        existingRecordId: r.existing_record_id ?? '',
       }
     } else if (r.repo === 'gbif') {
       configs.gbif = {
@@ -260,12 +268,12 @@ function repoConfigsFromSession(session: PublishSessionSummary): RepoConfigs {
 // are only included when actually set: Camtrap DP's own schema requires
 // "path"/"email" to be strings whenever present at all, so sending `null`
 // for an organization that simply doesn't have one (most of
-// settings.toml's own CAMTRAPDP.organizations, besides whichever the
+// settings.toml's own PRODUCT.organizations, besides whichever the
 // deployment gave an email to) fails frictionless validation with
 // something like "None is not of type 'string' at property
 // 'contributors/0/email'" — omitting the key entirely is what the schema
 // actually wants for "not set".
-function organizationContributor(org: CamtrapdpOrganization, role: 'publisher' | 'rightsHolder'): DatapackageContributor {
+function organizationContributor(org: Organization, role: 'publisher' | 'rightsHolder'): DatapackageContributor {
   const contributor: DatapackageContributor = { title: org.title, role }
   if (org.path) contributor.path = org.path
   if (role === 'publisher' && org.email) contributor.email = org.email
@@ -396,14 +404,15 @@ export default function WizardPage({ resumeSession }: Props) {
   // entry's own "role" (see the dropdown in step === 2 below); everything
   // else about each contributor round-trips untouched.
   const [dpContributors, setDpContributors] = useState<DatapackageContributor[]>([])
-  // settings.toml's own CAMTRAPDP.organizations (see the backend's
-  // wildintel_publisher.config.CamtrapdpSettings) — fetched once on mount
+  // settings.toml's own PRODUCT.organizations (see the backend's
+  // wildintel_publisher.config.ProductSettings) — fetched once on mount
   // (see the effect below), offered as the options for BOTH dpPublisher
-  // and dpRightsHolder's own dropdowns. Empty until that fetch resolves —
-  // the Continue button stays disabled for Camtrap DP until it does (see
+  // and dpRightsHolder's own dropdowns (and YOLO's own publisher/rights
+  // holder — see YoloMetadataEditor). Empty until that fetch resolves —
+  // the Continue button stays disabled for both until it does (see
   // its own disabled= below), so neither dropdown is ever shown, or a
   // contributor list built, with nothing to choose from.
-  const [organizationOptions, setOrganizationOptions] = useState<CamtrapdpOrganization[]>([])
+  const [organizationOptions, setOrganizationOptions] = useState<Organization[]>([])
   // The single selected publisher/rightsHolder organization's own title —
   // always one of organizationOptions. Both start blank (organizationOptions
   // itself starts empty) and get their real default once BOTH that fetch
@@ -419,6 +428,15 @@ export default function WizardPage({ resumeSession }: Props) {
   // typed something in them (an empty value just means "leave as-is").
   const dpNameValid = dpName === '' || DP_NAME_PATTERN.test(dpName)
   const dpVersionValid = dpVersion === '' || DP_VERSION_PATTERN.test(dpVersion)
+  // YOLO only — step 2's metadata editor (see YoloMetadataEditor): the
+  // dataset facts/warnings read from the working copy's data.yaml
+  // (api.yoloDataYamlFields), and the editable metadata keys, written back
+  // with api.updateYoloDataYaml BEFORE generateProductMetadata runs — same
+  // shape as Camtrap DP's own dp* fields above.
+  const [yoloDataset, setYoloDataset] = useState<YoloDataYamlFields | null>(null)
+  const [yoloMetadata, setYoloMetadata] = useState<YoloDataYamlMetadata>({ authors: [], copyright_holders: [] })
+  const [yoloOrganizationWarnings, setYoloOrganizationWarnings] = useState<string[]>([])
+  const [yoloDatasetError, setYoloDatasetError] = useState<string | null>(null)
   // True while handleContinueToPreprocessing (step === 2's "Continue"
   // button) is running.
   const [preprocessing, setPreprocessing] = useState(false)
@@ -493,11 +511,12 @@ export default function WizardPage({ resumeSession }: Props) {
   const [resumeVersion, setResumeVersion] = useState<string | undefined>(
     resumeSession?.phase === 'publishing' ? resumeSession.repos[0]?.version ?? undefined : undefined,
   )
-  // Only relevant when hfh + zenodo + b2share are ALL selected — HFH never
-  // has a DOI of its own, so with two possible DOI sources the user picks
-  // which one is primary (see the "choose primary DOI" screen below).
-  // Stays null (never asked) otherwise, and publishAllStart's own
-  // primary_doi_source ends up undefined in that case.
+  // Only relevant for Camtrap DP with hfh + zenodo + b2share ALL selected
+  // (see needsPrimaryDoiChoice) — HFH never has a DOI of its own, so with
+  // two possible DOI sources the user picks which one is primary (see the
+  // "choose primary DOI" screen below). Stays null (never asked)
+  // otherwise, and publishAllStart's own primary_doi_source ends up
+  // undefined, leaving the choice to the backend.
   const [primaryDoiSource, setPrimaryDoiSource] = useState<'zenodo' | 'b2share' | null>(
     resumeSession?.phase === 'publishing' ? resumeSession.primary_doi_source : null,
   )
@@ -547,7 +566,11 @@ export default function WizardPage({ resumeSession }: Props) {
   const sourceOptions = productType ? SOURCE_OPTIONS_BY_PRODUCT_TYPE[productType] : []
   const metadataComplete = summary !== null && missingRequiredFields(summary).length === 0
   const allConfigured = publishStarted && configureIndex >= publishOrder.length
-  const needsPrimaryDoiChoice = publishOrder.includes('hfh') && publishOrder.includes('zenodo') && publishOrder.includes('b2share')
+  // Camtrap DP only — for every other product type, HFH's primary DOI is
+  // always Zenodo's if selected, else B2SHARE's (decided by the backend,
+  // see publish_orchestrator._default_primary_doi_source).
+  const needsPrimaryDoiChoice = productType === 'camtrapdp'
+    && publishOrder.includes('hfh') && publishOrder.includes('zenodo') && publishOrder.includes('b2share')
   const readyToConfirm = allConfigured && (!needsPrimaryDoiChoice || primaryDoiSource !== null)
   // When HFH+GBIF are the only two repos selected, toggleRepo already forces
   // HFH first — so there's genuinely nothing to reorder for that specific
@@ -677,6 +700,7 @@ export default function WizardPage({ resumeSession }: Props) {
         repo: 'zenodo' as const, outputDir: cfg.outputDir, token: cfg.token,
         mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communities: cfg.communities,
         fitArchiveSize: cfg.fitArchiveSize, maxZipFile: cfg.maxZipFile, minImageEdge: cfg.minImageEdge,
+        existingDepositionId: cfg.existingDepositionId || undefined,
       }
     }
     if (repo === 'b2share') {
@@ -685,6 +709,7 @@ export default function WizardPage({ resumeSession }: Props) {
         repo: 'b2share' as const, outputDir: cfg.outputDir, token: cfg.token,
         mirrorImages: cfg.mirrorImages, outputMode: cfg.outputMode, environment: cfg.environment, communityId: cfg.communityId,
         fitArchiveSize: cfg.fitArchiveSize, maxZipFile: cfg.maxZipFile, minImageEdge: cfg.minImageEdge,
+        existingRecordId: cfg.existingRecordId || undefined,
       }
     }
     const cfg = repoConfigs.gbif!
@@ -824,12 +849,12 @@ export default function WizardPage({ resumeSession }: Props) {
     }
   }, [sourceType, trapperSelection, archiveSourceUrl, mediaIdDomainEdited])
 
-  // Camtrap DP only — settings.toml's own selectable publisher/
+  // Camtrap DP and YOLO — settings.toml's own selectable publisher/
   // rightsHolder organizations (see organizationOptions above), fetched
   // once on mount regardless of productType (cheap, and productType can
   // still change later via step 0's own product-type buttons).
   useEffect(() => {
-    api.camtrapdpOrganizations().then(setOrganizationOptions).catch(() => { /* dropdowns just stay empty */ })
+    api.organizations().then(setOrganizationOptions).catch(() => { /* dropdowns just stay empty */ })
   }, [])
 
   // Pre-fills datapackage.json's own name/title/description/homepage/
@@ -887,6 +912,29 @@ export default function WizardPage({ resumeSession }: Props) {
     }).catch(() => { /* best-effort — the fields just stay blank/editable */ })
   }, [download.status, download.path, productType, organizationOptions])
 
+  // YOLO's counterpart of the datapackage.json pre-fill above — same
+  // dependencies (including organizationOptions, for the publisher/rights
+  // holder defaults), so going Back and Next again never clobbers the
+  // user's edits.
+  useEffect(() => {
+    if (download.status !== 'done' || !download.path || productType !== 'yolo' || organizationOptions.length === 0) return
+    setYoloDataset(null)
+    setYoloDatasetError(null)
+    api.yoloDataYamlFields(download.path)
+      .then((fields) => {
+        const { metadata, warnings } = withOrganizationDefaults({
+          title: fields.title ?? '', description: fields.description ?? '', version: fields.version ?? '',
+          homepage: fields.homepage ?? '', license: initialLicense(fields.license),
+          authors: fields.authors.length > 0 ? fields.authors : [{ name: '', affiliation: '' }],
+          publisher: fields.publisher ?? null, copyright_holders: fields.copyright_holders ?? [],
+        }, organizationOptions)
+        setYoloDataset(fields)
+        setYoloMetadata(metadata)
+        setYoloOrganizationWarnings(warnings)
+      })
+      .catch((e) => setYoloDatasetError(e instanceof Error ? e.message : 'Could not read data.yaml.'))
+  }, [download.status, download.path, productType, organizationOptions])
+
   // Resuming a "preprocessed" session (see initialStepForPhase) lands
   // straight on step 3, skipping handleContinueToPreprocessing entirely —
   // preprocessing already ran, so there's no need to re-run
@@ -926,6 +974,9 @@ export default function WizardPage({ resumeSession }: Props) {
             ...dpContributors,
           ],
         })
+      }
+      if (productType === 'yolo') {
+        await api.updateYoloDataYaml(download.path, yoloMetadataForSave(yoloMetadata))
       }
       const newSummary = await api.generateProductMetadata(
         download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds, mediaIdDomain,
@@ -1317,8 +1368,23 @@ export default function WizardPage({ resumeSession }: Props) {
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
             {productType === 'camtrapdp'
               ? "Edit the package's own datapackage.json fields if needed, then choose any preprocessing before continuing."
-              : 'Ready to process this package.'}
+              : productType === 'yolo'
+                ? 'The dataset passed validation. Edit the descriptive metadata stored in data.yaml if needed before continuing.'
+                : 'Ready to process this package.'}
           </p>
+
+          {productType === 'yolo' && yoloDatasetError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{yoloDatasetError}</p>
+          )}
+          {productType === 'yolo' && !yoloDataset && !yoloDatasetError && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Reading data.yaml…</p>
+          )}
+          {productType === 'yolo' && yoloDataset && (
+            <YoloMetadataEditor
+              dataset={yoloDataset} value={yoloMetadata} onChange={setYoloMetadata}
+              organizations={organizationOptions} organizationWarnings={yoloOrganizationWarnings}
+            />
+          )}
 
           {productType === 'camtrapdp' && (
             <div className="space-y-4">
@@ -1838,6 +1904,7 @@ export default function WizardPage({ resumeSession }: Props) {
 
           {publishOrder[configureIndex] === 'hfh' && (
             <HFHPublishForm
+              productType={productType}
               productTitle={summary?.title}
               productVersion={summary?.version}
               dryRun={dryRun}
@@ -2094,8 +2161,18 @@ export default function WizardPage({ resumeSession }: Props) {
             </p>
           ) : (
             <>
-              {publishOrder.includes('zenodo') && <SyncDoiSection zenodoOutputDir={outputDirs.zenodo ?? ''} />}
-              {publishOrder.includes('b2share') && <SyncPidSection b2shareOutputDir={outputDirs.b2share ?? ''} />}
+              {/* Only for a Hugging Face Hub dataset published in some OTHER
+                  run: when HFH is part of this one, the backend's own DOI
+                  populate step already wrote Zenodo's DOI/B2SHARE's PID into
+                  its CITATION.cff/README.md before tagging it — this manual
+                  form would instead push to "main" after the tag, leaving
+                  the two out of sync. */}
+              {publishOrder.includes('zenodo') && !publishOrder.includes('hfh') && (
+                <SyncDoiSection zenodoOutputDir={outputDirs.zenodo ?? ''} />
+              )}
+              {publishOrder.includes('b2share') && !publishOrder.includes('hfh') && (
+                <SyncPidSection b2shareOutputDir={outputDirs.b2share ?? ''} />
+              )}
               {/* Unlike Zenodo/B2SHARE, GBIF doesn't always have a DOI to
                   sync — most organizations don't get one automatically (see
                   gbif.register_gbif_dataset) — so this only shows up when
@@ -2156,6 +2233,7 @@ export default function WizardPage({ resumeSession }: Props) {
               disabled={
                 preprocessing
                 || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid || organizationOptions.length === 0))
+                || (productType === 'yolo' && (!yoloDataset || !yoloMetadataValid(yoloMetadata) || organizationOptions.length === 0))
               }
             >
               {preprocessing && <SmallSpinner />}

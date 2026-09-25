@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { OutputMode } from '../types'
+import type { OutputMode, ProductType } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
@@ -26,6 +26,9 @@ export interface HfhPublishConfig {
 }
 
 interface Props {
+  /** Which product is being published — an AI Dataset ('yolo') has no
+   * Mirror/Link choice (see the Mode section below). */
+  productType?: ProductType | null
   /** metadata.json's title (see product.missing_required_fields), used to
    * prefill the repository name field — slugified (lowercased, spaces
    * stripped) since it's what's read as-is from the product. */
@@ -66,13 +69,13 @@ function slugifyRepoName(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '')
 }
 
-export default function HFHPublishForm({ productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function HFHPublishForm({ productType, productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
   const [form, setForm] = useState(() => {
     if (!initialConfig) return { outputDir: '', hfUser: '', repoName: '', token: '' }
     const [hfUser, repoName] = initialConfig.repoId.split('/')
     return { outputDir: initialConfig.outputDir, hfUser: hfUser ?? '', repoName: repoName ?? '', token: initialConfig.token }
   })
-  const [mirrorImages, setMirrorImages] = useState(initialConfig?.mirrorImages ?? true)
+  const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
   const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'passthrough')
   const [priv, setPriv] = useState(initialConfig?.priv ?? false)
   const [hasSavedToken, setHasSavedToken] = useState(false)
@@ -246,35 +249,45 @@ export default function HFHPublishForm({ productTitle, productVersion, dryRun, o
         )}
       </div>
 
-      <div className="mb-4">
-        <span className={labelClass}>Mode</span>
-        <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="hfh-mode"
-              className="mt-0.5"
-              checked={mirrorImages}
-              onChange={() => setMirrorImages(true)}
-            />
-            <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-              images and re-uploads them to Hugging Face Hub, rewriting media.csv to point to them.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="hfh-mode"
-              className="mt-0.5"
-              checked={!mirrorImages}
-              onChange={() => setMirrorImages(false)}
-            />
-            <span><strong>Link</strong> - the repository stores links to where the product's items
-              (the images) already live, instead of a copy; media.csv keeps pointing at the original
-              file locations.</span>
-          </label>
+      {productType === 'yolo' ? (
+        <div className="mb-4">
+          <span className={labelClass}>Mode</span>
+          <p className={hintClass}>
+            An AI Dataset's images and labels are always included in full — its images are local
+            files with no other host to link to, so Mirror and Link would be the same thing.
+          </p>
         </div>
-      </div>
+      ) : (
+        <div className="mb-4">
+          <span className={labelClass}>Mode</span>
+          <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="radio"
+                name="hfh-mode"
+                className="mt-0.5"
+                checked={mirrorImages}
+                onChange={() => setMirrorImages(true)}
+              />
+              <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
+                images and re-uploads them to Hugging Face Hub, rewriting media.csv to point to them.</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="radio"
+                name="hfh-mode"
+                className="mt-0.5"
+                checked={!mirrorImages}
+                onChange={() => setMirrorImages(false)}
+              />
+              <span><strong>Link</strong> - the repository stores links to where the product's items
+                (the images) already live, instead of a copy; media.csv keeps pointing at the original
+                file locations.</span>
+            </label>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4">
         <span className={labelClass}>Flow mode</span>

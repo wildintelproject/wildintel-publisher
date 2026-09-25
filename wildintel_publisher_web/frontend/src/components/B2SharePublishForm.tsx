@@ -48,6 +48,11 @@ export interface B2SharePublishConfig {
    * per-file upload cap" (20 GiB). */
   maxZipFile?: number
   minImageEdge: number
+  /** Id of an already-published B2SHARE record to create a proper linked
+   * NEW VERSION of (shares its parent id) — takes priority over creating a
+   * brand new, unrelated draft. Blank creates a new draft instead. Pick one
+   * from the "Search existing records" button below, or type it by hand. */
+  existingRecordId: string
 }
 
 interface Props {
@@ -87,8 +92,9 @@ export default function B2SharePublishForm({ dryRun, productType, onOutputDirCha
   const [form, setForm] = useState(() => ({
     outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
     environment: initialConfig?.environment ?? 'sandbox', communityId: initialConfig?.communityId ?? '',
+    existingRecordId: initialConfig?.existingRecordId ?? '',
   }))
-  const [mirrorImages, setMirrorImages] = useState(initialConfig?.mirrorImages ?? true)
+  const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
   const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'prepared')
   const [fitArchiveSize, setFitArchiveSize] = useState(initialConfig?.fitArchiveSize ?? true)
   const [maxZipFile, setMaxZipFile] = useState(initialConfig?.maxZipFile?.toString() ?? '')
@@ -96,6 +102,15 @@ export default function B2SharePublishForm({ dryRun, productType, onOutputDirCha
   const [hasSavedToken, setHasSavedToken] = useState(false)
 
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
+  // Results of the "Search existing records" button below (see
+  // handleSearchRecords) — the token's own published records on
+  // form.environment, so the user can pick an existingRecordId from a list
+  // instead of typing/tracking one by hand. Cleared (back to 'idle')
+  // whenever the environment changes, since a stale result list would no
+  // longer reflect it.
+  const [recordSearch, setRecordSearch] = useState<{
+    status: TestStatus; message: string; results: { id: string; title: string }[]
+  }>({ status: 'idle', message: '', results: [] })
 
   const b2shareTokenUrl = `https://${form.environment === 'sandbox' ? 'trng-b2share.eudat.eu' : 'b2share.eudat.eu'}/user/profile`
 
@@ -136,6 +151,9 @@ export default function B2SharePublishForm({ dryRun, productType, onOutputDirCha
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
     if (key === 'token') setTest({ status: 'idle', message: '' })
+    // A stale result list would no longer reflect the environment it was
+    // searched under.
+    if (key === 'environment') setRecordSearch({ status: 'idle', message: '', results: [] })
   }
 
   const canTest = form.token !== '' || hasSavedToken
@@ -143,6 +161,23 @@ export default function B2SharePublishForm({ dryRun, productType, onOutputDirCha
   const canContinue = dryRun
     ? form.outputDir !== ''
     : form.outputDir !== '' && form.communityId !== '' && (form.token !== '' || hasSavedToken)
+
+  async function handleSearchRecords() {
+    setRecordSearch({ status: 'testing', message: '', results: [] })
+    try {
+      const results = await api.b2shareRecords(form.environment, form.token)
+      setRecordSearch({
+        status: 'ok',
+        message: results.length === 0 ? 'No published records found yet.' : '',
+        results,
+      })
+    } catch (e) {
+      setRecordSearch({
+        status: 'error', results: [],
+        message: e instanceof Error ? e.message : 'Could not search for existing records.',
+      })
+    }
+  }
 
   async function handleTestToken() {
     setTest({ status: 'testing', message: '' })
@@ -161,6 +196,7 @@ export default function B2SharePublishForm({ dryRun, productType, onOutputDirCha
       mirrorImages, outputMode, outputDir: form.outputDir,
       fitArchiveSize, maxZipFile: maxZipFile !== '' ? Number(maxZipFile) : undefined,
       minImageEdge: minImageEdge !== '' ? Number(minImageEdge) : 640,
+      existingRecordId: form.existingRecordId,
     })
   }
 
@@ -244,44 +280,107 @@ export default function B2SharePublishForm({ dryRun, productType, onOutputDirCha
         )}
       </div>
 
-      <div className="mb-4">
-        <span className={labelClass}>Mode</span>
-        <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="b2share-mode"
-              className="mt-0.5"
-              checked={mirrorImages}
-              onChange={() => setMirrorImages(true)}
-            />
-            {productType === 'software' ? (
-              <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
-                CITATION.cff) into a single zip.</span>
-            ) : (
-              <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-                public images and bundles them inside B2SHARE's own camtrapdp.zip.</span>
-            )}
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="b2share-mode"
-              className="mt-0.5"
-              checked={!mirrorImages}
-              onChange={() => setMirrorImages(false)}
-            />
-            {productType === 'software' ? (
-              <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
-                citing the GitHub repository directly — the source code itself is not copied here.</span>
-            ) : (
-              <span><strong>Link</strong> - the repository stores links to where the product's items
-                (the images) already live on Hugging Face Hub, instead of a copy.</span>
-            )}
-          </label>
+      <div className="mb-6">
+        <label className={labelClass} htmlFor="b2share-existing-record-id">
+          B2SHARE record ID (leave blank to create a new draft)
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="b2share-existing-record-id"
+            className={inputClass}
+            placeholder="Record id — leave blank to create a new draft"
+            value={form.existingRecordId}
+            onChange={(e) => setField('existingRecordId', e.target.value)}
+          />
+          <button
+            type="button" className={btnOutline}
+            disabled={!canTest || recordSearch.status === 'testing'}
+            onClick={handleSearchRecords}
+          >
+            {recordSearch.status === 'testing' && <SmallSpinner />}
+            {recordSearch.status === 'testing' ? 'Searching…' : 'Search existing records'}
+          </button>
         </div>
+        <p className={hintClass}>
+          Publishing this run creates a proper linked new version of that exact record instead of
+          an unrelated one — takes priority over creating a brand new draft. Search looks up your
+          own already-published records on the selected environment.
+        </p>
+        {recordSearch.status === 'error' && (
+          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{recordSearch.message}</p>
+        )}
+        {recordSearch.status === 'ok' && recordSearch.message && (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{recordSearch.message}</p>
+        )}
+        {recordSearch.status === 'ok' && recordSearch.results.length > 0 && (
+          <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
+            {recordSearch.results.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setField('existingRecordId', r.id)
+                    setRecordSearch({ status: 'idle', message: '', results: [] })
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                >
+                  <div className="text-zinc-900 dark:text-zinc-100">{r.title}</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{r.id}</div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+
+      {productType === 'yolo' ? (
+        <div className="mb-4">
+          <span className={labelClass}>Mode</span>
+          <p className={hintClass}>
+            An AI Dataset's images and labels are always included in full — its images are local
+            files with no other host to link to, so Mirror and Link would be the same thing.
+          </p>
+        </div>
+      ) : (
+        <div className="mb-4">
+          <span className={labelClass}>Mode</span>
+          <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="radio"
+                name="b2share-mode"
+                className="mt-0.5"
+                checked={mirrorImages}
+                onChange={() => setMirrorImages(true)}
+              />
+              {productType === 'software' ? (
+                <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
+                  CITATION.cff) into a single zip.</span>
+              ) : (
+                <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
+                  public images and bundles them inside B2SHARE's own camtrapdp.zip.</span>
+              )}
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="radio"
+                name="b2share-mode"
+                className="mt-0.5"
+                checked={!mirrorImages}
+                onChange={() => setMirrorImages(false)}
+              />
+              {productType === 'software' ? (
+                <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
+                  citing the GitHub repository directly — the source code itself is not copied here.</span>
+              ) : (
+                <span><strong>Link</strong> - the repository stores links to where the product's items
+                  (the images) already live on Hugging Face Hub, instead of a copy.</span>
+              )}
+            </label>
+          </div>
+        </div>
+      )}
 
       {showArchiveSizeOptions && (
         <div className="mb-4">

@@ -48,3 +48,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/integration"]
+markers = [
+  "real_default_preview: runs zenodo.set_default_preview for real instead of test_zenodo_cli.py's autouse no-op",
+]

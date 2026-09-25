@@ -133,6 +133,22 @@ def _b2share_base_url(environment: str) -> str:
     return "https://trng-b2share.eudat.eu" if environment == "sandbox" else "https://b2share.eudat.eu"
 
 
+def search_records(environment: str, token: str, query: str | None) -> list[dict]:
+    """Thin wrapper around wildintel_publisher.services.b2share.
+    search_my_records — B2SharePublishForm's own "Search existing records"
+    button, so the user can pick an existing_record_id from a list instead
+    of typing/tracking one by hand.
+
+    Returns:
+        A list of {"id", "title"}.
+
+    Raises:
+        RuntimeError: if the token is invalid, or the API call itself fails.
+    """
+    api_base_url = f"{_b2share_base_url(environment)}/api"
+    return b2share_service.search_my_records(api_base_url, token, query=query)
+
+
 def download_files_from_b2share(*, environment: str, record_id: str, token: str, target_dir: Path) -> Path:
     """Downloads the record's current files (the ones that were just
     uploaded/published) into `target_dir` — used by output_mode='downloaded'
@@ -148,6 +164,36 @@ def download_files_from_b2share(*, environment: str, record_id: str, token: str,
         if not filename or not download_url:
             continue
         response = httpx.get(download_url, headers={"Authorization": f"Bearer {token}"}, timeout=300)
+        response.raise_for_status()
+        (target_dir / filename).write_bytes(response.content)
+    return target_dir
+
+
+def download_draft_files_from_b2share(*, environment: str, record_id: str, token: str, target_dir: Path) -> Path:
+    """Downloads a NOT-YET-PUBLISHED draft's current files — used by
+    services.publish_orchestrator's own chain (output_mode="downloaded",
+    which runs BEFORE the repo is ever locked/published — see its own
+    docstring), unlike download_files_from_b2share above (the published
+    record's own endpoint, which 404s on a still-draft record).
+
+    A draft's own files live under files.entries (a dict keyed by
+    filename), not a list like the published record's own "files" field —
+    see upload_to_b2share's own already_uploaded computation for the same
+    shape. Rather than trust an unverified "links" field on that response
+    for a draft, this builds the exact same ".../draft/files/{key}/content"
+    URL wildintel_publisher.services.b2share.upload_file itself already
+    uses to WRITE each file — GET on that same URL is the InvenioRDM
+    convention for reading a draft file's own bytes back (its DELETE
+    counterpart is documented; this wasn't separately verified end-to-end
+    against a real B2SHARE instance, same caveat as this module's own
+    reserve_doi)."""
+    api_base_url = f"{_b2share_base_url(environment)}/api"
+    record = b2share_service.get_record(api_base_url, token, record_id, draft=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    entries = (record.get("files") or {}).get("entries") or {}
+    for filename in entries:
+        url = f"{api_base_url}/records/{record_id}/draft/files/{filename}/content"
+        response = httpx.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=300)
         response.raise_for_status()
         (target_dir / filename).write_bytes(response.content)
     return target_dir

@@ -79,8 +79,9 @@
   them, with a single live progress view per repository.
 - **Cross-repository DOI reflection**, unique to the web app — whatever DOI Zenodo
   and/or B2SHARE each manage to reserve gets cross-referenced into the *other's*
-  `CITATION.cff` before either one locks, and if all three repositories are selected
-  together, you're asked which one Hugging Face Hub (which never has a DOI of its own)
-  should treat as primary.
+  `CITATION.cff` before either one locks. Hugging Face Hub (which never has a DOI of its
+  own) cites Zenodo's as primary, or B2SHARE's without Zenodo — except for Camtrap DP,
+  where you're asked which one if all three repositories are selected together.
 - **"Sync DOI/PID to Hugging Face Hub"** as an in-wizard action right after Zenodo/
-  B2SHARE finish, instead of a separate command run later by hand.
+  B2SHARE finish, for a Hugging Face Hub dataset published in another run, instead of a
+  separate command run later by hand.

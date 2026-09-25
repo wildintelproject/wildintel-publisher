@@ -174,7 +174,10 @@ def test_sync_doi_success(tmp_path):
 
     assert response.status_code == 200
     assert response.json() == {"doi": "10.21373/eet8jz", "repo_url": "https://huggingface.co/datasets/alice/dataset"}
-    mock_sync.assert_called_once_with(gbif_output_dir=tmp_path / "gbif", hfh_output_dir=tmp_path / "hfh")
+    mock_sync.assert_called_once_with(
+        gbif_output_dir=tmp_path / "gbif", hfh_output_dir=tmp_path / "hfh",
+        checksums_path=tmp_path / "hfh" / "checksums-sha256.txt",
+    )
     mock_upload_file.assert_not_called()  # no CITATION.cff/checksums exist under tmp_path in this test
 
 

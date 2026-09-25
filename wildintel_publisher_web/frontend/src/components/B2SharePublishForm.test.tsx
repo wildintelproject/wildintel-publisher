@@ -8,6 +8,7 @@ vi.mock('../api', () => ({
   api: {
     b2shareGetConfig: vi.fn(),
     b2shareTestToken: vi.fn(),
+    b2shareRecords: vi.fn(),
     b2shareSyncPid: vi.fn(),
     hfhGetConfig: vi.fn(),
   },
@@ -104,7 +105,90 @@ describe('B2SharePublishForm', () => {
       token: 'b2_x', environment: 'sandbox', communityId: 'uuid-1',
       mirrorImages: false, outputMode: 'prepared', outputDir: '/b2share/output',
       fitArchiveSize: true, maxZipFile: undefined, minImageEdge: 640,
+      existingRecordId: '',
     })
+  })
+
+  it('keeps "Search existing records" disabled until a token is typed', async () => {
+    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.getByRole('button', { name: /search existing records/i })).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    expect(screen.getByRole('button', { name: /search existing records/i })).toBeEnabled()
+  })
+
+  it('lists results and fills the record id when one is picked', async () => {
+    mockedApi.b2shareRecords.mockResolvedValue([
+      { id: 'rec-1', title: 'Camera Trap Survey v1' },
+      { id: 'rec-2', title: 'Camera Trap Survey v2' },
+    ])
+    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
+
+    expect(mockedApi.b2shareRecords).toHaveBeenCalledWith('sandbox', 'b2_x')
+    await screen.findByText('Camera Trap Survey v1')
+    expect(screen.getByText('Camera Trap Survey v2')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Camera Trap Survey v1'))
+
+    expect(screen.getByLabelText('B2SHARE record ID (leave blank to create a new draft)')).toHaveValue('rec-1')
+    // The results list collapses once a pick is made.
+    expect(screen.queryByText('Camera Trap Survey v2')).not.toBeInTheDocument()
+  })
+
+  it('reports no records found instead of an empty, silent list', async () => {
+    mockedApi.b2shareRecords.mockResolvedValue([])
+    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
+
+    expect(await screen.findByText('No published records found yet.')).toBeInTheDocument()
+  })
+
+  it('shows an error message when the search itself fails', async () => {
+    mockedApi.b2shareRecords.mockRejectedValue(new Error('B2SHARE returned an unexpected error.'))
+    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
+
+    expect(await screen.findByText('B2SHARE returned an unexpected error.')).toBeInTheDocument()
+  })
+
+  it('clears stale results when the environment changes', async () => {
+    mockedApi.b2shareRecords.mockResolvedValue([{ id: 'rec-1', title: 'Camera Trap Survey v1' }])
+    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
+    await screen.findByText('Camera Trap Survey v1')
+
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.queryByText('Camera Trap Survey v1')).not.toBeInTheDocument()
+  })
+
+  it('sends the typed existing record id when Continue is clicked', async () => {
+    const onConfigured = vi.fn()
+    render(<B2SharePublishForm onConfigured={onConfigured} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
+    await userEvent.type(
+      screen.getByLabelText('B2SHARE record ID (leave blank to create a new draft)'), 'rec-old',
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({ existingRecordId: 'rec-old' }))
   })
 
   it('uses Camtrap DP wording for the Mode section when productType is omitted', async () => {

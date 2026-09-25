@@ -53,6 +53,11 @@ class ProductAdapter(Protocol):
     the web backend, same as the rest of the publish pipeline)."""
 
     product_type: str
+    # True when Mirror and Link can't mean anything different for this
+    # product (YOLO: its images are plain local files, with no external
+    # host a Link-mode export could point at instead) — every repo's
+    # prepare/upload then always behaves as Mirror, whatever was asked for.
+    always_mirror: bool
 
     def validate(self, input_dir: Path) -> None:
         """Raises RuntimeError if input_dir doesn't look like a valid

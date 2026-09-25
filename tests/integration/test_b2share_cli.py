@@ -480,6 +480,52 @@ def test_b2share_upload_resumes_by_skipping_files_the_draft_already_has(camtrapd
     assert "CITATION.cff" in uploaded_filenames
 
 
+def test_b2share_upload_with_existing_record_id_creates_a_linked_new_version(camtrapdp_dir, tmp_path, monkeypatch):
+    """--existing-record-id (only consulted when there's no
+    b2share_record.json yet) creates a proper InvenioRDM NEW VERSION via
+    POST .../versions — a draft linked to the given (already-published)
+    record, not an unrelated fresh one. Its own metadata (inherited as a
+    copy of the previous version's, per InvenioRDM's own docs) must be
+    refreshed with this run's own before files are uploaded."""
+    monkeypatch.setenv("B2SHARE_TOKEN", "faketoken")
+    output_dir = _prepared_b2share_export(camtrapdp_dir, tmp_path, self_contained=False)
+
+    new_draft = {"id": "rec-new", "links": {}, "pids": {}}
+    metadata_put_bodies = []
+    uploaded_filenames = []
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/records/rec-old/versions"):
+            return _fake_response(201, new_draft)
+        if url.endswith("/draft/pids/doi"):
+            return _fake_response(400, {"message": "DOI reservation not available"})
+        if url.endswith("/draft/files") or url.endswith("/commit"):
+            return _fake_response(201, {})
+        raise AssertionError(f"unexpected POST {url}")
+
+    def fake_put(url, **kwargs):
+        if url.endswith("/records/rec-new/draft"):
+            metadata_put_bodies.append(kwargs.get("json"))
+            return _fake_response(200, new_draft)
+        if "/draft/files/" in url and url.endswith("/content"):
+            key = url.split("/draft/files/", 1)[1].rsplit("/content", 1)[0]
+            uploaded_filenames.append(key)
+        return _fake_response(200, {})
+
+    with patch("httpx.post", side_effect=fake_post), patch("httpx.put", side_effect=fake_put):
+        result = runner.invoke(app, [
+            "b2share", "upload", "--output-dir", str(output_dir), "--community-id", "uuid-1",
+            "--existing-record-id", "rec-old",
+        ])
+
+    assert result.exit_code == 0, result.output
+    assert len(metadata_put_bodies) == 1
+    assert metadata_put_bodies[0]["metadata"]["title"]  # this run's own metadata, not empty
+    assert "README.md" in uploaded_filenames
+    record = json.loads((output_dir / "b2share_record.json").read_text(encoding="utf-8"))
+    assert record["record_id"] == "rec-new"
+
+
 def test_b2share_upload_without_token_reports_error(camtrapdp_dir, tmp_path, monkeypatch):
     monkeypatch.delenv("B2SHARE_TOKEN", raising=False)
     output_dir = _prepared_b2share_export(camtrapdp_dir, tmp_path)
@@ -511,6 +557,31 @@ def test_b2share_sync_pid_reports_pending_when_no_pid_yet(camtrapdp_dir, tmp_pat
 
     assert result.exit_code == 0
     assert "pending approval" in result.output
+
+
+def test_b2share_search_my_records_lists_published_ones_scoped_to_the_token():
+    """Backs the wizard's own 'Search existing records' button (see
+    services.b2share_service.search_records) — GET /api/user/records is
+    always scoped to the caller's own token, filtered to is_published:true
+    via InvenioRDM's own Elasticsearch query-string syntax (no dedicated
+    'status' parameter for this endpoint)."""
+    from wildintel_publisher.services.b2share import search_my_records
+
+    def fake_get(url, **kwargs):
+        assert url.endswith("/user/records")
+        assert kwargs["params"]["q"] == "is_published:true AND (camera trap)"
+        return _fake_response(200, {"hits": {"hits": [
+            {"id": "rec-1", "metadata": {"title": "Camera Trap Survey v1"}},
+            {"id": "rec-2", "metadata": {}},
+        ]}})
+
+    with patch("httpx.get", side_effect=fake_get):
+        results = search_my_records("https://trng-b2share.eudat.eu/api", "faketoken", query="camera trap")
+
+    assert results == [
+        {"id": "rec-1", "title": "Camera Trap Survey v1"},
+        {"id": "rec-2", "title": "(untitled)"},
+    ]
 
 
 # ── software application: reference-only ("link") mode ──────────────────────

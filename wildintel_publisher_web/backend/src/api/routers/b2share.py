@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from schemas.requests import B2SharePublishRequest, B2ShareSyncPidRequest, B2ShareTestTokenRequest
+from schemas.requests import B2ShareRecordsRequest, B2SharePublishRequest, B2ShareSyncPidRequest, B2ShareTestTokenRequest
 from services import b2share_service, hfh_service
 
 router = APIRouter(prefix="/api/b2share", tags=["b2share"])
@@ -88,6 +88,23 @@ def publish_status(task_id: str) -> dict:
     if status is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")
     return status
+
+
+@router.post("/records")
+def records(req: B2ShareRecordsRequest) -> list[dict]:
+    """Published records belonging to the caller's own token, on
+    req.environment (sandbox/production) — B2SharePublishForm's own
+    "Search existing records" button, so the user can pick an
+    existing_record_id from a list instead of typing/tracking one by hand."""
+    try:
+        token = b2share_service.resolve_token(req.token)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    try:
+        return b2share_service.search_records(req.environment, token, req.query)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/sync-pid")

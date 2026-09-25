@@ -254,6 +254,39 @@ def test_publish_output_mode_downloaded_fetches_files_from_b2share(tmp_path):
     mock_get.assert_called_once()
 
 
+def test_download_draft_files_from_b2share_reads_the_dict_shaped_entries_and_builds_the_content_url(tmp_path):
+    """Unlike a published record's own list-shaped "files" (see
+    download_files_from_b2share's own test above, "files": [...]), a
+    still-draft record's own files live under files.entries, a dict keyed
+    by filename — this must build the same .../draft/files/{key}/content
+    URL upload_file itself already uses to WRITE each file, not trust an
+    unverified "links" field on the draft's own response."""
+    from services.b2share_service import download_draft_files_from_b2share
+
+    fake_draft_record = {
+        "id": "rec-1", "files": {"entries": {"README.md": {"key": "README.md"}}},
+    }
+    fake_file_response = MagicMock(status_code=200, content=b"# hello draft")
+    fake_file_response.raise_for_status.return_value = None
+    target_dir = tmp_path / "downloaded"
+
+    with (
+        patch("services.b2share_service.b2share_service.get_record", return_value=fake_draft_record) as mock_get_record,
+        patch("services.b2share_service.httpx.get", return_value=fake_file_response) as mock_get,
+    ):
+        result = download_draft_files_from_b2share(
+            environment="sandbox", record_id="rec-1", token="b2_x", target_dir=target_dir,
+        )
+
+    assert result == target_dir
+    assert (target_dir / "README.md").read_bytes() == b"# hello draft"
+    mock_get_record.assert_called_once_with("https://trng-b2share.eudat.eu/api", "b2_x", "rec-1", draft=True)
+    mock_get.assert_called_once_with(
+        "https://trng-b2share.eudat.eu/api/records/rec-1/draft/files/README.md/content",
+        headers={"Authorization": "Bearer b2_x"}, timeout=300,
+    )
+
+
 def test_publish_output_mode_downloaded_falls_back_to_prepared_when_pid_pending(tmp_path):
     """If B2SHARE hasn't assigned a PID yet (pending moderator approval),
     there's nothing published to download from — the prepared directory is
@@ -328,6 +361,33 @@ def test_publish_falls_back_to_saved_token_and_community_when_blank(tmp_path):
 
     assert mock_upload.call_args.kwargs["token"] == "b2_saved"
     assert mock_upload.call_args.kwargs["community_id"] == "uuid-saved"
+
+
+def test_records_returns_the_results():
+    fake_records = [{"id": "rec-1", "title": "Camera Trap Survey v1"}, {"id": "rec-2", "title": "(untitled)"}]
+    with patch(
+        "services.b2share_service.b2share_service.search_my_records", return_value=fake_records,
+    ) as mock_search:
+        response = _client().post("/api/b2share/records", json={
+            "environment": "sandbox", "token": "b2_x", "query": "camera trap",
+        })
+    assert response.status_code == 200
+    assert response.json() == fake_records
+    mock_search.assert_called_once_with("https://trng-b2share.eudat.eu/api", "b2_x", query="camera trap")
+
+
+def test_records_requires_a_token_when_none_saved():
+    response = _client().post("/api/b2share/records", json={"environment": "sandbox"})
+    assert response.status_code == 400
+
+
+def test_records_maps_runtime_error_to_400():
+    with patch(
+        "services.b2share_service.b2share_service.search_my_records",
+        side_effect=RuntimeError("List existing B2SHARE records failed. HTTP status=401."),
+    ):
+        response = _client().post("/api/b2share/records", json={"environment": "sandbox", "token": "b2_bad"})
+    assert response.status_code == 400
 
 
 def test_sync_pid_success_with_pid(tmp_path):

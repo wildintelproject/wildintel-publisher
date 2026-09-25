@@ -17,13 +17,11 @@ interface CheckState {
   status: CheckStatus
   summary: DatapackageSummary | null
   error: string | null
-  // Only meaningfully different from the typed `path` for productType ===
-  // 'camtrapdp': the app-owned working copy of just the core files (see
-  // api.resolveLocalSource) that the rest of the wizard should actually use
-  // as input_dir from here on, so it never mutates the user's own
-  // directory. For every other product type (e.g. yolo, which has no
-  // "small core files vs. media" split, and whose adapter's
-  // anonymize/randomize are no-ops anyway), this is just `path` itself.
+  // The app-owned working copy (see api.resolveLocalSource/
+  // api.yoloResolveLocalSource) that the rest of the wizard should actually
+  // use as input_dir from here on, so it never mutates the user's own
+  // directory: just the core files for Camtrap DP, just data.yaml (plus a
+  // pointer back to `path` for images/labels) for YOLO.
   workingDir: string | null
 }
 
@@ -34,13 +32,10 @@ export interface LocalSourceSelection {
    * locally-referenced media (media.csv's filePath) can still be found at
    * publish time, without ever having been copied. */
   sourcePath: string
-  /** The session this resolve started (see api.resolveLocalSource) — same
-   * role as WizardPage's own sessionTaskId for a Trapper/git/archive
-   * source, threaded the same way into generateProductMetadata/
-   * publishAllStart from here on. undefined for productType !== 'camtrapdp'
-   * (yolo works directly on `path`, with no working copy of its own to
-   * protect — see the effect below — so there's nothing to hang a session
-   * off of). */
+  /** The session this resolve started (see api.resolveLocalSource/
+   * api.yoloResolveLocalSource) — same role as WizardPage's own
+   * sessionTaskId for a Trapper/git/archive source, threaded the same way
+   * into generateProductMetadata/publishAllStart from here on. */
   sessionTaskId?: string
 }
 
@@ -99,34 +94,30 @@ export default function LocalDirectoryForm({ productType, onSelectionChange, ini
         })
 
     const handle = setTimeout(() => {
-      if (productType === 'camtrapdp') {
-        // Copy just datapackage.json + its 3 tables into an app-owned
-        // working directory first (never mutate `path` itself — see
-        // services.camtrapdp_source.resolve_local_camtrapdp_source), then
-        // preview/write metadata.json into THAT copy.
-        api.resolveLocalSource(path, sessionTaskIdRef.current)
-          .then((res) => {
-            sessionTaskIdRef.current = res.taskId
-            if (cancelled) return
-            if (res.status === 'valid' && res.workingDir) {
-              return generatePreview(res.workingDir, res.taskId)
-            }
-            setCheck({ status: 'invalid', summary: null, workingDir: null, error: res.error ?? 'Not a valid Camtrap DP package.' })
-          })
-          .catch((e) => {
-            if (!cancelled) {
-              setCheck({
-                status: 'invalid', summary: null, workingDir: null,
-                error: e instanceof Error ? e.message : 'Could not read this directory.',
-              })
-            }
-          })
-      } else {
-        // Other product types (yolo) have no core-files/media split and no
-        // in-place mutation risk (their adapter's anonymize/randomize are
-        // no-ops) — keep working directly on `path`, as before.
-        generatePreview(path)
-      }
+      // Copy just the small files (Camtrap DP: datapackage.json + its 3
+      // tables; YOLO: data.yaml) into an app-owned working directory first
+      // (never mutate `path` itself — see services.camtrapdp_source.
+      // resolve_local_camtrapdp_source/yolo_adapter.create_working_copy),
+      // then preview/write metadata.json into THAT copy.
+      const resolve = productType === 'yolo' ? api.yoloResolveLocalSource : api.resolveLocalSource
+      resolve(path, sessionTaskIdRef.current)
+        .then((res) => {
+          sessionTaskIdRef.current = res.taskId
+          if (cancelled) return
+          if (res.status === 'valid' && res.workingDir) {
+            return generatePreview(res.workingDir, res.taskId)
+          }
+          const fallback = productType === 'yolo' ? 'Not a valid YOLO dataset.' : 'Not a valid Camtrap DP package.'
+          setCheck({ status: 'invalid', summary: null, workingDir: null, error: res.error ?? fallback })
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            setCheck({
+              status: 'invalid', summary: null, workingDir: null,
+              error: e instanceof Error ? e.message : 'Could not read this directory.',
+            })
+          }
+        })
     }, 400)
     return () => { cancelled = true; clearTimeout(handle) }
   }, [path, productType])

@@ -11,7 +11,7 @@ vi.mock('../api', () => ({
     gbifValidateArchive: vi.fn(),
     gbifSyncDoi: vi.fn(),
     hfhGetConfig: vi.fn(),
-    camtrapdpOrganizations: vi.fn(),
+    organizations: vi.fn(),
     gbifOrganizationDatasets: vi.fn(),
     gbifInstallations: vi.fn(),
   },
@@ -30,7 +30,7 @@ beforeEach(() => {
   // No organizations/installations have a GBIF key configured by default —
   // both quick-fill dropdowns then stay hidden, same as before this
   // feature existed, unless a test opts in with its own mockResolvedValue.
-  mockedApi.camtrapdpOrganizations.mockResolvedValue([])
+  mockedApi.organizations.mockResolvedValue([])
   mockedApi.gbifInstallations.mockResolvedValue([])
 })
 
@@ -222,7 +222,7 @@ describe('GBIFPublishForm', () => {
 
 describe('GBIFPublishForm organization quick-fill', () => {
   it('offers only organizations with a key for the current environment, and fills the UUID on selection', async () => {
-    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+    mockedApi.organizations.mockResolvedValue([
       { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
       { title: 'University of Huelva', path: 'https://www.uhu.es/', email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: 'prod-uuid-2' },
     ])
@@ -241,7 +241,7 @@ describe('GBIFPublishForm organization quick-fill', () => {
   })
 
   it('follows the selected organization across an environment switch, using its own key for the new one', async () => {
-    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+    mockedApi.organizations.mockResolvedValue([
       { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
     ])
     render(<GBIFPublishForm onConfigured={vi.fn()} />)
@@ -255,7 +255,7 @@ describe('GBIFPublishForm organization quick-fill', () => {
   })
 
   it('stops following the selected organization once the UUID is edited by hand', async () => {
-    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+    mockedApi.organizations.mockResolvedValue([
       { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
     ])
     render(<GBIFPublishForm onConfigured={vi.fn()} />)
@@ -334,7 +334,7 @@ describe('GBIFPublishForm installation quick-fill', () => {
   })
 
   it('keeps the organization and installation dropdowns independent of each other', async () => {
-    mockedApi.camtrapdpOrganizations.mockResolvedValue([
+    mockedApi.organizations.mockResolvedValue([
       { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', email: null, gbif_sandbox_organization_key: 'org-uuid-1', gbif_production_organization_key: null },
     ])
     mockedApi.gbifInstallations.mockResolvedValue([

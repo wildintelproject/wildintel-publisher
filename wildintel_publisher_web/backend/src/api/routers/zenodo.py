@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from schemas.requests import ZenodoPublishRequest, ZenodoSyncDoiRequest, ZenodoTestTokenRequest
+from schemas.requests import ZenodoDepositionsRequest, ZenodoPublishRequest, ZenodoSyncDoiRequest, ZenodoTestTokenRequest
 from services import hfh_service, zenodo_service
 
 router = APIRouter(prefix="/api/zenodo", tags=["zenodo"])
@@ -86,6 +86,24 @@ def publish_status(task_id: str) -> dict:
     if status is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")
     return status
+
+
+@router.post("/depositions")
+def depositions(req: ZenodoDepositionsRequest) -> list[dict]:
+    """Published depositions belonging to the caller's own token, on
+    req.environment (sandbox/production) — ZenodoPublishForm's own "Search
+    existing depositions" button, so the user can pick an
+    existing_deposition_id from a list instead of typing/tracking a numeric
+    id by hand."""
+    try:
+        token = zenodo_service.resolve_token(req.token)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    try:
+        return zenodo_service.search_depositions(req.environment, token, req.query)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/sync-doi")

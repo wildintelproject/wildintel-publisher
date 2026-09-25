@@ -132,6 +132,32 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   error instead of letting the much later upload silently fail once it hits the platform's
   own cap.
 
+- Web: an AI Dataset (YOLO) now gets the same metadata step as Camtrap DP. Its local
+  directory is never modified: the wizard works on a session copy of `data.yaml` (images
+  and labels keep being read from the original), shows the dataset's classes, images per
+  split and validation warnings, and edits the descriptive keys this tool adds to
+  `data.yaml` — title, description, version, homepage, license (picked from a list of
+  common ones, CC-BY-NC-4.0 by default), authors, publisher and rights holder.
+- CLI/Web: YOLO datasets are now validated with Pydantic before publishing: `data.yaml`
+  (split paths under `images/`, `nc` matching `names`, a `names` mapping with consecutive
+  ids) and every line of every `labels/` file (class id within `nc`, normalized
+  coordinates in [0, 1], a box or a polygon), reporting the file and line of the first
+  problems. Images without labels, labels without images, non-image files and a declared
+  but empty `test` split are warnings, not errors.
+- CLI/Web: a YOLO `data.yaml` can carry `publisher` and `copyright_holders`, credited in
+  `CITATION.cff`'s `preferred-citation` and the README's citation line, like a Camtrap
+  DP's publisher/rightsHolder contributors.
+- CLI/Web: the YOLO README has a new "Dataset statistics" section (images, labeled images
+  and objects per split, objects per class), and its "Contributing" section points at the
+  dataset's own `homepage` — left out when there is none.
+- CLI/Web: a YOLO split with more than 10,000 files in one folder is spread, on Hugging
+  Face Hub only, over hash-named subfolders (`images/train/3f/…`, labels alongside) to
+  stay under Hugging Face Hub's per-folder limit — still valid YOLO. Everything
+  downstream (the next repository in the chain, local output folders) gets the original
+  layout back.
+- CLI/Web: Zenodo records now show `README.md` as their default file preview instead of
+  `checksums-sha256.txt`, the first previewable file alphabetically.
+
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four
   files loose at the zip's own root — GBIF's `CAMTRAP_DP` crawler unpacks the archive and
@@ -230,6 +256,16 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   unpatched file (the one GBIF's own crawler will actually fetch) was still missing
   `"profile"`. It now raises instead whenever that field is missing there.
 
+- CLI/Web: publishing a new version to an existing Hugging Face Hub dataset left the
+  previous version's files that the new one no longer has (removed images, files this
+  tool no longer generates) on `main` and inside the new version's tag. Each upload now
+  replaces the repository's contents; earlier versions stay intact under their own tags.
+  Its commit message also no longer says "Camtrap DP" for every product type.
+- Web: resuming a session interrupted while a repository was being published
+  (released/tagged) re-prepared and re-uploaded that repository from scratch.
+- CLI/Web: the Zenodo/B2SHARE README of a YOLO dataset said `yolo.zip` only held
+  `data.yaml` and `images/` — it also holds `labels/`.
+
 ### Changed
 - Web: restrict the Camtrap DP wizard to Hugging Face Hub and GBIF only (Zenodo and
   B2SHARE remain available for Camtrap DP via the CLI).
@@ -292,6 +328,28 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   in **Mirror** mode — resizing was already happening by default even from the web app
   (the backend always defaulted to it regardless of UI), but there was previously no way
   to see, disable, or tune it from the wizard itself.
+
+- CLI/Web: the organizations offered as publisher/rights holder (and as GBIF's publishing
+  organization) moved from `settings.toml`'s `[[CAMTRAPDP.organizations]]` to
+  `[[PRODUCT.organizations]]`, shared by every product type. An existing
+  `[[CAMTRAPDP.organizations]]` list keeps being read as before.
+- CLI/Web: Mirror and Link are now the same for YOLO — the whole dataset (`data.yaml`,
+  `images/`, `labels/`) is always published: loose on Hugging Face Hub, bundled into
+  `yolo.zip` on Zenodo/B2SHARE. The wizard no longer offers the choice for it, and Hugging
+  Face Hub no longer gets a duplicate `yolo-local.zip`.
+- Web: for every product type except Camtrap DP, Hugging Face Hub now always cites
+  Zenodo's DOI as primary (B2SHARE's without Zenodo), without asking.
+- Web: the "Sync DOI/PID to Hugging Face Hub" forms on the final screen now only show up
+  when Hugging Face Hub isn't part of the same run — when it is, the DOI/PID is already
+  cross-referenced automatically before its version is tagged.
+- Web: each repository's output folder is now filled right after the DOI cross-referencing
+  step, before any repository is locked, and its build folder, the copy handed to the
+  next repository and the shared media cache are deleted right after — a session no
+  longer keeps every repository's full copy of the images until the very end.
+- CLI/Web: the YOLO README on Hugging Face Hub no longer has a "Hugging Face repository"
+  section.
+- Web: `wildintel-publisher-web dev` now also reloads on changes to the
+  `wildintel_publisher` package, not just the web backend itself.
 
 ## Released
 

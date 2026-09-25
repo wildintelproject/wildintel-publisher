@@ -220,8 +220,9 @@ If your new repository *does* provide its own DOI/PID:
 
 If it doesn't provide a DOI (like Hugging Face Hub), leave `PROVIDES_DOI = False` and
 skip all of the above — `doi_populate.populate()` treats your repository purely as a DOI
-*destination*, cross-referencing others' DOIs into your `CITATION.cff`, and (if it's the
-only repository without its own DOI) asking the user which one should be primary.
+*destination*, cross-referencing others' DOIs into your `CITATION.cff`, with one of them
+as primary (`primary_doi_source` — Zenodo's, else B2SHARE's, by default; see
+`publish_orchestrator._default_primary_doi_source`; the wizard asks only for Camtrap DP).
 
 ### `common.py` helpers to reuse rather than reimplement
 

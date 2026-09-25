@@ -46,7 +46,9 @@ If you publish Zenodo separately from Hugging Face Hub (a different wizard run, 
 after Hugging Face Hub was already published on its own), this section — shown on the
 final "All done!" screen once Zenodo has published — reflects the Zenodo DOI into the
 `CITATION.cff` of an *already-published* Hugging Face Hub export, and re-uploads just
-that changed file (plus `checksums-sha256.txt`).
+that changed file (plus `checksums-sha256.txt`). It's only shown when Hugging Face Hub
+isn't part of the same run: when it is, the DOI is already cross-referenced into it
+automatically, before its version is tagged.
 
 ![Sync DOI form](img/web/zenodo-sync-doi-form.png)
 

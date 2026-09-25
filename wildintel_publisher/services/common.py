@@ -263,6 +263,43 @@ def write_checksums(output_dir: Path) -> Path:
     return path
 
 
+def update_checksums_entries(checksums_path: Path, updated_files: dict[str, Path]) -> bool:
+    """Rewrites just the entries in an ALREADY-PUBLISHED checksums-sha256.txt
+    for `updated_files` ({relative_path_as_it_appears_in_the_file: real
+    local file to hash now}), leaving every other line untouched —
+    services.doi_populate's own populate() uses this instead of
+    write_checksums (which needs every file of the export physically
+    present locally to re-hash them all) once a repo's own build_dir may
+    already be gone by the time a cross-referenced DOI patches its
+    CITATION.cff/README.md — see publish_orchestrator's own docstring on
+    why only those two (plus this file itself) still need to exist locally
+    at that point.
+
+    Unlike write_checksums, this never adds an entry for a file that
+    wasn't already listed — every possible caller here is patching a file
+    the original export always already had (CITATION.cff, README.md),
+    never introducing a new one.
+
+    Returns:
+        True if the file actually changed (any of `updated_files`' hashes
+        differ from what was already there).
+    """
+    original_text = checksums_path.read_text(encoding="utf-8")
+    new_hashes = {rel: sha256_file(path) for rel, path in updated_files.items()}
+    new_lines = []
+    for line in original_text.splitlines():
+        digest, sep, rel = line.partition("  ")
+        if sep and rel in new_hashes:
+            new_lines.append(f"{new_hashes[rel]}  {rel}")
+        else:
+            new_lines.append(line)
+    new_text = "\n".join(new_lines) + "\n"
+    if new_text == original_text:
+        return False
+    checksums_path.write_text(new_text, encoding="utf-8")
+    return True
+
+
 def validate_camtrap_dp(output_dir: Path, *, patch_missing_profile: bool = True) -> None:
     """Valida datapackage.json (y los CSV que referencia) contra el esquema
     oficial de Camtrap DP con frictionless — no solo la estructura genérica

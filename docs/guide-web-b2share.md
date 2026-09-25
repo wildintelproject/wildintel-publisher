@@ -51,7 +51,9 @@ after Hugging Face Hub was already published on its own — including once a pen
 moderator review finally resolves), this section — shown on the final "All done!" screen
 once B2SHARE has published — reflects the B2SHARE PID/DOI into the `CITATION.cff` of an
 *already-published* Hugging Face Hub export, and re-uploads just that changed file (plus
-`checksums-sha256.txt`).
+`checksums-sha256.txt`). It's only shown when Hugging Face Hub isn't part of the same
+run: when it is, the PID/DOI is already cross-referenced into it automatically, before its
+version is tagged.
 
 ![Sync PID/DOI form](img/web/b2share-sync-pid-form.png)
 

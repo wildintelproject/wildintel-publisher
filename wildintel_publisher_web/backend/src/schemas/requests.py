@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel
 
 from wildintel_publisher.services.product import ProductAuthor, ProductLicense
+from wildintel_publisher.services.yolo_adapter import YoloEditableMetadata
 
 # What ends up in a publish task's final output_dir, used by the frontend to
 # chain the next repo's inputDir (see services.hfh_service.start_publish_task
@@ -161,6 +162,17 @@ class UpdateDatapackageRequest(BaseModel):
     contributors: Optional[list[dict[str, Any]]] = None
 
 
+class UpdateDataYamlRequest(YoloEditableMetadata):
+    # YOLO only — the working copy's own data.yaml (see
+    # services.yolo_service.resolve_local_source), never the user's
+    # original. Every YoloEditableMetadata field is sent, always: an empty
+    # one removes that key from data.yaml.
+    input_dir: str
+
+    def fields(self) -> YoloEditableMetadata:
+        return YoloEditableMetadata.model_validate(self.model_dump(exclude={"input_dir"}))
+
+
 class HFHTestTokenRequest(BaseModel):
     # Blank means "use what's already saved in settings.toml" — see
     # services.hfh_service.resolve_token.
@@ -218,6 +230,19 @@ class ZenodoSyncDoiRequest(BaseModel):
     hfh_token: Optional[str] = None
 
 
+class ZenodoDepositionsRequest(BaseModel):
+    """See services.zenodo.search_my_depositions — ZenodoPublishForm's own
+    "Search existing depositions" button, so the user can pick an
+    existing_deposition_id instead of typing/tracking a numeric id by hand.
+    Unlike GBIF's public Registry search (scoped by organization_key),
+    Zenodo's deposit API is always scoped to the caller's own token."""
+    environment: str
+    # Blank means "use what's already saved in settings.toml" — see
+    # services.zenodo_service.resolve_token.
+    token: Optional[str] = None
+    query: Optional[str] = None
+
+
 class B2ShareTestTokenRequest(BaseModel):
     # Blank means "use what's already saved in settings.toml" — see
     # services.b2share_service.resolve_token.
@@ -248,6 +273,20 @@ class B2ShareSyncPidRequest(BaseModel):
     hfh_output_dir: str
     hfh_repo_id: str
     hfh_token: Optional[str] = None
+
+
+class B2ShareRecordsRequest(BaseModel):
+    """See services.b2share.search_my_records — B2SharePublishForm's own
+    "Search existing records" button, so the user can pick an
+    existing_record_id instead of typing/tracking one by hand. Unlike
+    GBIF's public Registry search (scoped by organization_key), B2SHARE's
+    (InvenioRDM) user-records API is always scoped to the caller's own
+    token."""
+    environment: str
+    # Blank means "use what's already saved in settings.toml" — see
+    # services.b2share_service.resolve_token.
+    token: Optional[str] = None
+    query: Optional[str] = None
 
 
 class GBIFTestCredentialsRequest(BaseModel):
@@ -301,6 +340,23 @@ class RepoPublishConfig(BaseModel):
     environment: Optional[str] = None
     communities: Optional[str] = None  # zenodo
     community_id: Optional[str] = None  # b2share
+    # zenodo-only — numeric id of an already-published Zenodo deposition to
+    # create a proper linked NEW VERSION of (see
+    # wildintel_publisher.services.zenodo.upload_to_zenodo's own docstring),
+    # instead of an unrelated fresh deposition. Only consulted the first
+    # time (no zenodo_record.json yet under this repo's own output_dir).
+    # None (the default) creates a brand new deposition, same as before this
+    # field existed — see ZenodoPublishForm.tsx's own search button.
+    existing_deposition_id: Optional[str] = None
+    # b2share-only — id of an already-published B2SHARE record to create a
+    # proper linked NEW VERSION of (see
+    # wildintel_publisher.services.b2share.upload_to_b2share's own
+    # docstring), instead of an unrelated fresh draft. Only consulted the
+    # first time (no b2share_record.json yet under this repo's own
+    # output_dir). None (the default) creates a brand new draft, same as
+    # before this field existed — see B2SharePublishForm.tsx's own search
+    # button.
+    existing_record_id: Optional[str] = None
     # zenodo/b2share, Camtrap DP + mirror_images only — see
     # common.fit_images_to_size/zenodo.DEFAULT_MAX_ZIP_BYTES. Ignored (no-op)
     # for any other product type or publishing mode.

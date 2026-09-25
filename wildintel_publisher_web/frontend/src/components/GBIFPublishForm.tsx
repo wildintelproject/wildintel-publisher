@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { CamtrapdpOrganization, GBIFInstallation } from '../types'
+import type { Organization, GBIFInstallation } from '../types'
 
 // This organization's own UUID for `environment` — sandbox and production
 // are separate GBIF Registry systems, each with its own UUID for the same
 // real-world organization (see wildintel_publisher.config.
-// CamtrapdpOrganization's own docstring) — never derived from one another.
-function gbifKeyForEnv(org: CamtrapdpOrganization, environment: string): string | null {
+// Organization's own docstring) — never derived from one another.
+function gbifKeyForEnv(org: Organization, environment: string): string | null {
   return (environment === 'production' ? org.gbif_production_organization_key : org.gbif_sandbox_organization_key) ?? null
 }
 
@@ -150,13 +150,13 @@ export default function GBIFPublishForm({
   const [datasetSearch, setDatasetSearch] = useState<{
     status: TestStatus; message: string; results: { key: string; title: string }[]
   }>({ status: 'idle', message: '', results: [] })
-  // settings.toml's own CAMTRAPDP.organizations (see api.camtrapdpOrganizations
+  // settings.toml's own PRODUCT.organizations (see api.organizations
   // and WizardPage's own organizationOptions, which reads the same list for
   // its Publisher/Rights holder dropdowns) — offered here as a quick-fill
   // for "Publishing organization UUID" below, restricted to whichever
   // organizations actually have a key configured for the CURRENT
   // environment (see gbifOrgOptions below).
-  const [organizationOptions, setOrganizationOptions] = useState<CamtrapdpOrganization[]>([])
+  const [organizationOptions, setOrganizationOptions] = useState<Organization[]>([])
   // Which organizationOptions entry (if any) is currently backing
   // publishingOrganizationKey — '' means "typed by hand, or nothing
   // selected", never shown as a real option. Tracked separately from the
@@ -215,7 +215,7 @@ export default function GBIFPublishForm({
   }, [suggestedArchiveUrl])
 
   useEffect(() => {
-    api.camtrapdpOrganizations().then(setOrganizationOptions).catch(() => { /* quick-fill just stays unavailable */ })
+    api.organizations().then(setOrganizationOptions).catch(() => { /* quick-fill just stays unavailable */ })
   }, [])
 
   useEffect(() => {

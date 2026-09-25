@@ -172,6 +172,7 @@ def search_organization_datasets(organization_key: str, environment: str) -> lis
 
 def sync_doi_to_hfh(
     *, gbif_output_dir: Path, hfh_output_dir: Path, hfh_repo_id: str, hfh_token: str,
+    checksums_path: Path | None = None,
 ) -> dict:
     """Reflects the DOI GBIF assigned to the dataset (if any — see
     gbif.register_gbif_dataset) in the HFH export's CITATION.cff/README.md/
@@ -184,6 +185,13 @@ def sync_doi_to_hfh(
     same as zenodo_service/b2share_service's own sync_doi_to_hfh/
     sync_pid_to_hfh.
 
+    `checksums_path` — optional, defaults to `hfh_output_dir`/
+    checksums-sha256.txt — where the ALREADY-PUBLISHED checksums file to
+    update actually lives, when it isn't sitting next to CITATION.cff/
+    README.md (see publish_orchestrator's own docstring on its own small
+    cache). Uploaded under the plain "checksums-sha256.txt" name
+    regardless of where it was read from locally.
+
     Returns:
         {"doi": "...", "repo_url": "https://huggingface.co/datasets/..."}
 
@@ -192,10 +200,16 @@ def sync_doi_to_hfh(
         hasn't been prepared (see gbif.sync_doi_to_hfh), or if the
         HuggingFace Hub upload fails.
     """
-    doi = gbif_cli.sync_doi_to_hfh(gbif_output_dir=gbif_output_dir, hfh_output_dir=hfh_output_dir)
+    resolved_checksums_path = checksums_path or (hfh_output_dir / "checksums-sha256.txt")
+    doi = gbif_cli.sync_doi_to_hfh(
+        gbif_output_dir=gbif_output_dir, hfh_output_dir=hfh_output_dir, checksums_path=resolved_checksums_path,
+    )
 
-    for filename in ("CITATION.cff", "README.md", "checksums-sha256.txt"):
-        file_path = hfh_output_dir / filename
+    for filename, file_path in (
+        ("CITATION.cff", hfh_output_dir / "CITATION.cff"),
+        ("README.md", hfh_output_dir / "README.md"),
+        ("checksums-sha256.txt", resolved_checksums_path),
+    ):
         if not file_path.is_file():
             continue
         upload_file(

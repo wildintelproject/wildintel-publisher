@@ -25,11 +25,20 @@ annotation/export tool you use) and is published directly from there.
 ```
 .
 ├── images/
-│   ├── train/         ← training images (required, at least one file)
-│   ├── val/           ← validation images (required, at least one file)
+│   ├── train/         ← training images (required, at least one image)
+│   ├── val/           ← validation images (required, at least one image)
 │   └── test/          ← test images (optional)
+├── labels/            ← optional, one .txt per image, same split layout as images/
+│   ├── train/
+│   ├── val/
+│   └── test/
 └── data.yaml           ← standard Ultralytics/YOLO config
 ```
+
+Only this `images/<split>` layout is supported. The alternative Ultralytics layout
+(`train/images`, `train/labels`, …) needs to be reorganised first. Images can be
+nested in subfolders inside each split. A label file shares its image's relative
+path (`images/train/site-a/0001.jpg` ↔ `labels/train/site-a/0001.txt`).
 
 `data.yaml` is the standard YOLO training config (split paths, number of classes, class
 id → name mapping). It can additionally carry a handful of optional descriptive keys —
@@ -51,7 +60,19 @@ authors:
   - name: Jane Doe
     affiliation: My Institution
 homepage: https://example.org
+publisher:                         # credited in CITATION.cff's preferred-citation
+  name: University of Huelva
+  website: https://www.uhu.es/
+copyright_holders:                 # "© <year> <names>" in the citation
+  - Spanish National Research Council
 ```
+
+In the web app, the metadata step edits these descriptive keys on a copy of
+`data.yaml` kept inside the session — your own dataset directory is never modified.
+The publisher and rights holder are picked from the organizations configured in
+`settings.toml` (`[[PRODUCT.organizations]]`), the same list Camtrap DP uses. The license
+is picked from a list of common ones (CC-BY-NC-4.0 by default, WildINTEL's own policy),
+which fills in its id, full name and URL at once; "Other…" lets you type any other.
 
 Unlike Camtrap DP, there is no `filePublic`/privacy concept — every image under
 `images/` is treated as publishable, and no media-reference URL needs rewriting: the
@@ -59,7 +80,25 @@ images themselves either travel with the export (mirror mode) or are simply left
 of that particular publish (link mode) — see
 [Publishing modes](publishing-guide.md#publishing-modes) in the Publishing Guide.
 
-## 3. What gets published
+## 3. Validation
+
+The dataset is validated before anything is published. Errors stop the process;
+warnings are only logged.
+
+| Check | Result |
+|---|---|
+| `data.yaml` exists and is valid YAML | error |
+| `train`/`val` (and `test`, if present) point to `images/train`, `images/val`, `images/test` | error |
+| `names` lists at least one class; a mapping uses consecutive ids starting at 0 | error |
+| `nc`, if present, equals the number of `names` | error |
+| `images/train` and `images/val` contain at least one image (`.jpg`, `.png`, `.tif`, `.webp`, …) | error |
+| Every line of every `labels/` file is `class x y w h` (box) or `class x1 y1 x2 y2 x3 y3 …` (polygon), with the class id lower than the number of classes and every coordinate between 0 and 1 | error, listing the file and line of the first 10 problems |
+| `data.yaml` declares `test` but `images/test` has no images | warning |
+| Images with no label file (background images) | warning |
+| Label files with no matching image | warning |
+| Non-image files inside `images/<split>` | warning (they're published as-is) |
+
+## 4. What gets published
 
 Before a YOLO dataset can be published anywhere, it's given a common description — the
 same envelope every product type carries, regardless of its own underlying format:
@@ -69,6 +108,7 @@ same envelope every product type carries, regardless of its own underlying forma
 | Title, description, version, homepage | same-named top-level keys |
 | License (id, name, URL) | the license key — a bare string id, or an id/name/URL mapping |
 | Authors (name, affiliation) | the authors list |
+| Publisher, rights holders | the publisher mapping and copyright_holders list (optional) |
 
 Title, description, version, license, and authors are **required** — if `data.yaml`
 didn't provide one of them, it needs to be added by hand (or via the web app's wizard,
@@ -80,13 +120,21 @@ From there, publishing a YOLO dataset copies `data.yaml` (and, in mirror mode, t
 format section is rendered specifically for YOLO (split layout, class count and names),
 distinct from Camtrap DP's own wording.
 
-!!! note "Mirror mode always bundles the full `images/` tree"
+!!! note "Mirror and Link are the same for YOLO"
     For Camtrap DP, mirror mode downloads remote images that otherwise wouldn't exist
-    locally. For YOLO, the images are already local — mirror mode simply means bundling
-    everything (`data.yaml` plus the whole `images/` tree) together, rather than leaving
-    `images/` out of that particular publish.
+    locally, and link mode points at a copy hosted elsewhere. A YOLO dataset's images are
+    already local and have nowhere else to point at, so every export always includes
+    `data.yaml`, `images/` and `labels/`: loose on Hugging Face Hub, bundled into
+    `yolo.zip` on Zenodo and B2SHARE.
 
-## 4. Where it can be published
+!!! note "Very large splits on Hugging Face Hub"
+    Hugging Face Hub accepts at most 10,000 files per folder. A split over that limit is
+    spread, on Hugging Face Hub only, over hash-named subfolders
+    (`images/train/3f/img.jpg`, with its label at `labels/train/3f/img.txt`) — still valid
+    YOLO, since trainers look for images recursively. Your own dataset, `yolo.zip` and
+    the local output folders keep the original layout.
+
+## 5. Where it can be published
 
 | Repository | Availability |
 |---|---|

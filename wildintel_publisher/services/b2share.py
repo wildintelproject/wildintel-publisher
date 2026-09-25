@@ -189,6 +189,8 @@ def prepare_b2share_export(
 
     if self_contained is None:
         self_contained = adapter.product_type == product.CAMTRAPDP and not hfh_repo_id
+    if adapter.always_mirror:
+        self_contained = True  # see product.ProductAdapter.always_mirror
 
     if self_contained and hfh_repo_id:
         console.print(
@@ -451,6 +453,83 @@ def reserve_doi(api_base_url: str, token: str, record_id: str) -> Optional[str]:
     return str(doi) if doi else None
 
 
+def new_version_record(api_base_url: str, token: str, record_id) -> dict:
+    """Creates a proper InvenioRDM NEW VERSION of an already-published
+    record (POST .../versions) — linked to it via a shared parent id,
+    unlike upload_to_b2share's own fallback of just creating an unrelated
+    fresh draft. Used by upload_to_b2share when given an
+    existing_record_id (see its own docstring).
+
+    Unlike Zenodo's own actions/newversion (see zenodo.new_version_deposition),
+    this call's response IS the new draft itself (its own "id", "is_published"
+    False) — no follow-up fetch needed. It also starts EMPTY of files by
+    default — no snapshot of the previous version to clear first (see
+    upload_to_b2share, which just uploads straight into it) — unless
+    explicitly asked to copy them via a separate .../draft/actions/
+    files-import call this module never makes.
+
+    NOTA sin verificar con una subida real (mismo aviso que reserve_doi's
+    propio docstring): no confirmado si la comunidad ya asociada al record
+    padre se hereda automáticamente en el nuevo draft (lo que
+    upload_to_b2share asume, sin volver a llamar a
+    request_community_review), o si de verdad hace falta pedirlo otra vez.
+
+    Returns:
+        El nuevo draft (no el record original).
+
+    Raises:
+        RuntimeError: si `record_id` no es un record publicado que
+        pertenezca a este token, o falla la llamada a la API.
+    """
+    url = f"{api_base_url}/records/{record_id}/versions"
+    response = httpx.post(url, headers=_headers(token), timeout=60)
+    _check_response(response, (201,), f"Create a new version of B2SHARE record {record_id}")
+    return response.json()
+
+
+def update_draft_metadata(api_base_url: str, token: str, record_id, body: dict) -> dict:
+    """Updates a not-yet-published draft's own metadata (PUT .../draft) —
+    used only right after new_version_record: per InvenioRDM's own docs,
+    that new draft starts as a COPY of the previous version's own metadata,
+    which may well be stale relative to what THIS run's local product
+    actually has now (a new version is exactly the case where title/
+    description/authors are expected to have changed) — unlike
+    create_draft_record's own POST body, which already reflects the
+    current run from the start."""
+    url = f"{api_base_url}/records/{record_id}/draft"
+    response = httpx.put(url, headers=_headers(token), json=body, timeout=60)
+    _check_response(response, (200,), f"Update B2SHARE draft metadata for {record_id}")
+    return response.json()
+
+
+def search_my_records(api_base_url: str, token: str, query: Optional[str] = None) -> list[dict]:
+    """Published records belonging to the token's own user — GET
+    /api/user/records is always scoped to the caller (same idea as
+    zenodo.search_my_depositions), filtered to is_published:true via
+    InvenioRDM's own Elasticsearch query-string syntax (there's no
+    dedicated "status" parameter for this endpoint). Backs the wizard's own
+    "Search existing records" button, so the user can pick an
+    existing_record_id (see upload_to_b2share) instead of typing/tracking
+    one by hand. `query`, if given, is ANDed with is_published:true.
+
+    Returns:
+        A list of {"id", "title"} — only what the picker needs to show.
+
+    Raises:
+        RuntimeError: if the token is invalid, or the API call fails.
+    """
+    q = "is_published:true" if not query else f"is_published:true AND ({query})"
+    response = httpx.get(
+        f"{api_base_url}/user/records", headers=_headers(token), params={"q": q, "size": 100}, timeout=60,
+    )
+    _check_response(response, (200,), "List existing B2SHARE records")
+    hits = response.json().get("hits", {}).get("hits", [])
+    return [
+        {"id": str(r["id"]), "title": (r.get("metadata") or {}).get("title") or "(untitled)"}
+        for r in hits
+    ]
+
+
 def get_record(api_base_url: str, token: str, record_id: str, draft: bool = False) -> dict:
     suffix = "/draft" if draft else ""
     url = f"{api_base_url}/records/{record_id}{suffix}"
@@ -543,7 +622,7 @@ def _write_record(output_dir: Path, record: dict) -> None:
 
 def upload_to_b2share(
     output_dir: Path, *, token: str, environment: str, community_id: str,
-    hfh_repo_id: Optional[str],
+    hfh_repo_id: Optional[str], existing_record_id: Optional[str] = None,
 ) -> dict:
     """Crea (o reutiliza, si ya existe b2share_record.json) un draft en
     B2SHARE, intenta reservar su DOI (ver reserve_doi) ANTES de subir nada
@@ -558,6 +637,17 @@ def upload_to_b2share(
     Si reservar el DOI falla (no verificado end-to-end contra B2SHARE — ver
     reserve_doi), no aborta la subida: sigue igual que antes, dejando que
     'b2share release' lo asigne y lo refleje él solo más tarde.
+
+    `existing_record_id` — only ever consulted the FIRST time (no
+    b2share_record.json yet) — creates a proper InvenioRDM NEW VERSION of
+    that already-published record instead (see new_version_record): linked
+    via a shared parent id, unlike the plain "delete b2share_record.json
+    and upload again" fallback below, which always creates a brand new,
+    UNRELATED draft. Unlike Zenodo's own equivalent, the new version starts
+    with no files to clear first — this run's own files just upload
+    straight into it. None (the default, and every later call once
+    b2share_record.json exists) behaves exactly as before this parameter
+    existed.
 
     Returns:
         El registro local {"record_id", "environment", "pid", ...} — ya
@@ -603,6 +693,14 @@ def upload_to_b2share(
         # files.entries, keyed by filename (see upload_file's own {"key":
         # ...} above — same identifier).
         already_uploaded = set((b2share_record.get("files") or {}).get("entries") or {})
+    elif existing_record_id:
+        console.print(f"Creating a new version of B2SHARE record {existing_record_id}...")
+        b2share_record = new_version_record(api_base_url, token, existing_record_id)
+        record_id = b2share_record["id"]
+        # The new draft starts as a copy of the previous version's own
+        # metadata (per InvenioRDM's own docs) — refresh it with what this
+        # run's local product actually has now, in case it changed.
+        b2share_record = update_draft_metadata(api_base_url, token, record_id, b2share_metadata)
     else:
         console.print("Creating a new draft on B2SHARE...")
         b2share_record = create_draft_record(api_base_url, token, b2share_metadata)

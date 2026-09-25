@@ -8,6 +8,7 @@ vi.mock('../api', () => ({
   api: {
     zenodoGetConfig: vi.fn(),
     zenodoTestToken: vi.fn(),
+    zenodoDepositions: vi.fn(),
     zenodoSyncDoi: vi.fn(),
     hfhGetConfig: vi.fn(),
   },
@@ -95,7 +96,89 @@ describe('ZenodoPublishForm', () => {
       token: 'zen_x', environment: 'sandbox', communities: 'wildintel',
       mirrorImages: false, outputMode: 'prepared', outputDir: '/zenodo/output',
       fitArchiveSize: true, maxZipFile: undefined, minImageEdge: 640,
+      existingDepositionId: '',
     })
+  })
+
+  it('keeps "Search existing depositions" disabled until a token is typed', async () => {
+    render(<ZenodoPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.getByRole('button', { name: /search existing depositions/i })).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    expect(screen.getByRole('button', { name: /search existing depositions/i })).toBeEnabled()
+  })
+
+  it('lists results and fills the deposition id when one is picked', async () => {
+    mockedApi.zenodoDepositions.mockResolvedValue([
+      { id: '111', title: 'Camera Trap Survey v1' },
+      { id: '222', title: 'Camera Trap Survey v2' },
+    ])
+    render(<ZenodoPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
+
+    expect(mockedApi.zenodoDepositions).toHaveBeenCalledWith('sandbox', 'zen_x')
+    await screen.findByText('Camera Trap Survey v1')
+    expect(screen.getByText('Camera Trap Survey v2')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Camera Trap Survey v1'))
+
+    expect(screen.getByLabelText('Zenodo record ID (leave blank to create a new deposition)')).toHaveValue('111')
+    // The results list collapses once a pick is made.
+    expect(screen.queryByText('Camera Trap Survey v2')).not.toBeInTheDocument()
+  })
+
+  it('reports no depositions found instead of an empty, silent list', async () => {
+    mockedApi.zenodoDepositions.mockResolvedValue([])
+    render(<ZenodoPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
+
+    expect(await screen.findByText('No published depositions found yet.')).toBeInTheDocument()
+  })
+
+  it('shows an error message when the search itself fails', async () => {
+    mockedApi.zenodoDepositions.mockRejectedValue(new Error('Zenodo returned an unexpected error.'))
+    render(<ZenodoPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+
+    await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
+
+    expect(await screen.findByText('Zenodo returned an unexpected error.')).toBeInTheDocument()
+  })
+
+  it('clears stale results when the environment changes', async () => {
+    mockedApi.zenodoDepositions.mockResolvedValue([{ id: '111', title: 'Camera Trap Survey v1' }])
+    render(<ZenodoPublishForm onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
+    await screen.findByText('Camera Trap Survey v1')
+
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+
+    expect(screen.queryByText('Camera Trap Survey v1')).not.toBeInTheDocument()
+  })
+
+  it('sends the typed existing deposition id when Continue is clicked', async () => {
+    const onConfigured = vi.fn()
+    render(<ZenodoPublishForm onConfigured={onConfigured} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await userEvent.type(
+      screen.getByLabelText('Zenodo record ID (leave blank to create a new deposition)'), '999',
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({ existingDepositionId: '999' }))
   })
 
   it('uses Camtrap DP wording for the Mode section when productType is omitted', async () => {
@@ -115,6 +198,20 @@ describe('ZenodoPublishForm', () => {
     expect(screen.getByText(/bundles the whole repository/i)).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /^reference only/i })).toBeInTheDocument()
     expect(screen.queryByText(/camtrapdp\.zip/i)).not.toBeInTheDocument()
+  })
+
+  it('offers no Mirror/Link choice for an AI Dataset and always reports Mirror', async () => {
+    const onConfigured = vi.fn()
+    const onOutputDirChange = vi.fn()
+    render(<ZenodoPublishForm productType="yolo" onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
+
+    expect(screen.queryByRole('radio', { name: /^link/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/always included in full/i)).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await waitFor(() => expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({ mirrorImages: true })))
   })
 
   it('shows the archive-size options for Camtrap DP in Mirror mode, and reports them on Continue', async () => {

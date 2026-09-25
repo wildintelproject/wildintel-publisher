@@ -35,6 +35,7 @@ def _append_description_footer(description: Optional[str]) -> str:
 
 class CamtrapDPAdapter:
     product_type = product.CAMTRAPDP
+    always_mirror = False
 
     def validate(self, input_dir: Path) -> None:
         common.validate_camtrap_dp(input_dir)

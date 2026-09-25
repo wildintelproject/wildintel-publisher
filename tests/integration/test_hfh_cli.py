@@ -201,9 +201,20 @@ def test_hfh_upload_rewrites_media_csv_and_calls_upload_folder(camtrapdp_dir, tm
     mock_create_repo.assert_called_once()
     mock_upload_folder.assert_called_once()
     fake_api.create_tag.assert_not_called()  # tagging moved to 'hfh release' — see the tests below
-    # metadata.json is internal pipeline bookkeeping — never meant to reach
-    # the published dataset repo itself.
-    assert mock_upload_folder.call_args.kwargs["ignore_patterns"] == ["metadata.json"]
+    # metadata.json/hfh_record.json are internal pipeline bookkeeping — never
+    # meant to reach the published dataset repo itself.
+    assert mock_upload_folder.call_args.kwargs["ignore_patterns"] == ["metadata.json", "hfh_record.json"]
+    # A new version replaces the previous one's files on "main" instead of
+    # piling on top of them — earlier versions stay reachable by their tags.
+    assert mock_upload_folder.call_args.kwargs["delete_patterns"] == "*"
+    assert mock_upload_folder.call_args.kwargs["commit_message"].startswith("Publish version ")
+    # upload_to_huggingface's own small record of what it just did — see
+    # services.publish_orchestrator's own _read_hfh_version.
+    record = json.loads((output_dir / "hfh_record.json").read_text(encoding="utf-8"))
+    assert record == {
+        "repo_id": "someuser/somedataset", "version": "1.0",
+        "repo_url": "https://huggingface.co/datasets/someuser/somedataset", "tagged": False,
+    }
 
     with (output_dir / "media.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

@@ -390,15 +390,21 @@ def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
         _validate_media_filepaths_are_urls(camtrap_dp_root)
 
 
-def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path) -> str:
+def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path, checksums_path: Optional[Path] = None) -> str:
     """Lee el DOI que GBIF asignó al dataset (si lo hay — solo lo tienen
     organizaciones con su propio acuerdo de DataCite configurado con GBIF,
     ver register_gbif_dataset) desde `gbif_output_dir`/
     gbif_linked_dataset_record.json, y lo refleja en el CITATION.cff (y la
     sección "## Citation" de su README.md — ver
     common.patch_readme_citation_url) de `hfh_output_dir` (el export ya
-    preparado para HuggingFace Hub) — regenerando también sus checksums. El
+    preparado para HuggingFace Hub) — actualizando también sus checksums. El
     paso recomendado después es volver a subir con 'hfh upload'.
+
+    `checksums_path` — opcional, por defecto `hfh_output_dir`/
+    checksums-sha256.txt — solo hace falta indicarlo cuando ese fichero no
+    vive ahí (p.ej. una caché aparte — ver publish_orchestrator's own
+    docstring sobre por qué `hfh_output_dir` podría no tener ya el resto
+    del export presente localmente).
 
     A diferencia de Zenodo (que en sandbox emite un DOI de pega para
     pruebas), el DOI de GBIF, cuando existe, viene de la cuenta DataCite
@@ -431,11 +437,26 @@ def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path) -> str:
     # B2SHARE's DOI, so a citation always resolves through doi.org
     # regardless of which repo it came from.
     doi_url = f"https://doi.org/{doi}"
-    common.patch_citation_with_identifier(
+    citation_changed = common.patch_citation_with_identifier(
         hfh_citation_path, value=doi, kind="doi", url=doi_url, description="GBIF DOI",
     )
-    common.patch_readme_citation_url(hfh_output_dir / README_FILENAME, doi_url)
-    common.write_checksums(hfh_output_dir)
+    readme_path = hfh_output_dir / README_FILENAME
+    readme_changed = common.patch_readme_citation_url(readme_path, doi_url)
+
+    # Only the (up to 2) files that actually changed get re-hashed — same
+    # reasoning as services.doi_populate.populate's own
+    # update_checksums_entries call: `hfh_output_dir` might not have the
+    # rest of the export's own files physically present anymore by the
+    # time this runs (see publish_orchestrator's own docstring), so
+    # write_checksums (which needs every one of them locally to re-hash)
+    # would leave checksums-sha256.txt silently incomplete instead.
+    changed_files: dict[str, Path] = {}
+    if citation_changed:
+        changed_files[CITATION_FILENAME] = hfh_citation_path
+    if readme_changed:
+        changed_files[README_FILENAME] = readme_path
+    if changed_files:
+        common.update_checksums_entries(checksums_path or (hfh_output_dir / common.CHECKSUM_FILENAME), changed_files)
 
     console.print(f"[green]✔  DOI {doi} reflected in {hfh_citation_path}.[/green]")
     console.print("   Re-upload with [bold]hfh upload[/bold] to publish the change.")

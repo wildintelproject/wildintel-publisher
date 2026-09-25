@@ -28,6 +28,11 @@ from settings import settings  # noqa: E402
 
 ROOT_DIR     = Path(__file__).parent
 BACKEND_DIR  = ROOT_DIR / "backend"
+# The CLI package the backend is built on (hfh.py, zenodo.py, the product
+# adapters...) lives outside backend/ — watched too in dev mode, or edits
+# there silently keep running the old code until a manual restart.
+SHARED_PACKAGE_DIR = ROOT_DIR.parent / "wildintel_publisher"
+DEV_RELOAD_DIRS = ["--reload-dir", "src", "--reload-dir", str(SHARED_PACKAGE_DIR)]
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
 console = Console()
@@ -92,7 +97,7 @@ def backend_serve(
     if mode == ServeMode.dev:
         console.print(f"  API:     http://localhost:{effective_port}")
         console.print(f"  Swagger: http://localhost:{effective_port}/docs\n")
-        _run("uvicorn", "main:app", "--reload", "--port", str(effective_port),
+        _run("uvicorn", "main:app", "--reload", *DEV_RELOAD_DIRS, "--port", str(effective_port),
              "--log-level", settings.log_level.lower(), "--app-dir", "src",
              cwd=BACKEND_DIR)
     else:
@@ -190,7 +195,7 @@ def dev(
     ))
 
     backend_proc = subprocess.Popen(
-        ["uvicorn", "main:app", "--reload", "--port", str(effective_port),
+        ["uvicorn", "main:app", "--reload", *DEV_RELOAD_DIRS, "--port", str(effective_port),
          "--log-level", settings.log_level.lower(), "--app-dir", "src"],
         cwd=BACKEND_DIR,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

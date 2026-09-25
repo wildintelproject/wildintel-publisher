@@ -10,7 +10,7 @@ Se genera automáticamente con los valores por defecto la primera vez que se usa
 """
 import sys
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import platformdirs
 import typer
@@ -291,11 +291,11 @@ class B2ShareSettings(BaseModel):
 
 class GBIFInstallation(BaseModel):
     """Una instalación GBIF ya registrada y seleccionable — a diferencia de
-    CAMTRAPDP.organizations (una organización real-world, compartida con el
+    PRODUCT.organizations (una organización real-world, compartida con el
     editor de publisher/rightsHolder del wizard), una instalación es un
     concepto exclusivo de GBIF (el sistema/software que sirve los datos —
     en este caso, esta misma app actuando de fuente) sin ningún equivalente
-    en Camtrap DP, así que vive aquí, no ahí. sandbox/production son
+    en los productos, así que vive aquí, no ahí. sandbox/production son
     Registries independientes con su propio UUID cada uno para la MISMA
     instalación real — nunca se derivan el uno del otro."""
     title: str = Field(description="Nombre legible de la instalación, solo para el desplegable del wizard.")
@@ -379,16 +379,17 @@ class GBIFSettings(BaseModel):
     )
 
 
-class CamtrapdpOrganization(BaseModel):
-    """One selectable entry of CAMTRAPDP.organizations below — the web
+class Organization(BaseModel):
+    """One selectable entry of PRODUCT.organizations below — the web
     wizard's metadata-editing step (WizardPage.tsx) offers these as the
-    options for BOTH datapackage.json's own "publisher" and "rightsHolder"
-    contributor roles, so one shared list covers both instead of two. Also
-    offered, separately, as the "Publishing organization UUID" dropdown in
-    GBIFPublishForm.tsx — see gbif_sandbox_organization_key/
-    gbif_production_organization_key below."""
-    title: str = Field(description="Organization name, written as-is into datapackage.json's own contributor title.")
-    path: Optional[str] = Field(default=None, description="Organization website, written into the contributor's own \"path\".")
+    options for BOTH the product's "publisher" and its rights holder
+    (Camtrap DP: datapackage.json's "publisher"/"rightsHolder" contributor
+    roles; YOLO: data.yaml's "publisher"/"copyright_holders"), so one shared
+    list covers both instead of two. Also offered, separately, as the
+    "Publishing organization UUID" dropdown in GBIFPublishForm.tsx — see
+    gbif_sandbox_organization_key/gbif_production_organization_key below."""
+    title: str = Field(description="Organization name, written as-is as the publisher/rights holder's own name.")
+    path: Optional[str] = Field(default=None, description="Organization website, written as the publisher's own website.")
     email: Optional[str] = Field(
         default=None,
         description=(
@@ -416,42 +417,43 @@ class CamtrapdpOrganization(BaseModel):
     )
 
 
-class CamtrapdpSettings(BaseModel):
-    """Organizations selectable as a Camtrap DP's own "publisher"/
-    "rightsHolder" contributor in the web wizard's metadata-editing step —
-    previously a fixed list hardcoded in WizardPage.tsx (CAMTRAPDP_PUBLISHER/
-    CAMTRAPDP_RIGHTS_HOLDER_OPTIONS), moved here so it's editable (hand-edit
-    settings.toml's own [[CAMTRAPDP.organizations]] array-of-tables) without
-    a frontend code change/rebuild. The same list also backs GBIFPublishForm's
-    own "Publishing organization UUID" quick-fill dropdown (see each entry's
-    own gbif_sandbox_organization_key/gbif_production_organization_key). The
-    CLI's own 'trapper download'/'gbif register' never read this — neither
-    has an equivalent organization-picking step of its own."""
-    organizations: list[CamtrapdpOrganization] = Field(
+class ProductSettings(BaseModel):
+    """Settings shared by every product type. organizations: selectable as
+    a product's own publisher/rights holder in the web wizard's
+    metadata-editing step — hand-edit settings.toml's own
+    [[PRODUCT.organizations]] array-of-tables to add/remove one, no
+    frontend change needed. The same list also backs GBIFPublishForm's own
+    "Publishing organization UUID" quick-fill dropdown (see each entry's
+    own gbif_sandbox_organization_key/gbif_production_organization_key).
+    The CLI's own 'trapper download'/'gbif register' never read this —
+    neither has an equivalent organization-picking step of its own.
+
+    Formerly CAMTRAPDP.organizations — see Settings's own migration."""
+    organizations: list[Organization] = Field(
         default_factory=lambda: [
-            CamtrapdpOrganization(
+            Organization(
                 title="Institute of Nature Conservation PAS", path="https://www.iop.krakow.pl/",
                 gbif_sandbox_organization_key="f121e450-78ba-11d8-a19c-b8a03c50a862",
                 gbif_production_organization_key="f121e450-78ba-11d8-a19c-b8a03c50a862",
             ),
-            CamtrapdpOrganization(
+            Organization(
                 title="University of Huelva", path="https://www.uhu.es/",
                 gbif_production_organization_key="37ec4ca1-fb42-4e11-939e-dafa4aa78e9e",
             ),
-            CamtrapdpOrganization(
+            Organization(
                 title="University of South-Eastern Norway", path="https://www.usn.no/",
                 gbif_production_organization_key="7f3b33d6-3864-4fd7-b6be-e4cbeba014b1",
             ),
-            CamtrapdpOrganization(
+            Organization(
                 title="German Centre for Integrative Biodiversity Research", path="https://www.idiv.de/",
                 gbif_sandbox_organization_key="b48dbd22-0452-4c31-a6b5-28f04e99d8cf",
                 gbif_production_organization_key="b48dbd22-0452-4c31-a6b5-28f04e99d8cf",
             ),
-            CamtrapdpOrganization(title="Spanish National Research Council", path="https://www.csic.es/"),
-            CamtrapdpOrganization(title="Massachusetts Institute of Technology", path="https://www.mit.edu/"),
-            CamtrapdpOrganization(title="Spanish Node of the Global Biodiversity Information Facility", path="https://www.gbif.es/"),
+            Organization(title="Spanish National Research Council", path="https://www.csic.es/"),
+            Organization(title="Massachusetts Institute of Technology", path="https://www.mit.edu/"),
+            Organization(title="Spanish Node of the Global Biodiversity Information Facility", path="https://www.gbif.es/"),
         ],
-        description="Selectable publisher/rightsHolder organizations for the web wizard's metadata-editing step. (CAMTRAPDP.organizations)",
+        description="Selectable publisher/rights holder organizations for the web wizard's metadata-editing step. (PRODUCT.organizations)",
     )
 
 
@@ -461,7 +463,22 @@ class Settings(BaseModel):
     ZENODO: ZenodoSettings = Field(default_factory=ZenodoSettings)
     B2SHARE: B2ShareSettings = Field(default_factory=B2ShareSettings)
     GBIF: GBIFSettings = Field(default_factory=GBIFSettings)
-    CAMTRAPDP: CamtrapdpSettings = Field(default_factory=CamtrapdpSettings)
+    PRODUCT: ProductSettings = Field(default_factory=ProductSettings)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_camtrapdp_organizations(cls, data: Any) -> Any:
+        """A settings.toml written before organizations became shared by
+        every product type still has them under [[CAMTRAPDP.organizations]]
+        — read from there (keeping any hand-edits) unless PRODUCT already
+        has its own."""
+        if not isinstance(data, dict) or "CAMTRAPDP" not in data:
+            return data
+        data = dict(data)
+        legacy = data.pop("CAMTRAPDP") or {}
+        if "PRODUCT" not in data and isinstance(legacy, dict) and "organizations" in legacy:
+            data["PRODUCT"] = {"organizations": legacy["organizations"]}
+        return data
 
 
 def _ensure_config_file(config_file: Path) -> None:

@@ -2,10 +2,12 @@
 cross-referencing step (see the module's own docstring for the overall
 design: it runs after all selected repos have uploaded/reserved whatever
 DOI they can, but before any of them locks)."""
+import hashlib
 import json
 
 import yaml
 
+from wildintel_publisher.services.common import sha256_file
 from wildintel_publisher.services.doi_populate import collect_identifiers, populate
 
 
@@ -15,6 +17,23 @@ def _write_citation(output_dir, data):
 
 def _write_record(output_dir, filename, data):
     (output_dir / filename).write_text(json.dumps(data), encoding="utf-8")
+
+
+def _write_checksums(output_dir, *filenames):
+    """populate() now updates (never creates from scratch) checksums-
+    sha256.txt — see common.update_checksums_entries, used precisely
+    because the rest of the export's own files (media.csv, LICENSE...)
+    might not be physically present alongside CITATION.cff/README.md by
+    the time populate() runs. Every test that exercises a real content
+    change must seed a starter file first, same as prepare/upload already
+    would have in the real pipeline. Includes one unrelated entry
+    (media.csv) not listed among `filenames`, to prove it survives
+    untouched."""
+    lines = ["deadbeef  media.csv"]
+    for filename in filenames:
+        digest = hashlib.sha256((output_dir / filename).read_bytes()).hexdigest()
+        lines.append(f"{digest}  {filename}")
+    (output_dir / "checksums-sha256.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def test_collect_identifiers_reads_zenodo_and_b2share_but_skips_hfh(tmp_path):
@@ -53,6 +72,8 @@ def test_populate_cross_references_zenodo_and_b2share_as_alternates(tmp_path):
     _write_record(b2share_dir, "b2share_record.json", {"pid": "10.1234/b2share.1", "pid_kind": "doi"})
     _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1", "url": "https://doi.org/10.5281/zenodo.1"})
     _write_citation(b2share_dir, {"cff-version": "1.2.0", "doi": "10.1234/b2share.1", "url": "https://doi.org/10.1234/b2share.1"})
+    _write_checksums(zenodo_dir, "CITATION.cff")
+    _write_checksums(b2share_dir, "CITATION.cff")
 
     changed = populate({"zenodo": zenodo_dir, "b2share": b2share_dir})
 
@@ -67,8 +88,12 @@ def test_populate_cross_references_zenodo_and_b2share_as_alternates(tmp_path):
     assert b2share_citation["identifiers"] == [
         {"type": "doi", "value": "https://doi.org/10.5281/zenodo.1", "description": "Zenodo DOI"},
     ]
-    assert (zenodo_dir / "checksums-sha256.txt").is_file()
-    assert (b2share_dir / "checksums-sha256.txt").is_file()
+    # update_checksums_entries only re-hashes CITATION.cff — media.csv's own
+    # entry (never physically present here) survives completely untouched,
+    # proving the rest of the export doesn't need to exist locally.
+    zenodo_checksums = (zenodo_dir / "checksums-sha256.txt").read_text(encoding="utf-8")
+    assert "deadbeef  media.csv" in zenodo_checksums
+    assert f"{sha256_file(zenodo_dir / 'CITATION.cff')}  CITATION.cff" in zenodo_checksums
 
 
 def test_populate_gives_hfh_the_only_available_doi_as_primary_automatically(tmp_path):
@@ -78,6 +103,7 @@ def test_populate_gives_hfh_the_only_available_doi_as_primary_automatically(tmp_
     _write_record(zenodo_dir, "zenodo_record.json", {"doi": "10.5281/zenodo.1"})
     _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1", "url": "https://doi.org/10.5281/zenodo.1"})
     _write_citation(hfh_dir, {"cff-version": "1.2.0", "url": "https://huggingface.co/datasets/alice/dataset"})
+    _write_checksums(hfh_dir, "CITATION.cff")
 
     changed = populate({"zenodo": zenodo_dir, "hfh": hfh_dir})
 
@@ -100,6 +126,7 @@ def test_populate_also_patches_hfh_readme_citation_url_with_the_primary_doi(tmp_
         "https://huggingface.co/datasets/alice/dataset\n",
         encoding="utf-8",
     )
+    _write_checksums(hfh_dir, "CITATION.cff", "README.md")
 
     changed = populate({"zenodo": zenodo_dir, "hfh": hfh_dir})
 
@@ -124,6 +151,7 @@ def test_populate_marks_hfh_changed_when_only_the_readme_needed_patching(tmp_pat
         "https://huggingface.co/datasets/alice/dataset\n",
         encoding="utf-8",
     )
+    _write_checksums(hfh_dir, "README.md")  # CITATION.cff already matches — never re-hashed here
 
     changed = populate({"zenodo": zenodo_dir, "hfh": hfh_dir})
 
@@ -140,6 +168,11 @@ def test_populate_leaves_hfh_with_no_primary_when_two_candidates_and_none_chosen
     _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1"})
     _write_citation(b2share_dir, {"cff-version": "1.2.0", "doi": "10.1234/b2share.1"})
     _write_citation(hfh_dir, {"cff-version": "1.2.0"})
+    # zenodo and b2share ALSO cross-reference each other here (not just
+    # hfh), same as the two-repo case above.
+    _write_checksums(zenodo_dir, "CITATION.cff")
+    _write_checksums(b2share_dir, "CITATION.cff")
+    _write_checksums(hfh_dir, "CITATION.cff")
 
     changed = populate({"zenodo": zenodo_dir, "b2share": b2share_dir, "hfh": hfh_dir})
 
@@ -159,6 +192,9 @@ def test_populate_honors_an_explicit_primary_doi_source_for_hfh(tmp_path):
     _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1"})
     _write_citation(b2share_dir, {"cff-version": "1.2.0", "doi": "10.1234/b2share.1"})
     _write_citation(hfh_dir, {"cff-version": "1.2.0"})
+    _write_checksums(zenodo_dir, "CITATION.cff")
+    _write_checksums(b2share_dir, "CITATION.cff")
+    _write_checksums(hfh_dir, "CITATION.cff")
 
     populate({"zenodo": zenodo_dir, "b2share": b2share_dir, "hfh": hfh_dir}, primary_doi_source="b2share")
 
@@ -189,6 +225,8 @@ def test_populate_rerun_is_idempotent(tmp_path):
     _write_record(b2share_dir, "b2share_record.json", {"pid": "10.1234/b2share.1", "pid_kind": "doi"})
     _write_citation(zenodo_dir, {"cff-version": "1.2.0", "doi": "10.5281/zenodo.1"})
     _write_citation(b2share_dir, {"cff-version": "1.2.0", "doi": "10.1234/b2share.1"})
+    _write_checksums(zenodo_dir, "CITATION.cff")
+    _write_checksums(b2share_dir, "CITATION.cff")
 
     populate({"zenodo": zenodo_dir, "b2share": b2share_dir})
     second_run_changed = populate({"zenodo": zenodo_dir, "b2share": b2share_dir})

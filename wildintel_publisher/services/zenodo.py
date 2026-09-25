@@ -148,6 +148,8 @@ def prepare_zenodo_export(
 
     if self_contained is None:
         self_contained = adapter.product_type == product.CAMTRAPDP and not hfh_repo_id
+    if adapter.always_mirror:
+        self_contained = True  # see product.ProductAdapter.always_mirror
 
     if self_contained and hfh_repo_id:
         console.print(
@@ -344,11 +346,110 @@ def upload_file_to_bucket(bucket_url: str, token: str, file_path: Path, remote_f
     return response.json()
 
 
+# Which uploaded file Zenodo's record page previews first. Left unset,
+# Zenodo previews the first previewable file in alphabetical order — which,
+# for these exports, is checksums-sha256.txt.
+DEFAULT_PREVIEW_FILENAME = README_FILENAME
+
+
+def set_default_preview(api_base_url: str, token: str, deposition_id: int, filename: str) -> None:
+    """Sets the draft's files.default_preview — only exposed by Zenodo's
+    InvenioRDM API (/records/{id}/draft), not by the legacy
+    /deposit/depositions one this module otherwise uses (in today's Zenodo
+    both share the same id). A full GET -> PUT round-trip, since that PUT
+    replaces the whole draft. Must run AFTER the last legacy metadata
+    update: update_deposition_metadata silently resets it (verified
+    against sandbox.zenodo.org)."""
+    url = f"{api_base_url}/records/{deposition_id}/draft"
+    headers = {**_headers(token), "Accept": "application/vnd.inveniordm.v1+json"}
+    response = httpx.get(url, headers=headers, timeout=60)
+    _check_response(response, (200,), "Fetch Zenodo draft")
+    draft = response.json()
+    body = {key: draft[key] for key in ("metadata", "access", "pids", "custom_fields") if key in draft}
+    body["files"] = {"enabled": True, "default_preview": filename}
+    response = httpx.put(url, headers=headers, json=body, timeout=60)
+    _check_response(response, (200,), f"Set Zenodo default preview to {filename}")
+
+
 def publish_deposition(api_base_url: str, token: str, deposition_id: int) -> dict:
     url = f"{api_base_url}/deposit/depositions/{deposition_id}/actions/publish"
     response = httpx.post(url, headers=_headers(token), timeout=60)
     _check_response(response, (200, 201, 202), "Publish Zenodo deposition")
     return response.json()
+
+
+def new_version_deposition(api_base_url: str, token: str, deposition_id) -> dict:
+    """Creates a proper Zenodo NEW VERSION of an already-published
+    deposition (POST .../actions/newversion) — linked to it via a shared
+    conceptrecid/conceptdoi, unlike upload_to_zenodo's own fallback of just
+    creating an unrelated fresh deposition. Used by upload_to_zenodo when
+    given an existing_deposition_id (see its own docstring).
+
+    Per Zenodo's own API docs, this action's response body is NOT the new
+    draft — it's the ORIGINAL (published) deposition, now carrying a new
+    "latest_draft" link. The new draft itself (its own id, and a snapshot
+    COPY of the previous version's own files — see delete_deposition_file
+    for clearing them) is a separate resource, fetched from that link.
+
+    Returns:
+        The new draft deposition (not the original).
+
+    Raises:
+        RuntimeError: if `deposition_id` isn't a published deposition
+        belonging to this token, or the follow-up fetch of its own
+        "latest_draft" link fails.
+    """
+    url = f"{api_base_url}/deposit/depositions/{deposition_id}/actions/newversion"
+    response = httpx.post(url, headers=_headers(token), timeout=60)
+    _check_response(response, (201,), f"Create a new version of Zenodo deposition {deposition_id}")
+    latest_draft_url = response.json().get("links", {}).get("latest_draft")
+    if not latest_draft_url:
+        raise RuntimeError(
+            f"Zenodo's newversion response for deposition {deposition_id} has no links.latest_draft."
+        )
+    draft_response = httpx.get(latest_draft_url, headers=_headers(token), timeout=60)
+    _check_response(draft_response, (200,), f"Fetch the new version of Zenodo deposition {deposition_id}")
+    return draft_response.json()
+
+
+def delete_deposition_file(api_base_url: str, token: str, deposition_id, file_id: str) -> None:
+    """Removes one file from a (not-yet-published) deposition — used right
+    after new_version_deposition to clear the snapshot of files it
+    inherited from the previous version, so this run's own upload is
+    authoritative instead of a stale mix of old-version and new-version
+    files."""
+    url = f"{api_base_url}/deposit/depositions/{deposition_id}/files/{file_id}"
+    response = httpx.delete(url, headers=_headers(token), timeout=60)
+    _check_response(response, (204,), f"Delete inherited file {file_id!r} from Zenodo deposition {deposition_id}")
+
+
+def search_my_depositions(api_base_url: str, token: str, query: Optional[str] = None) -> list[dict]:
+    """Published depositions belonging to the token's own user — GET
+    /deposit/depositions is always scoped to the caller (unlike GBIF's
+    public Registry search — see gbif.search_organization_datasets, which
+    searches by organization instead), so there's no separate "by
+    organization" concept here. Backs the wizard's own "Search existing
+    depositions" button, so the user can pick an existing_deposition_id
+    (see upload_to_zenodo) instead of typing/tracking a numeric id by hand.
+    `query` is Zenodo's own Elasticsearch-syntax 'q' search parameter,
+    matched against title/description/etc — optional, an empty search just
+    lists every one of the user's own published depositions (up to 100).
+
+    Returns:
+        A list of {"id", "title"} — only what the picker needs to show.
+
+    Raises:
+        RuntimeError: if the token is invalid, or the API call fails.
+    """
+    params: dict = {"status": "published", "size": 100}
+    if query:
+        params["q"] = query
+    response = httpx.get(f"{api_base_url}/deposit/depositions", headers=_headers(token), params=params, timeout=60)
+    _check_response(response, (200,), "List existing Zenodo depositions")
+    return [
+        {"id": str(d["id"]), "title": (d.get("metadata") or {}).get("title") or "(untitled)"}
+        for d in response.json()
+    ]
 
 
 def extract_reserved_doi(deposition: dict) -> Optional[str]:
@@ -426,6 +527,7 @@ def _write_record(output_dir: Path, record: dict) -> None:
 
 def upload_to_zenodo(
     output_dir: Path, *, token: str, environment: str, communities: Optional[str], hfh_repo_id: Optional[str],
+    existing_deposition_id: Optional[str] = None,
 ) -> dict:
     """Crea (o reutiliza, si ya existe zenodo_record.json) un depósito en
     Zenodo, le pone los metadatos (título/descripción/autores/licencia,
@@ -438,6 +540,17 @@ def upload_to_zenodo(
     solo tras 'zenodo release' (en sandbox, CITATION.cff sí se parchea, pero
     en identifiers/notes, no en el doi/url principal — y README.md nunca,
     igual que hace _patch_citation_with_doi al publicar).
+
+    `existing_deposition_id` — only ever consulted the FIRST time (no
+    zenodo_record.json yet) — creates a proper Zenodo NEW VERSION of that
+    already-published deposition instead (see new_version_deposition):
+    linked via a shared conceptrecid/conceptdoi, unlike the plain "delete
+    zenodo_record.json and upload again" fallback below, which always
+    creates a brand new, UNRELATED deposition. The new version's own
+    inherited files (a snapshot of the previous version's) are deleted
+    right away, so this run's own upload is authoritative. None (the
+    default, and every later call once zenodo_record.json exists) behaves
+    exactly as before this parameter existed.
 
     Returns:
         El registro local {"deposition_id", "environment", "doi", ...} — ya
@@ -480,6 +593,12 @@ def upload_to_zenodo(
         # skipped below instead of re-uploaded — the file listing on the
         # remote deposition is the source of truth, not any local state.
         already_uploaded = {f["filename"] for f in deposition.get("files", [])}
+    elif existing_deposition_id:
+        console.print(f"Creating a new version of Zenodo deposition {existing_deposition_id}...")
+        deposition = new_version_deposition(api_base_url, token, existing_deposition_id)
+        deposition_id = deposition["id"]
+        for f in deposition.get("files", []):
+            delete_deposition_file(api_base_url, token, deposition_id, f["id"])
     else:
         console.print("Creating a new deposition on Zenodo...")
         deposition = create_deposition(api_base_url, token)
@@ -515,6 +634,15 @@ def upload_to_zenodo(
     for file_path in to_upload:
         upload_file_to_bucket(bucket_url, token, file_path, file_path.name)
         console.print(f"  [green]✓[/green] {file_path.name}")
+
+    if any(p.name == DEFAULT_PREVIEW_FILENAME for p in files):
+        # Best-effort: only affects how the record page looks, never worth
+        # failing the upload over.
+        try:
+            set_default_preview(api_base_url, token, deposition_id, DEFAULT_PREVIEW_FILENAME)
+            console.print(f"  {DEFAULT_PREVIEW_FILENAME} set as the record's default preview.")
+        except Exception as exc:
+            console.print(f"[yellow]⚠ Could not set {DEFAULT_PREVIEW_FILENAME} as the default preview ({exc}).[/yellow]")
 
     record = {
         "deposition_id": deposition_id,

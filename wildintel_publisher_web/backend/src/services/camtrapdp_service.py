@@ -13,7 +13,6 @@ import re
 import subprocess
 from pathlib import Path
 
-from wildintel_publisher.config import load_settings
 from wildintel_publisher.services import common, product
 from wildintel_publisher.services.common import DATAPACKAGE_FILENAME
 
@@ -132,16 +131,6 @@ def read_summary(input_dir: Path) -> dict:
         "homepage": data.get("homepage"),
         "hfh_repo_id": detect_hfh_repo_id(data.get("homepage")),
     }
-
-
-def list_organizations() -> list[dict]:
-    """Camtrap DP only — settings.toml's own CAMTRAPDP.organizations (see
-    wildintel_publisher.config.CamtrapdpSettings), the web wizard's
-    metadata-editing step (step === 2) offers these as the options for
-    BOTH datapackage.json's own "publisher" and "rightsHolder" contributor
-    roles — hand-edit settings.toml's own [[CAMTRAPDP.organizations]]
-    array-of-tables to add/remove one, no frontend code change needed."""
-    return [org.model_dump() for org in load_settings().CAMTRAPDP.organizations]
 
 
 def _opener_command(path: Path) -> list[str]:

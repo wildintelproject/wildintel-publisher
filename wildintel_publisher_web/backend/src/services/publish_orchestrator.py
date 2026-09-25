@@ -9,11 +9,12 @@ Flow, for `repos` (an ORDERED list of already-configured
 RepoPublishConfig):
 
   1. Upload phase — prepare + upload every repo, ONE AFTER ANOTHER (each
-     one's own build directory becomes the next one's input, same
-     chaining the wizard used to do itself before this module existed).
-     Whichever repos provide their own DOI (PROVIDES_DOI — Zenodo/B2SHARE)
-     already reserve it here, same as 'zenodo upload'/'b2share upload' on
-     the CLI.
+     one hands the next its own core files — see _extract_chain_input and
+     the own_output_mode paragraph below for exactly which copy of them —
+     same chaining the wizard used to do itself before this module
+     existed). Whichever repos provide their own DOI (PROVIDES_DOI —
+     Zenodo/B2SHARE) already reserve it here, same as 'zenodo upload'/
+     'b2share upload' on the CLI.
   2. Populate phase — doi_populate.populate() cross-references whatever
      DOI got reserved above into every OTHER repo's own CITATION.cff (as
      an alternate identifier, or as the primary one for HFH, which never
@@ -24,9 +25,37 @@ RepoPublishConfig):
      tag_release_on_huggingface+release_on_huggingface for every repo, in
      order — only now, once every cross-reference has already landed.
 
-Only after step 3 are the product's own core files copied into each
-repo's user-configured output_dir (see copy_prepared_output_files) and the
-throwaway build directories deleted.
+Between steps 2 and 3 — once the populate broadcast is over and no file
+can change anymore — the product's own core files are copied into each
+repo's user-configured output_dir (see _finalize_one/
+copy_prepared_output_files), and right after that each repo's build
+directory, chain input and downloaded copies are deleted (see
+_discard_build_artifacts), plus the shared media cache once every repo
+is finalized. Phase 3 only needs the small per-repo records kept in the
+session's own metadata.json (see _capture_repo_record/_resolve_lock_dir/
+_read_hfh_version). The rest of the session is deleted once step 3 has
+finished.
+
+own_output_mode — each repo's OWN output_mode (RepoPublishConfig; the same
+choice that, after phase 2, decides how its user-facing output_dir gets filled
+— see _finalize_one) ALSO decides, right here in phase 1, what it hands the
+NEXT repo in the chain (see _extract_chain_input/_download_repo_copy,
+called from the per-repo loop below):
+  - "prepared" (the default) — the repo's own build_dir, as it stands
+    right after its own upload (e.g. media.csv already rewritten to HFH
+    URLs, in mirror mode) — unchanged from before this mode-awareness
+    existed.
+  - "downloaded" — round-trips through the real remote FIRST (still
+    unpublished/undrafted at this point — see _download_repo_copy's own
+    docstring on why that's fine for HFH/Zenodo but needs a draft-aware
+    call for B2SHARE), so the next repo builds on a verified copy of what
+    actually landed, not just what the local build_dir claims.
+  - "passthrough" — forwards this repo's OWN input unchanged, with no
+    extraction at all: this repo is treated as not having transformed
+    anything worth handing forward.
+This only matters for the INTERNAL chain — a fresh dry_run "downloaded"
+falls back to "prepared" (nothing real was ever uploaded to round-trip
+through).
 
 GBIF is not like the other three: it never prepares or uploads any files of
 its own — it only registers, in GBIF's Registry, a dataset whose CAMTRAP_DP
@@ -110,6 +139,7 @@ from typing import Any
 
 from wildintel_publisher.config import load_settings
 from wildintel_publisher.services import b2share as b2share_cli
+from wildintel_publisher.services import common
 from wildintel_publisher.services import doi_populate
 from wildintel_publisher.services import gbif as gbif_cli
 from wildintel_publisher.services import hfh as hfh_cli
@@ -431,6 +461,7 @@ async def _upload_one(
             await asyncio.to_thread(
                 zenodo_cli.upload_to_zenodo, build_dir, token=cfg["token"], environment=cfg["environment"],
                 communities=cfg.get("communities"), hfh_repo_id=hfh_repo_id,
+                existing_deposition_id=cfg.get("existing_deposition_id"),
             )
     elif repo == "b2share":
         repo_status["stage"] = "preparing"
@@ -452,6 +483,7 @@ async def _upload_one(
             await asyncio.to_thread(
                 b2share_cli.upload_to_b2share, build_dir, token=cfg["token"], environment=cfg["environment"],
                 community_id=cfg["community_id"], hfh_repo_id=hfh_repo_id,
+                existing_record_id=cfg.get("existing_record_id"),
             )
 
 
@@ -484,7 +516,55 @@ async def _reupload_one(cfg: dict, *, build_dir: Path, dry_run: bool) -> None:
         )
 
 
-async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
+def _read_hfh_version(build_dir: Path, session_dir: Path | None = None) -> str:
+    """The version to tag — read from HFH's own hfh_record.json (written by
+    upload_to_huggingface), else build_dir's own metadata.json (still where
+    the version ultimately came from in the first place — e.g. a session
+    that started before the record file existed, resumed now), else — once
+    build_dir itself is gone (see _discard_build_artifacts) — the session's
+    own canonical metadata.json: the hfh_record.json folded into it (see
+    _capture_repo_record), then its own top-level "version"."""
+    record_path = build_dir / hfh_cli.RECORD_FILENAME
+    if record_path.is_file():
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        if record.get("version"):
+            return record["version"]
+    if (build_dir / product.METADATA_FILENAME).is_file():
+        return product.read_metadata_json(build_dir).get("version") or hfh_cli.DEFAULT_VERSION
+    session_meta_path = session_dir / product.METADATA_FILENAME if session_dir is not None else None
+    if session_meta_path is None or not session_meta_path.is_file():
+        return hfh_cli.DEFAULT_VERSION
+    # Read raw, not via product.read_metadata_json: the session's copy
+    # carries the extra "repos" key (see _capture_repo_record), which
+    # ProductMetadata's own schema rejects.
+    session_meta = json.loads(session_meta_path.read_text(encoding="utf-8"))
+    captured = session_meta.get("repos", {}).get("hfh") or {}
+    return captured.get("version") or session_meta.get("version") or hfh_cli.DEFAULT_VERSION
+
+
+def _resolve_lock_dir(cfg: dict, *, session_dir: Path, build_dir: Path) -> Path:
+    """A small directory holding just this repo's own record file — all
+    release_on_zenodo/release_on_b2share actually need to publish (they
+    also patch a CITATION.cff/checksums next to it, but that copy is never
+    uploaded anywhere after the lock, so its absence here is harmless —
+    common.patch_citation_with_identifier skips a missing file). Lets
+    phase 3 run after build_dir is gone (see _discard_build_artifacts).
+
+    Reused as-is if it already exists: release_on_X rewrites the record
+    in place (published flag, final pid/record_url), and a resume after
+    an interrupted lock must keep building on that, not a stale copy."""
+    repo = cfg["repo"]
+    lock_dir = session_dir / f"{repo}-lock"
+    record_filename = _RECORD_FILENAME_BY_REPO[repo]
+    if (lock_dir / record_filename).is_file():
+        return lock_dir
+    record = _read_repo_record(session_dir, repo, build_dir)
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    (lock_dir / record_filename).write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return lock_dir
+
+
+async def _lock_one(cfg: dict, *, session_dir: Path, build_dir: Path, repo_status: dict, dry_run: bool) -> None:
     """Phase 3: release_on_zenodo/release_on_b2share, or
     tag_release_on_huggingface+release_on_huggingface for HFH. GBIF has
     nothing left to do here — it already registered back in phase 1 (see
@@ -493,6 +573,13 @@ async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: b
     happens as a separate best-effort step in _run, after every repo's own
     phase 3 has run.
 
+    Never needs build_dir itself (by now possibly already deleted — see
+    _discard_build_artifacts): Zenodo/B2SHARE release against
+    _resolve_lock_dir's own small copy of their record, and the released
+    record is then folded back into the session's metadata.json and
+    copied into the user's output_dir, whose own copy (from _finalize_one,
+    which ran before this) still says "published": false.
+
     In dry_run, Zenodo/B2SHARE just flip their own simulated record's
     "published" flag (same doi/pid reserved back in _upload_one — a real
     release never changes the identifier, just publishes it); HFH has
@@ -500,11 +587,13 @@ async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: b
     repo_url _dry_run_upload_hfh already set."""
     repo = cfg["repo"]
     repo_status["stage"] = "releasing"
+    if repo in _RECORD_FILENAME_BY_REPO:
+        lock_dir = await asyncio.to_thread(_resolve_lock_dir, cfg, session_dir=session_dir, build_dir=build_dir)
+        record_path = lock_dir / _RECORD_FILENAME_BY_REPO[repo]
     if repo == "hfh":
         if dry_run:
             return
-        meta = await asyncio.to_thread(product.read_metadata_json, build_dir)
-        version = meta.get("version") or hfh_cli.DEFAULT_VERSION
+        version = await asyncio.to_thread(_read_hfh_version, build_dir, session_dir)
         await asyncio.to_thread(
             hfh_cli.tag_release_on_huggingface, repo_id=cfg["repo_id"], token=cfg["token"], version=version,
         )
@@ -514,28 +603,32 @@ async def _lock_one(cfg: dict, *, build_dir: Path, repo_status: dict, dry_run: b
         )
     elif repo == "zenodo":
         if dry_run:
-            record_path = build_dir / zenodo_cli.RECORD_FILENAME
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["published"] = True
             record_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
         else:
-            record = await asyncio.to_thread(zenodo_cli.release_on_zenodo, build_dir, token=cfg["token"])
+            record = await asyncio.to_thread(zenodo_cli.release_on_zenodo, lock_dir, token=cfg["token"])
         repo_status["doi"] = record.get("doi")
         repo_status["repo_url"] = record.get("record_url")
     elif repo == "b2share":
         if dry_run:
-            record_path = build_dir / b2share_cli.RECORD_FILENAME
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["published"] = True
             record_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
         else:
-            record = await asyncio.to_thread(b2share_cli.release_on_b2share, build_dir, token=cfg["token"])
+            record = await asyncio.to_thread(b2share_cli.release_on_b2share, lock_dir, token=cfg["token"])
         repo_status["pid"] = record.get("pid")
         repo_status["repo_url"] = record.get("record_url")
     # repo == "gbif": nothing to do — see this function's own docstring.
 
+    if repo in _RECORD_FILENAME_BY_REPO:
+        _capture_repo_record(session_dir, repo, lock_dir)
+        output_dir = Path(cfg["output_dir"])
+        if output_dir.is_dir():
+            shutil.copy2(record_path, output_dir / record_path.name)
 
-async def _extract_chain_input(build_dir: Path, chain_dir: Path) -> Path:
+
+async def _extract_chain_input(core_source: Path, chain_dir: Path, *, metadata_source: Path) -> Path:
     """The next repo in the publish order must never receive the previous
     repo's raw build_dir as its own input_dir — that directory also carries
     the previous repo's own extras (README.md, LICENSE, CITATION.cff,
@@ -552,35 +645,321 @@ async def _extract_chain_input(build_dir: Path, chain_dir: Path) -> Path:
     copies are gone (see camtrapdp_adapter.py/yolo_adapter.py's own
     extract_core_files).
 
+    `core_source` and `metadata_source` are DELIBERATELY separate params
+    (see _run's own call sites, one per output_mode): `core_source` is
+    normally the repo's own build_dir (output_mode="prepared", the
+    default), but for output_mode="downloaded" it's instead a fresh,
+    just-downloaded-back copy from the real remote (see
+    _download_repo_copy) — which never has metadata.json (that file is
+    deliberately excluded from every upload, see _upload_one's own
+    docstring), so metadata_source always stays the repo's own build_dir
+    regardless of where the core files themselves come from.
+
     `chain_dir` is caller-provided (a fixed path under the task's own
     session_dir, not a throwaway tempdir) so it survives a crash and its
     path can be persisted for resume_publish_all_task."""
-    meta = await asyncio.to_thread(product.read_metadata_json, build_dir)
+    meta = await asyncio.to_thread(product.read_metadata_json, metadata_source)
     adapter = product.get_adapter(meta["product_type"])
     chain_dir.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(adapter.extract_core_files, build_dir, chain_dir)
-    await asyncio.to_thread(product.copy_metadata_json, build_dir, chain_dir)
+    await asyncio.to_thread(adapter.extract_core_files, core_source, chain_dir)
+    await asyncio.to_thread(product.copy_metadata_json, metadata_source, chain_dir)
     return chain_dir
 
 
-async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str, dry_run: bool) -> str:
+def _checksums_cache_path(session_dir: Path, repo: str) -> Path:
+    return session_dir / "checksums-cache" / f"{repo}.txt"
+
+
+def _cache_checksums(session_dir: Path, repo: str, build_dir: Path) -> None:
+    """Saves a copy of build_dir's own checksums-sha256.txt into the
+    session's own small cache — see _get_checksums_for_populate, which
+    reads it back later (at populate time) instead of needing build_dir to
+    still exist by then. A no-op for GBIF (never has one)."""
+    src = build_dir / common.CHECKSUM_FILENAME
+    if not src.is_file():
+        return
+    dest = _checksums_cache_path(session_dir, repo)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+
+
+# hfh_cli's own RECORD_FILENAME is deliberately absent — HFH never needs
+# _read_repo_record (see _download_repo_copy's own "hfh" branch, which
+# only ever needs cfg["repo_id"], already known upfront).
+_RECORD_FILENAME_BY_REPO = {"zenodo": zenodo_cli.RECORD_FILENAME, "b2share": b2share_cli.RECORD_FILENAME}
+# What _capture_repo_record folds into the session's metadata.json — HFH's
+# own record included (only its "version" is ever read back, by
+# _read_hfh_version, once build_dir is gone).
+_CAPTURED_RECORD_FILENAMES = {**_RECORD_FILENAME_BY_REPO, "hfh": hfh_cli.RECORD_FILENAME}
+
+
+async def _get_checksums_for_populate(cfg: dict, *, session_dir: Path, build_dir: Path) -> Path:
+    """The checksums-sha256.txt to update (see
+    common.update_checksums_entries) when populate()/sync_doi_to_hfh patch
+    a repo's own CITATION.cff/README.md. Three tiers, in order: the
+    session's own small cache (see _cache_checksums, written right after
+    this repo's own upload); build_dir directly, if it's still around
+    (true for every run today — nothing deletes it yet, see the module's
+    own docstring); only then a fresh download from the real remote
+    (reusing _download_repo_copy — same as the chain's own
+    output_mode="downloaded" case), for whenever build_dir eventually
+    isn't an option either."""
+    cached = _checksums_cache_path(session_dir, cfg["repo"])
+    if cached.is_file():
+        return cached
+    in_build_dir = build_dir / common.CHECKSUM_FILENAME
+    if in_build_dir.is_file():
+        return in_build_dir
+    downloaded = await _resolve_populate_file(
+        cfg, session_dir=session_dir, build_dir=build_dir, filename=common.CHECKSUM_FILENAME,
+    )
+    if downloaded is None:
+        raise RuntimeError(
+            f"No checksums-sha256.txt found for {cfg['repo']!r} — neither cached, in its build_dir, "
+            "nor in a fresh download from the real remote."
+        )
+    return downloaded
+
+
+def _capture_repo_record(session_dir: Path, repo: str, build_dir: Path) -> None:
+    """Folds a repo's own small record file (zenodo_record.json/
+    b2share_record.json/hfh_record.json — written into build_dir by
+    upload_to_X right after this repo's own upload) into the session's own
+    canonical metadata.json, under "repos"[repo] — same idea as
+    _capture_session_metadata, for the SAME reason: so _read_repo_record
+    (and, through it, _download_repo_copy's own fallback) can still find a
+    repo's deposition_id/record_id once build_dir itself is gone. A no-op
+    for GBIF (registers straight into its own output_dir, never build_dir
+    — see _register_gbif), and a harmless no-op if the session's own
+    metadata.json hasn't been seeded yet (see _seed_session_metadata,
+    which always runs first in _run)."""
+    filename = _CAPTURED_RECORD_FILENAMES.get(repo)
+    if not filename:
+        return
+    record_path = build_dir / filename
+    meta_path = session_dir / product.METADATA_FILENAME
+    if not record_path.is_file() or not meta_path.is_file():
+        return
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta.setdefault("repos", {})[repo] = record
+    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_repo_record(session_dir: Path, repo: str, build_dir: Path) -> dict:
+    """A repo's own small record (deposition_id for Zenodo, record_id for
+    B2SHARE) — build_dir's own copy if it's still there, else the
+    session's own canonical metadata.json (see _capture_repo_record), for
+    whenever build_dir isn't an option anymore.
+
+    Raises:
+        RuntimeError: if neither has one — this repo genuinely never
+        reserved anything yet.
+    """
+    filename = _RECORD_FILENAME_BY_REPO[repo]
+    record_path = build_dir / filename
+    if record_path.is_file():
+        return json.loads(record_path.read_text(encoding="utf-8"))
+    meta_path = session_dir / product.METADATA_FILENAME
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        record = meta.get("repos", {}).get(repo)
+        if record:
+            return record
+    raise RuntimeError(f"No record found for {repo!r} — neither in {record_path} nor in the session's own metadata.json.")
+
+
+async def _download_repo_copy(cfg: dict, *, session_dir: Path, build_dir: Path, target_dir: Path) -> None:
+    """Downloads what THIS repo just uploaded back from the real remote,
+    BEFORE it's ever locked/published — backs the chain's own
+    output_mode="downloaded" case (see _run): a real round-trip
+    verification that what actually landed on the remote is what the next
+    repo in the chain then builds on, instead of just trusting the local
+    build_dir.
+
+    Reuses each repo's own record (see _read_repo_record — build_dir's own
+    copy if still there, else the session's own canonical metadata.json)
+    to know which remote deposition/record/repo to fetch. HFH has no
+    separate draft/published state to worry about (its repo_id alone is
+    enough — the files are already on its default branch, regardless of
+    whether a tag exists yet); Zenodo's own get_deposition already works
+    fine against a not-yet-published draft (same single endpoint, no
+    separate flag — see
+    test_zenodo_upload_resumes_by_skipping_files_the_deposition_already_has);
+    B2SHARE's own published-record endpoint does NOT (a still-draft record
+    isn't there yet), so this uses download_draft_files_from_b2share
+    instead of download_files_from_b2share (published records only).
+    Also backs _finalize_one's own "downloaded" case, which likewise runs
+    before phase 3's lock."""
+    repo = cfg["repo"]
+    if repo == "hfh":
+        await asyncio.to_thread(
+            hfh_service.download_from_repo, repo_id=cfg["repo_id"], token=cfg["token"], target_dir=target_dir,
+        )
+    elif repo == "zenodo":
+        record = _read_repo_record(session_dir, repo, build_dir)
+        await asyncio.to_thread(
+            zenodo_service.download_files_from_zenodo, environment=cfg["environment"],
+            deposition_id=record["deposition_id"], token=cfg["token"], target_dir=target_dir,
+        )
+    elif repo == "b2share":
+        record = _read_repo_record(session_dir, repo, build_dir)
+        await asyncio.to_thread(
+            b2share_service.download_draft_files_from_b2share, environment=cfg["environment"],
+            record_id=record["record_id"], token=cfg["token"], target_dir=target_dir,
+        )
+
+
+def _populate_cache_dir(session_dir: Path, repo: str) -> Path:
+    return session_dir / "populate-cache" / repo
+
+
+def _cache_citation_and_readme(session_dir: Path, repo: str, build_dir: Path) -> None:
+    """Saves a copy of build_dir's own CITATION.cff/README.md into the
+    session's own small cache — see _resolve_populate_file, which reads
+    them back later (at populate time) instead of needing build_dir to
+    still exist by then. Exactly _cache_checksums's own reasoning, for the
+    other two files doi_populate.populate() patches. A no-op for GBIF (has
+    neither)."""
+    cache_dir = _populate_cache_dir(session_dir, repo)
+    for filename in ("CITATION.cff", "README.md"):
+        src = build_dir / filename
+        if src.is_file():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, cache_dir / filename)
+
+
+async def _resolve_populate_file(
+    cfg: dict, *, session_dir: Path, build_dir: Path, filename: str, allow_download: bool = True,
+) -> Path | None:
+    """One file (CITATION.cff, README.md, or checksums-sha256.txt) needed
+    to patch this repo's own citation — same three tiers as
+    _get_checksums_for_populate's own docstring: the session's own small
+    cache (see _cache_citation_and_readme/_cache_checksums), build_dir
+    directly, or a fresh download from the real remote (reusing
+    _download_repo_copy — same as the chain's own output_mode="downloaded"
+    case; shared across every file/tier that needs it this same run, so a
+    prior call for a DIFFERENT file never triggers a second download).
+    None if even the download doesn't have it (e.g. a repo whose export
+    never included this file in the first place).
+
+    `allow_download=False` skips straight to that None instead of
+    attempting the download — for a file (README.md) that populate()/
+    sync_doi_to_hfh already treat as optional (patched only if present,
+    see common.patch_readme_citation_url), a cache/build_dir miss just
+    means this repo's export never produced one, not that it's missing
+    and needs fetching back — unlike CITATION.cff/checksums-sha256.txt,
+    which every repo always has and DOES warrant that last-resort
+    round-trip."""
+    cached = _populate_cache_dir(session_dir, cfg["repo"]) / filename
+    if cached.is_file():
+        return cached
+    in_build_dir = build_dir / filename
+    if in_build_dir.is_file():
+        return in_build_dir
+    if not allow_download:
+        return None
+    downloaded_dir = session_dir / f"{cfg['repo']}-download-fallback"
+    if not (downloaded_dir / filename).is_file():
+        await _download_repo_copy(cfg, session_dir=session_dir, build_dir=build_dir, target_dir=downloaded_dir)
+    found = downloaded_dir / filename
+    return found if found.is_file() else None
+
+
+async def _resolve_populate_dir(cfg: dict, *, session_dir: Path, build_dir: Path, allow_download: bool = True) -> Path:
+    """Materializes a small, throwaway directory with just what
+    doi_populate.populate()/gbif_service.sync_doi_to_hfh need to patch THIS
+    repo's own CITATION.cff/README.md and cross-reference its own DOI (its
+    own record file, if it provides one) — never the FULL build_dir
+    (LICENSE, images/, the zip...), which neither of them ever touches
+    anyway. Each file is resolved independently via
+    _resolve_populate_file/_read_repo_record's own 3-tier fallback.
+
+    `allow_download=False` (see the call site building `populate_dirs` for
+    EVERY repo, not just the ones actually being patched — collect_
+    identifiers still needs every DOI-providing repo's own record file
+    represented there) skips CITATION.cff's own download-fallback tier for
+    a repo that isn't a patch candidate to begin with — no point in a real
+    remote round-trip just to obtain a copy of a file that would, at best,
+    sit here unpatched. README.md never downloads regardless (see
+    _resolve_populate_file's own docstring).
+
+    Idempotent within the SAME run: if this repo's own populate_dir was
+    already resolved (and, by the time this is called again, possibly
+    already patched by an earlier step this same run — e.g. GBIF's own DOI
+    sync into HFH, which happens before doi_populate.populate() itself,
+    see the module's own docstring), it's reused as-is rather than
+    re-resolved from cache/build_dir, which would silently discard that
+    earlier patch."""
+    repo = cfg["repo"]
+    populate_dir = session_dir / f"{repo}-populate"
+    if (populate_dir / "CITATION.cff").is_file():
+        return populate_dir
+    populate_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("CITATION.cff", "README.md"):
+        source = await _resolve_populate_file(
+            cfg, session_dir=session_dir, build_dir=build_dir, filename=filename,
+            allow_download=(allow_download if filename == "CITATION.cff" else False),
+        )
+        if source is not None:
+            shutil.copy2(source, populate_dir / filename)
+    record_filename = _RECORD_FILENAME_BY_REPO.get(repo)
+    if record_filename:
+        try:
+            record = _read_repo_record(session_dir, repo, build_dir)
+        except RuntimeError:
+            record = None
+        if record is not None:
+            (populate_dir / record_filename).write_text(json.dumps(record), encoding="utf-8")
+    return populate_dir
+
+
+def _copy_populate_patches_back(populate_dir: Path, checksums_path: Path, build_dir: Path) -> None:
+    """Copies CITATION.cff/README.md (from populate_dir) and the patched
+    checksums-sha256.txt (from wherever _get_checksums_for_populate
+    resolved it) back into build_dir. Needed because
+    doi_populate.populate()/gbif_service.sync_doi_to_hfh patch those
+    small, independently-resolved copies (see _resolve_populate_dir/
+    _get_checksums_for_populate), never build_dir directly — but
+    _reupload_one's own full re-upload and _finalize_one's own "prepared"
+    output_mode copy still read straight from build_dir (still around for
+    every run today — see the module's own docstring)."""
+    for filename in ("CITATION.cff", "README.md"):
+        patched = populate_dir / filename
+        if patched.is_file():
+            shutil.copy2(patched, build_dir / filename)
+    if checksums_path.is_file():
+        shutil.copy2(checksums_path, build_dir / common.CHECKSUM_FILENAME)
+
+
+async def _finalize_one(
+    cfg: dict, *, session_dir: Path, build_dir: Path, previous_output_dir: str, dry_run: bool,
+) -> str:
     """Copies the product's own core files (see each web service's own
     copy_prepared_output_files) into this repo's user-configured
     output_dir, then resolves output_mode — same three choices each
     single-repo publish endpoint already offered, just computed here since
     chaining is now internal (see the module's own docstring).
 
+    Runs right after phase 2 (populate + re-upload), BEFORE phase 3's
+    lock — the files never change after that point (a release/tag only
+    publishes what's already there), so waiting for the lock bought
+    nothing, and doing it now is what lets build_dir stop being needed
+    by the time phase 3 starts.
+
     output_mode == "downloaded" means "fetch a fresh copy back from the
-    repo" — meaningless in dry_run (nothing was actually uploaded there to
-    fetch back), so it falls through to the same result as "prepared"
-    instead of hitting the network."""
+    repo" — still unpublished at this point, so it goes through the same
+    draft-aware _download_repo_copy the chain itself uses. Meaningless in
+    dry_run (nothing was actually uploaded there to fetch back), so it
+    falls through to the same result as "prepared" instead of hitting
+    the network."""
     repo = cfg["repo"]
     output_dir = Path(cfg["output_dir"])
     output_mode = cfg.get("output_mode", "prepared")
 
     if repo == "gbif":
         # register_gbif_dataset already wrote gbif_linked_dataset_record.json
-        # straight into output_dir itself (see _lock_one) — there's no
+        # straight into output_dir itself (see _register_gbif) — there's no
         # build_dir content to copy, and no "downloaded"/"passthrough" choice
         # that would mean anything for a repo that never hosts a copy.
         return str(output_dir)
@@ -596,25 +975,68 @@ async def _finalize_one(cfg: dict, *, build_dir: Path, previous_output_dir: str,
         return previous_output_dir
     if output_mode == "downloaded" and not dry_run:
         download_dir = output_dir.parent / f"{output_dir.name}-downloaded"
-        if repo == "hfh":
-            await asyncio.to_thread(hfh_service.download_from_repo, repo_id=cfg["repo_id"], token=cfg["token"], target_dir=download_dir)
-            return str(download_dir)
-        if repo == "zenodo":
-            record = json.loads((build_dir / zenodo_cli.RECORD_FILENAME).read_text(encoding="utf-8"))
-            await asyncio.to_thread(
-                zenodo_service.download_files_from_zenodo, environment=cfg["environment"],
-                deposition_id=record["deposition_id"], token=cfg["token"], target_dir=download_dir,
-            )
-            return str(download_dir)
-        if repo == "b2share":
-            record = json.loads((build_dir / b2share_cli.RECORD_FILENAME).read_text(encoding="utf-8"))
-            if record.get("pid"):
-                await asyncio.to_thread(
-                    b2share_service.download_files_from_b2share, environment=cfg["environment"],
-                    record_id=record["record_id"], token=cfg["token"], target_dir=download_dir,
-                )
-                return str(download_dir)
+        await _download_repo_copy(cfg, session_dir=session_dir, build_dir=build_dir, target_dir=download_dir)
+        return str(download_dir)
     return str(output_dir)
+
+
+def _seed_session_metadata(session_dir: Path, input_dir: Path) -> None:
+    """Seeds the session's own canonical metadata.json, once, from the
+    task's original input_dir — see _capture_session_metadata and the
+    module's own docstring on why a single, always-present copy at the
+    session level (rather than whichever per-repo directory — source/,
+    <repo>-build/, chain-after-<repo>/... — happens to still exist at any
+    given point) is what this is for. Never overwrites an already-seeded
+    (and possibly since-evolved, via _capture_session_metadata) copy, so
+    it's safe to call on every _run invocation, including a resume."""
+    dest = session_dir / product.METADATA_FILENAME
+    if dest.is_file():
+        return
+    src = input_dir / product.METADATA_FILENAME
+    if src.is_file():
+        shutil.copy2(src, dest)
+
+
+def _capture_session_metadata(session_dir: Path, build_dir: Path) -> None:
+    """Pulls forward whatever a repo's own upload just changed in ITS OWN
+    metadata.json (e.g. product.write_homepage, in mirror mode) into the
+    session's canonical copy — see _seed_session_metadata. ALWAYS
+    overwrites (unlike the seed step): build_dir's own copy is the latest
+    truth right after that repo's own turn. A no-op for GBIF (its own
+    build_dir is never populated — see _upload_one)."""
+    src = build_dir / product.METADATA_FILENAME
+    if not src.is_file():
+        return
+    dest = session_dir / product.METADATA_FILENAME
+    # "repos" is session-only bookkeeping (see _capture_repo_record) that
+    # no build_dir's own copy ever has — carried over, never overwritten.
+    captured = json.loads(dest.read_text(encoding="utf-8")).get("repos") if dest.is_file() else None
+    shutil.copy2(src, dest)
+    if captured:
+        meta = json.loads(dest.read_text(encoding="utf-8"))
+        meta["repos"] = captured
+        dest.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _gbif_metadata_dir(session_dir: Path) -> Path:
+    return session_dir / "gbif-input"
+
+
+def _discard_build_artifacts(session_dir: Path, repo: str, build_dir: Path | None) -> None:
+    """Deletes everything big this repo left under session_dir — its own
+    build_dir, the chain input it handed the next repo (chain-after-<repo>)
+    and any downloaded-back copy (see _download_repo_copy/
+    _resolve_populate_file) — right after its own _finalize_one, the last
+    step that needs any of them (phase 3 only needs the small caches: see
+    _resolve_lock_dir/_read_hfh_version). Only ever touches paths inside
+    session_dir, never a caller-supplied input_dir."""
+    candidates = [
+        build_dir, session_dir / f"chain-after-{repo}",
+        session_dir / f"{repo}-downloaded", session_dir / f"{repo}-download-fallback",
+    ]
+    for path in candidates:
+        if path is not None and path.resolve().is_relative_to(session_dir.resolve()):
+            shutil.rmtree(path, ignore_errors=True)
 
 
 async def _run(
@@ -623,6 +1045,8 @@ async def _run(
 ) -> None:
     task = _publish_tasks[task_id]
     session_dir = _session_dir(task_id)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    _seed_session_metadata(session_dir, input_dir)
     # A fresh start_publish_all_task() call reusing a task_id an earlier
     # fetch/preprocess phase already created (see session_store) has
     # nothing in `task` (a brand new in-memory dict) yet, but the manifest
@@ -671,8 +1095,11 @@ async def _run(
         # only means the lock/finalize phase, further below, already ran
         # for it too): the DOI-populate and lock/finalize phases below still
         # need to run for an "uploaded" repo the first time this task
-        # actually reaches "done".
-        UPLOADED_STAGES = {"uploaded", "done"}
+        # actually reaches "done". Every stage past "uploaded" counts too —
+        # a repo interrupted mid-finalize/mid-release must never be
+        # re-uploaded from scratch.
+        FINALIZED_STAGES = {"finalized", "releasing", "done"}
+        UPLOADED_STAGES = {"uploaded", "finalizing"} | FINALIZED_STAGES
 
         current_input_dir = input_dir
         for i, cfg in enumerate(repos):
@@ -711,85 +1138,207 @@ async def _run(
                 media_cache_dir=session_dir / "media-cache",
             )
             repo_status["stage"] = "uploaded"
+            _capture_session_metadata(session_dir, build_dir)
+            _capture_repo_record(session_dir, repo, build_dir)
+            _cache_checksums(session_dir, repo, build_dir)
+            _cache_citation_and_readme(session_dir, repo, build_dir)
+            if repo == "gbif" and (current_input_dir / product.METADATA_FILENAME).is_file():
+                # Its input_dir is usually the previous repo's
+                # chain-after-<repo>, deleted after phase 2 (see
+                # _discard_build_artifacts) — the post-lock re-point step
+                # still needs this exact metadata.json.
+                gbif_meta_dir = _gbif_metadata_dir(session_dir)
+                gbif_meta_dir.mkdir(parents=True, exist_ok=True)
+                product.copy_metadata_json(current_input_dir, gbif_meta_dir)
             _persist()
             # GBIF never transforms the product (see _upload_one) — the
             # next repo in the chain keeps whatever input the CURRENT one
             # got, rather than trying to extract core files out of GBIF's
             # own (empty) build_dir.
             if i < len(repos) - 1 and repo != "gbif":
-                chain_dir = session_dir / f"chain-after-{repo}"
-                current_input_dir = await _extract_chain_input(build_dir, chain_dir)
-
-        if not dry_run:
-            gbif_status = task["repos"].get("gbif")
-            hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
-            if (
-                gbif_status and gbif_status.get("doi") and hfh_cfg is not None
-                and gbif_status.get("doi_synced_to_hfh") is None
-            ):
-                # BEFORE doi_populate.populate() below, on purpose: this is
-                # what makes GBIF's own DOI claim HFH's top-level "doi"
-                # field FIRST — patch_citation_with_identifier only ever
-                # writes a NEW value there when none is set yet (or it
-                # already matches), so whatever Zenodo/B2SHARE DOI populate()
-                # cross-references into HFH right after this always lands as
-                # a secondary "identifiers" entry instead, never displacing
-                # GBIF's. Also still BEFORE HFH's own tag (phase 3, below):
-                # patches build_dirs["hfh"] and re-uploads straight to HFH's
-                # still-untagged "main", so the tag about to be created
-                # captures a commit that already has GBIF's DOI
-                # cross-referenced into it, instead of tagging first and
-                # leaving the tag stale once main moves on afterward.
-                gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
-                try:
-                    await asyncio.to_thread(
-                        gbif_service.sync_doi_to_hfh,
-                        gbif_output_dir=Path(gbif_cfg["output_dir"]),
-                        hfh_output_dir=build_dirs["hfh"],
-                        hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
+                output_mode = cfg.get("output_mode", "prepared")
+                if output_mode == "passthrough":
+                    # Forward this repo's OWN input unchanged, same as its
+                    # own output_dir would (see _finalize_one) — no
+                    # transformation of any kind applied, so there's
+                    # nothing new to extract; current_input_dir is left as
+                    # it already was for this repo's own turn.
+                    pass
+                elif output_mode == "downloaded" and not dry_run:
+                    # Round-trips through the real remote before the next
+                    # repo builds on it (see _download_repo_copy) — dry_run
+                    # has nothing real to download back, so it falls
+                    # through to the same "prepared" extraction as below.
+                    downloaded_dir = session_dir / f"{repo}-downloaded"
+                    await _download_repo_copy(cfg, session_dir=session_dir, build_dir=build_dir, target_dir=downloaded_dir)
+                    chain_dir = session_dir / f"chain-after-{repo}"
+                    current_input_dir = await _extract_chain_input(
+                        downloaded_dir, chain_dir, metadata_source=build_dir,
                     )
-                    gbif_status["doi_synced_to_hfh"] = True
-                except Exception:
-                    # Best-effort — the manual "Sync DOI" section is
-                    # still there for the user to retry by hand.
-                    gbif_status["doi_synced_to_hfh"] = False
-                _persist()
+                else:
+                    chain_dir = session_dir / f"chain-after-{repo}"
+                    current_input_dir = await _extract_chain_input(build_dir, chain_dir, metadata_source=build_dir)
 
-        # GBIF has no CITATION.cff of its own to cross-reference DOIs
-        # into (and isn't otherwise integrated into this generic mechanism
-        # yet) — excluded here so doi_populate.populate() (which only
-        # knows about hfh/zenodo/b2share) never sees it. Its own DOI, when
-        # it has one, was already reflected into HFH's CITATION.cff just
-        # above, AS THE PRIMARY — any Zenodo/B2SHARE DOI cross-referenced
-        # below only ever lands as a secondary "identifiers" entry there,
-        # never overwriting it (see the block above's own comment).
-        doi_dirs = {repo: d for repo, d in build_dirs.items() if repo != "gbif"}
-        changed = await asyncio.to_thread(doi_populate.populate, doi_dirs, primary_doi_source=primary_doi_source)
-        for cfg in repos:
-            repo = cfg["repo"]
-            if changed.get(repo) and task["repos"][repo].get("stage") != "done":
-                await _reupload_one(cfg, build_dir=build_dirs[repo], dry_run=dry_run)
-        _persist()
+        # Phase 2 already ran to completion before an earlier interruption
+        # iff any repo got as far as finalizing — and by then some
+        # build_dirs may be gone already (see _discard_build_artifacts),
+        # so it must not run again.
+        populate_done = any(
+            task["repos"][c["repo"]].get("stage") in {"finalizing"} | FINALIZED_STAGES for c in repos
+        )
+        if not populate_done:
+            if not dry_run:
+                gbif_status = task["repos"].get("gbif")
+                hfh_cfg = next((c for c in repos if c["repo"] == "hfh"), None)
+                if (
+                    gbif_status and gbif_status.get("doi") and hfh_cfg is not None
+                    and gbif_status.get("doi_synced_to_hfh") is None
+                ):
+                    # BEFORE doi_populate.populate() below, on purpose: this is
+                    # what makes GBIF's own DOI claim HFH's top-level "doi"
+                    # field FIRST — patch_citation_with_identifier only ever
+                    # writes a NEW value there when none is set yet (or it
+                    # already matches), so whatever Zenodo/B2SHARE DOI populate()
+                    # cross-references into HFH right after this always lands as
+                    # a secondary "identifiers" entry instead, never displacing
+                    # GBIF's. Also still BEFORE HFH's own tag (phase 3, below):
+                    # patches build_dirs["hfh"] and re-uploads straight to HFH's
+                    # still-untagged "main", so the tag about to be created
+                    # captures a commit that already has GBIF's DOI
+                    # cross-referenced into it, instead of tagging first and
+                    # leaving the tag stale once main moves on afterward.
+                    gbif_cfg = next(c for c in repos if c["repo"] == "gbif")
+                    try:
+                        # A small, resolved copy (see _resolve_populate_dir) —
+                        # not build_dirs["hfh"] directly, since it might not
+                        # have CITATION.cff/README.md physically present
+                        # anymore by the time this runs. Reused as-is (not
+                        # re-resolved) by the populate_dirs built further
+                        # below, so THIS patch survives into that later step.
+                        hfh_populate_dir = await _resolve_populate_dir(
+                            hfh_cfg, session_dir=session_dir, build_dir=build_dirs["hfh"],
+                        )
+                        hfh_checksums_path = await _get_checksums_for_populate(
+                            hfh_cfg, session_dir=session_dir, build_dir=build_dirs["hfh"],
+                        )
+                        await asyncio.to_thread(
+                            gbif_service.sync_doi_to_hfh,
+                            gbif_output_dir=Path(gbif_cfg["output_dir"]),
+                            hfh_output_dir=hfh_populate_dir,
+                            hfh_repo_id=hfh_cfg["repo_id"], hfh_token=hfh_cfg["token"],
+                            checksums_path=hfh_checksums_path,
+                        )
+                        # So _finalize_one's own later "prepared" copy (still
+                        # read straight from build_dir) reflects this patch too
+                        # — sync_doi_to_hfh only ever wrote to hfh_populate_dir.
+                        _copy_populate_patches_back(hfh_populate_dir, hfh_checksums_path, build_dirs["hfh"])
+                        gbif_status["doi_synced_to_hfh"] = True
+                    except Exception:
+                        # Best-effort — the manual "Sync DOI" section is
+                        # still there for the user to retry by hand.
+                        gbif_status["doi_synced_to_hfh"] = False
+                    _persist()
 
+            # GBIF has no CITATION.cff of its own to cross-reference DOIs
+            # into (and isn't otherwise integrated into this generic mechanism
+            # yet) — excluded here so doi_populate.populate() (which only
+            # knows about hfh/zenodo/b2share) never sees it. Its own DOI, when
+            # it has one, was already reflected into HFH's CITATION.cff just
+            # above, AS THE PRIMARY — any Zenodo/B2SHARE DOI cross-referenced
+            # below only ever lands as a secondary "identifiers" entry there,
+            # never overwriting it (see the block above's own comment).
+            doi_dirs = {repo: d for repo, d in build_dirs.items() if repo != "gbif"}
+            # The starting point for each repo's own checksums-sha256.txt
+            # update (see _get_checksums_for_populate) — resolved (and, on a
+            # cache/build_dir miss, downloaded) ONLY for a repo populate() will
+            # actually try to patch: some OTHER repo's identifier to
+            # cross-reference (same "is there anything to add" check it does
+            # internally) AND an own CITATION.cff that actually exists (same
+            # early-return guard common.patch_citation_with_identifier itself
+            # uses) — so neither a single-repo run (nothing to cross-reference)
+            # nor a repo whose export was never really prepared ever triggers a
+            # needless resolution/download.
+            identifiers = doi_populate.collect_identifiers(doi_dirs)
+            repos_with_candidates = {
+                repo for repo, d in doi_dirs.items()
+                if any(i.repo != repo for i in identifiers) and (d / "CITATION.cff").is_file()
+            }
+            checksums_paths = {
+                cfg["repo"]: await _get_checksums_for_populate(cfg, session_dir=session_dir, build_dir=doi_dirs[cfg["repo"]])
+                for cfg in repos if cfg["repo"] in repos_with_candidates
+            }
+            # A small, independently-resolved copy per repo (see
+            # _resolve_populate_dir) — NOT doi_dirs (raw build_dir) directly,
+            # since it might not have CITATION.cff/README.md physically
+            # present anymore by the time this runs. EVERY repo in doi_dirs
+            # gets one here (not just repos_with_candidates): populate()'s own
+            # collect_identifiers(populate_dirs) needs each DOI-providing
+            # repo's own record file represented too, even one that isn't
+            # itself a patch candidate (e.g. it has no CITATION.cff of its
+            # own yet) — only download its CITATION.cff when it IS one (no
+            # point in a real remote round-trip otherwise). Reuses HFH's own,
+            # if the GBIF-DOI-sync step above already resolved (and patched)
+            # it — see that function's own docstring on why re-resolving
+            # would silently discard that earlier patch.
+            populate_dirs = {
+                cfg["repo"]: await _resolve_populate_dir(
+                    cfg, session_dir=session_dir, build_dir=doi_dirs[cfg["repo"]],
+                    allow_download=cfg["repo"] in repos_with_candidates,
+                )
+                for cfg in repos if cfg["repo"] in doi_dirs
+            }
+            changed = await asyncio.to_thread(
+                doi_populate.populate, populate_dirs, primary_doi_source=primary_doi_source, checksums_paths=checksums_paths,
+            )
+            for cfg in repos:
+                repo = cfg["repo"]
+                if changed.get(repo) and task["repos"][repo].get("stage") != "done":
+                    # populate() patched populate_dirs[repo], not build_dir
+                    # directly — copy those patches back before re-uploading,
+                    # since _reupload_one still re-uploads the WHOLE build_dir
+                    # today (see _copy_populate_patches_back's own docstring).
+                    _copy_populate_patches_back(populate_dirs[repo], checksums_paths[repo], build_dirs[repo])
+                    await _reupload_one(cfg, build_dir=build_dirs[repo], dry_run=dry_run)
+            _persist()
+
+        # Finalize (fill each repo's user-facing output_dir) right after
+        # the populate broadcast, BEFORE any lock — see _finalize_one's own
+        # docstring on why the files can't change past this point anyway.
         previous_output_dir = str(input_dir)
         for cfg in repos:
             repo = cfg["repo"]
             repo_status = task["repos"][repo]
-            if repo_status.get("stage") == "done":
-                # Already locked/finalized before an earlier interruption —
-                # its output_dir already has the final files.
+            if repo_status.get("stage") in FINALIZED_STAGES:
+                # Already finalized before an earlier interruption — its
+                # output_dir already has the final files.
                 if repo_status.get("output_dir"):
                     previous_output_dir = repo_status["output_dir"]
                 continue
-            build_dir = build_dirs[repo]
-            await _lock_one(cfg, build_dir=build_dir, repo_status=repo_status, dry_run=dry_run)
+            repo_status["stage"] = "finalizing"
             final_output_dir = await _finalize_one(
-                cfg, build_dir=build_dir, previous_output_dir=previous_output_dir, dry_run=dry_run,
+                cfg, session_dir=session_dir, build_dir=build_dirs[repo],
+                previous_output_dir=previous_output_dir, dry_run=dry_run,
             )
             repo_status["output_dir"] = final_output_dir
+            repo_status["stage"] = "finalized"
+            previous_output_dir = final_output_dir
+            _discard_build_artifacts(session_dir, repo, build_dirs.pop(repo, None))
+            _persist()
+        # Shared by every repo's own mirroring (see _upload_one) — nothing
+        # past this point uploads anything anymore.
+        shutil.rmtree(session_dir / "media-cache", ignore_errors=True)
+
+        for cfg in repos:
+            repo = cfg["repo"]
+            repo_status = task["repos"][repo]
+            if repo_status.get("stage") == "done":
+                continue
+            await _lock_one(
+                cfg, session_dir=session_dir, build_dir=build_dirs.get(repo) or session_dir / f"{repo}-build",
+                repo_status=repo_status, dry_run=dry_run,
+            )
             repo_status["status"] = "done"
             repo_status["stage"] = "done"
-            previous_output_dir = final_output_dir
             _persist()
 
         if not dry_run:
@@ -806,9 +1355,11 @@ async def _run(
                 # same register_gbif_dataset (matched to the SAME dataset
                 # by its own dataset_key fallback — see _register_gbif).
                 try:
-                    hfh_meta = await asyncio.to_thread(product.read_metadata_json, build_dirs["hfh"])
-                    version = hfh_meta.get("version") or hfh_cli.DEFAULT_VERSION
+                    version = await asyncio.to_thread(
+                        _read_hfh_version, build_dirs.get("hfh") or session_dir / "hfh-build", session_dir,
+                    )
                     tag_archive_url = _archive_url_for_tag(gbif_cfg["archive_url"], version)
+                    gbif_meta_dir = _gbif_metadata_dir(session_dir)
                     if tag_archive_url is None:
                         # Not one of HFH's own resolve URLs (a manually
                         # provided external archive) — nothing to re-point.
@@ -816,7 +1367,8 @@ async def _run(
                     else:
                         await _register_gbif(
                             {**gbif_cfg, "archive_url": tag_archive_url},
-                            input_dir=input_dirs["gbif"], repo_status=gbif_status, dry_run=False,
+                            input_dir=gbif_meta_dir if gbif_meta_dir.is_dir() else input_dirs["gbif"],
+                            repo_status=gbif_status, dry_run=False,
                         )
                         gbif_status["archive_repointed_to_tag"] = True
                 except Exception:
@@ -842,6 +1394,22 @@ async def _run(
             shutil.rmtree(session_dir, ignore_errors=True)
 
 
+def _default_primary_doi_source(input_dir: Path, repos: list[dict]) -> str | None:
+    """HFH's primary DOI when the caller didn't choose one: for every
+    product type except Camtrap DP (whose wizard still asks), Zenodo's if
+    it's part of the run, else B2SHARE's. None otherwise — including when
+    input_dir has no readable metadata.json yet — which leaves
+    doi_populate.populate's own single-candidate fallback in charge."""
+    try:
+        product_type = product.read_metadata_json(input_dir)["product_type"]
+    except RuntimeError:
+        return None
+    if product_type == product.CAMTRAPDP:
+        return None
+    selected = {cfg["repo"] for cfg in repos}
+    return next((repo for repo in ("zenodo", "b2share") if repo in selected), None)
+
+
 def start_publish_all_task(
     *, input_dir: Path, repos: list[dict], primary_doi_source: str | None, dry_run: bool = False,
     media_dir: Path | None = None, task_id: str | None = None,
@@ -855,6 +1423,7 @@ def start_publish_all_task(
     session, e.g. for a Local Directory source (out of scope for this
     mechanism) or any caller that predates it."""
     task_id = task_id or str(uuid.uuid4())
+    primary_doi_source = primary_doi_source or _default_primary_doi_source(input_dir, repos)
     _publish_tasks[task_id] = {
         "status": "running", "dry_run": dry_run,
         "repos": {cfg["repo"]: _initial_repo_status() for cfg in repos},

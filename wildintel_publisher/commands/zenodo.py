@@ -159,6 +159,14 @@ def upload(
         settings.HFH.repo_id, "--hfh-repo-id",
         help="HuggingFace Hub repository to link via related_identifiers.",
     ),
+    existing_deposition_id: Optional[str] = typer.Option(
+        None, "--existing-deposition-id",
+        help=(
+            "Numeric id of an already-published Zenodo deposition to create a proper linked NEW "
+            "VERSION of (shares its conceptrecid/conceptdoi), instead of an unrelated fresh "
+            "deposition. Only consulted the first time (no zenodo_record.json yet in --output-dir)."
+        ),
+    ),
 ) -> None:
     """Creates (or reuses) a Zenodo deposition and uploads the files of the already-prepared record."""
     resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
@@ -167,7 +175,7 @@ def upload(
     try:
         zenodo_service.upload_to_zenodo(
             resolved_output_dir, token=token, environment=environment,
-            communities=communities, hfh_repo_id=hfh_repo_id,
+            communities=communities, hfh_repo_id=hfh_repo_id, existing_deposition_id=existing_deposition_id,
         )
     except Exception as exc:
         logging.error("Could not upload the record to Zenodo: %s", exc)

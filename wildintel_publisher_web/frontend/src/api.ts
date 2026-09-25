@@ -1,5 +1,6 @@
 import type {
-  BrowseResult, CamtrapdpOrganization, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment,
+  BrowseResult, Organization, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment,
+  YoloDataYamlFields, YoloDataYamlMetadata,
   GBIFInstallation, OutputMode, PublishRepoConfig, ResearchProject, SessionSummary,
 } from './types'
 
@@ -162,19 +163,36 @@ export const api = {
   updateDatapackageFields: (inputDir: string, updates: DatapackageFields) =>
     post<{ ok: boolean }>('/api/camtrapdp/update-datapackage', { input_dir: inputDir, ...updates }),
 
+  // YOLO only — same contract as resolveLocalSource above, except the
+  // working copy holds just data.yaml (plus a pointer back to path for
+  // images/labels, never copied). yoloDataYamlFields/updateYoloDataYaml are
+  // YOLO's counterpart of datapackageFields/updateDatapackageFields: the
+  // metadata keys this tool adds to data.yaml, edited on the working copy
+  // BEFORE generateProductMetadata, which re-reads them from there.
+  yoloResolveLocalSource: (path: string, sessionTaskId?: string) =>
+    post<{ status: 'valid' | 'invalid'; workingDir: string | null; sourceDir: string; taskId: string; error: string | null }>(
+      '/api/yolo/resolve-local-source', { path, session_task_id: sessionTaskId },
+    ),
+
+  yoloDataYamlFields: (path: string) =>
+    req<YoloDataYamlFields>(`/api/yolo/data-yaml-fields?path=${encodeURIComponent(path)}`),
+
+  updateYoloDataYaml: (inputDir: string, fields: YoloDataYamlMetadata) =>
+    post<{ ok: boolean }>('/api/yolo/update-data-yaml', { input_dir: inputDir, ...fields }),
+
   datapackageSummary: (path: string) =>
     req<DatapackageSummary>(`/api/camtrapdp/summary?path=${encodeURIComponent(path)}`),
 
   datapackageDownloadUrl: (path: string) =>
     `/api/camtrapdp/download?path=${encodeURIComponent(path)}`,
 
-  // Camtrap DP only — settings.toml's own CAMTRAPDP.organizations (see
-  // wildintel_publisher.config.CamtrapdpSettings), offered as the
+  // settings.toml's own PRODUCT.organizations, shared by every product type (see
+  // wildintel_publisher.config.ProductSettings), offered as the
   // selectable options for BOTH the "publisher" and "rightsHolder"
   // contributor roles in WizardPage's metadata-editing step. Hand-edit
-  // settings.toml's own [[CAMTRAPDP.organizations]] to add/remove one —
+  // settings.toml's own [[PRODUCT.organizations]] to add/remove one —
   // no frontend code change needed.
-  camtrapdpOrganizations: () => req<CamtrapdpOrganization[]>('/api/camtrapdp/organizations'),
+  organizations: () => req<Organization[]>('/api/product/organizations'),
 
   openFolder: (path: string) =>
     post<{ ok: boolean }>('/api/camtrapdp/open-folder', { path }),
@@ -274,6 +292,14 @@ export const api = {
       error: string | null
     }>(`/api/zenodo/publish/${taskId}`),
 
+  // Published depositions belonging to the caller's own token, on
+  // `environment` — ZenodoPublishForm's own "Search existing depositions"
+  // button, so the user can pick an existingDepositionId instead of typing/
+  // tracking a numeric id by hand. Unlike GBIF's public Registry search (by
+  // organization), Zenodo's deposit API is always scoped to the token.
+  zenodoDepositions: (environment: string, token: string, query?: string) =>
+    post<{ id: string; title: string }[]>('/api/zenodo/depositions', { environment, token: token || null, query: query || null }),
+
   zenodoSyncDoi: (params: { zenodoOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ doi: string; repo_url: string }>('/api/zenodo/sync-doi', {
       zenodo_output_dir: params.zenodoOutputDir,
@@ -331,6 +357,15 @@ export const api = {
       error: string | null
     }>(`/api/b2share/publish/${taskId}`),
 
+  // Published records belonging to the caller's own token, on
+  // `environment` — B2SharePublishForm's own "Search existing records"
+  // button, so the user can pick an existingRecordId instead of typing/
+  // tracking one by hand. Unlike GBIF's public Registry search (by
+  // organization), B2SHARE's (InvenioRDM) user-records API is always
+  // scoped to the token.
+  b2shareRecords: (environment: string, token: string, query?: string) =>
+    post<{ id: string; title: string }[]>('/api/b2share/records', { environment, token: token || null, query: query || null }),
+
   b2shareSyncPid: (params: { b2shareOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ pid: string | null; repo_url: string }>('/api/b2share/sync-pid', {
       b2share_output_dir: params.b2shareOutputDir,
@@ -354,7 +389,7 @@ export const api = {
 
   // settings.toml's own GBIF.installations — GBIFPublishForm's own
   // "Installation UUID" quick-fill dropdown, same idea as
-  // camtrapdpOrganizations but for a GBIF installation (a distinct GBIF
+  // organizations but for a GBIF installation (a distinct GBIF
   // concept, no Camtrap DP equivalent) instead of an organization.
   gbifInstallations: () => req<GBIFInstallation[]>('/api/gbif/installations'),
 
@@ -472,6 +507,8 @@ function _repoConfigToApi(r: PublishRepoConfig) {
     environment: r.environment,
     communities: r.communities,
     community_id: r.communityId,
+    existing_deposition_id: r.existingDepositionId,
+    existing_record_id: r.existingRecordId,
     fit_archive_size: r.fitArchiveSize,
     max_zip_file: r.maxZipFile,
     min_image_edge: r.minImageEdge,

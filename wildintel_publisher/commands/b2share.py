@@ -182,6 +182,14 @@ def upload(
         settings.HFH.repo_id, "--hfh-repo-id",
         help="HuggingFace Hub repository to link (only relevant if the record was prepared without --self-contained).",
     ),
+    existing_record_id: Optional[str] = typer.Option(
+        None, "--existing-record-id",
+        help=(
+            "Id of an already-published B2SHARE record to create a proper linked NEW VERSION of "
+            "(shares its parent id), instead of an unrelated fresh draft. Only consulted the first "
+            "time (no b2share_record.json yet in --output-dir)."
+        ),
+    ),
 ) -> None:
     """Creates (or reuses) a B2SHARE draft and uploads the files of the already-prepared record (the
     single camtrapdp.zip in --self-contained mode, or the loose Camtrap DP files otherwise)."""
@@ -192,7 +200,7 @@ def upload(
     try:
         b2share_service.upload_to_b2share(
             resolved_output_dir, token=token, environment=environment, community_id=community_id,
-            hfh_repo_id=hfh_repo_id,
+            hfh_repo_id=hfh_repo_id, existing_record_id=existing_record_id,
         )
     except Exception as exc:
         logging.error("Could not upload the record to B2SHARE: %s", exc)

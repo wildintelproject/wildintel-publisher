@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 from PIL import Image
 from typer.testing import CliRunner
@@ -17,6 +18,18 @@ from wildintel_publisher.main import app
 from wildintel_publisher.services.common import _image_bucket
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_default_preview_call(request):
+    """upload_to_zenodo's last step (set_default_preview) talks to Zenodo's
+    InvenioRDM API, which most upload tests below don't fake — neutralized
+    here, except for the tests exercising it directly."""
+    if "real_default_preview" in request.keywords:
+        yield None
+        return
+    with patch("wildintel_publisher.services.zenodo.set_default_preview") as mock_set:
+        yield mock_set
 
 _M1_BUCKET = _image_bucket("m1.jpg")
 
@@ -323,6 +336,71 @@ def test_zenodo_upload_never_uploads_metadata_json(camtrapdp_dir, tmp_path, monk
     assert "README.md" in uploaded_filenames
 
 
+def test_zenodo_upload_sets_readme_as_the_default_preview(camtrapdp_dir, tmp_path, monkeypatch, _no_real_default_preview_call):
+    """Otherwise Zenodo previews checksums-sha256.txt, the first previewable
+    file alphabetically."""
+    monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
+    output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
+    draft_deposition = {"id": 555, "links": {"bucket": "https://sandbox.zenodo.org/api/files/bucket-abc"}, "metadata": {}}
+
+    def fake_post(url, **kwargs):
+        return _fake_response(201, draft_deposition)
+
+    def fake_put(url, **kwargs):
+        return _fake_response(200, draft_deposition)
+
+    with patch("httpx.post", side_effect=fake_post), patch("httpx.put", side_effect=fake_put):
+        result = runner.invoke(app, ["zenodo", "upload", "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    _no_real_default_preview_call.assert_called_once_with(
+        "https://sandbox.zenodo.org/api", "faketoken", 555, "README.md",
+    )
+
+
+@pytest.mark.real_default_preview
+def test_set_default_preview_round_trips_the_draft_through_the_inveniordm_api():
+    """A full GET -> PUT of /records/{id}/draft (that PUT replaces the whole
+    draft), keeping metadata/access and only setting files.default_preview."""
+    from wildintel_publisher.services.zenodo import set_default_preview
+
+    draft = {"metadata": {"title": "T"}, "access": {"record": "public"}, "files": {"enabled": True, "entries": {}}}
+    put_calls = []
+
+    def fake_get(url, **kwargs):
+        assert url == "https://sandbox.zenodo.org/api/records/555/draft"
+        assert kwargs["headers"]["Accept"] == "application/vnd.inveniordm.v1+json"
+        return _fake_response(200, draft)
+
+    def fake_put(url, **kwargs):
+        put_calls.append((url, kwargs["json"]))
+        return _fake_response(200, {})
+
+    with patch("httpx.get", side_effect=fake_get), patch("httpx.put", side_effect=fake_put):
+        set_default_preview("https://sandbox.zenodo.org/api", "tok", 555, "README.md")
+
+    assert put_calls == [(
+        "https://sandbox.zenodo.org/api/records/555/draft",
+        {"metadata": {"title": "T"}, "access": {"record": "public"}, "files": {"enabled": True, "default_preview": "README.md"}},
+    )]
+
+
+def test_zenodo_upload_does_not_fail_when_the_default_preview_cannot_be_set(camtrapdp_dir, tmp_path, monkeypatch, _no_real_default_preview_call):
+    monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
+    output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
+    draft_deposition = {"id": 555, "links": {"bucket": "https://sandbox.zenodo.org/api/files/bucket-abc"}, "metadata": {}}
+    _no_real_default_preview_call.side_effect = RuntimeError("boom")
+
+    with (
+        patch("httpx.post", side_effect=lambda url, **k: _fake_response(201, draft_deposition)),
+        patch("httpx.put", side_effect=lambda url, **k: _fake_response(200, draft_deposition)),
+    ):
+        result = runner.invoke(app, ["zenodo", "upload", "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "Could not set README.md as the default preview" in result.output
+
+
 def test_zenodo_upload_then_release_then_sync_doi(camtrapdp_dir, tmp_path, monkeypatch):
     monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
     output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
@@ -515,6 +593,59 @@ def test_zenodo_upload_resumes_by_skipping_files_the_deposition_already_has(camt
     assert "CITATION.cff" in uploaded_filenames
 
 
+def test_zenodo_upload_with_existing_deposition_id_creates_a_linked_new_version(camtrapdp_dir, tmp_path, monkeypatch):
+    """--existing-deposition-id (only consulted when there's no
+    zenodo_record.json yet) creates a proper Zenodo NEW VERSION via
+    actions/newversion — a draft linked to the given (already-published)
+    deposition, not an unrelated fresh one. Its own inherited file (a
+    snapshot of the previous version's) must be deleted before this run's
+    own files are uploaded."""
+    monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
+    output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
+
+    new_draft = {
+        "id": 1000, "links": {"bucket": "https://sandbox.zenodo.org/api/files/bucket-new"},
+        "metadata": {"prereserve_doi": {"doi": "10.5281/zenodo.1000"}},
+        "files": [{"id": "inherited-file-1", "filename": "old_version.csv"}],
+    }
+    deleted_file_urls = []
+    uploaded_filenames = []
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/deposit/depositions/999/actions/newversion"):
+            return _fake_response(201, {"links": {"latest_draft": "https://sandbox.zenodo.org/api/deposit/depositions/1000"}})
+        raise AssertionError(f"unexpected POST {url}")
+
+    def fake_get(url, **kwargs):
+        if url == "https://sandbox.zenodo.org/api/deposit/depositions/1000":
+            return _fake_response(200, new_draft)
+        raise AssertionError(f"unexpected GET {url}")
+
+    def fake_put(url, **kwargs):
+        if url.endswith("/deposit/depositions/1000"):
+            return _fake_response(200, new_draft)
+        uploaded_filenames.append(url.rsplit("/", 1)[-1])
+        return _fake_response(201, {})
+
+    def fake_delete(url, **kwargs):
+        deleted_file_urls.append(url)
+        return _fake_response(204, {})
+
+    with (
+        patch("httpx.post", side_effect=fake_post), patch("httpx.get", side_effect=fake_get),
+        patch("httpx.put", side_effect=fake_put), patch("httpx.delete", side_effect=fake_delete),
+    ):
+        result = runner.invoke(app, [
+            "zenodo", "upload", "--output-dir", str(output_dir), "--existing-deposition-id", "999",
+        ])
+
+    assert result.exit_code == 0, result.output
+    assert deleted_file_urls == ["https://sandbox.zenodo.org/api/deposit/depositions/1000/files/inherited-file-1"]
+    assert "README.md" in uploaded_filenames
+    record = json.loads((output_dir / "zenodo_record.json").read_text(encoding="utf-8"))
+    assert record["deposition_id"] == 1000
+
+
 def test_zenodo_sync_doi_fails_when_not_yet_published(camtrapdp_dir, tmp_path):
     output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
     (output_dir / "zenodo_record.json").write_text(json.dumps({
@@ -524,6 +655,32 @@ def test_zenodo_sync_doi_fails_when_not_yet_published(camtrapdp_dir, tmp_path):
     result = runner.invoke(app, ["zenodo", "sync-doi", "--zenodo-output-dir", str(output_dir), "--hfh-output-dir", str(tmp_path / "hfh_out")])
 
     assert result.exit_code == 1
+
+
+def test_zenodo_search_my_depositions_lists_published_ones_scoped_to_the_token():
+    """Backs the wizard's own 'Search existing depositions' button (see
+    services.zenodo_service.search_depositions) — unlike GBIF's public
+    Registry search (by organization), Zenodo's deposit API is always
+    scoped to the caller's own token, so there's no separate 'by
+    organization' parameter here."""
+    from wildintel_publisher.services.zenodo import search_my_depositions
+
+    def fake_get(url, **kwargs):
+        assert url.endswith("/deposit/depositions")
+        assert kwargs["params"]["status"] == "published"
+        assert kwargs["params"]["q"] == "camera trap"
+        return _fake_response(200, [
+            {"id": 111, "metadata": {"title": "Camera Trap Survey v1"}},
+            {"id": 222, "metadata": {}},
+        ])
+
+    with patch("httpx.get", side_effect=fake_get):
+        results = search_my_depositions("https://sandbox.zenodo.org/api", "faketoken", query="camera trap")
+
+    assert results == [
+        {"id": "111", "title": "Camera Trap Survey v1"},
+        {"id": "222", "title": "(untitled)"},
+    ]
 
 
 # ── software application: reference-only ("link") mode ──────────────────────

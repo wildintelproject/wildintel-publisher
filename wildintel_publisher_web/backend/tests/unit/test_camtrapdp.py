@@ -455,7 +455,7 @@ def test_download_serves_the_file(tmp_path):
 
 
 def test_organizations_returns_the_configured_list():
-    response = _client().get("/api/camtrapdp/organizations")
+    response = _client().get("/api/product/organizations")
 
     assert response.status_code == 200
     titles = [org["title"] for org in response.json()]

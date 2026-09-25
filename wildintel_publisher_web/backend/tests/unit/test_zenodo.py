@@ -277,6 +277,33 @@ def test_publish_falls_back_to_saved_token_when_blank(tmp_path):
     assert mock_upload.call_args.kwargs["token"] == "zen_saved"
 
 
+def test_depositions_returns_the_results():
+    fake_depositions = [{"id": "111", "title": "Camera Trap Survey v1"}, {"id": "222", "title": "(untitled)"}]
+    with patch(
+        "services.zenodo_service.zenodo_service.search_my_depositions", return_value=fake_depositions,
+    ) as mock_search:
+        response = _client().post("/api/zenodo/depositions", json={
+            "environment": "sandbox", "token": "zen_x", "query": "camera trap",
+        })
+    assert response.status_code == 200
+    assert response.json() == fake_depositions
+    mock_search.assert_called_once_with("https://sandbox.zenodo.org/api", "zen_x", query="camera trap")
+
+
+def test_depositions_requires_a_token_when_none_saved():
+    response = _client().post("/api/zenodo/depositions", json={"environment": "sandbox"})
+    assert response.status_code == 400
+
+
+def test_depositions_maps_runtime_error_to_400():
+    with patch(
+        "services.zenodo_service.zenodo_service.search_my_depositions",
+        side_effect=RuntimeError("List existing Zenodo depositions failed. HTTP status=401."),
+    ):
+        response = _client().post("/api/zenodo/depositions", json={"environment": "sandbox", "token": "zen_bad"})
+    assert response.status_code == 400
+
+
 def test_sync_doi_success(tmp_path):
     with (
         patch("services.zenodo_service.zenodo_service.sync_doi_to_hfh", return_value="10.5281/zenodo.123") as mock_sync,

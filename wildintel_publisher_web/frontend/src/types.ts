@@ -39,6 +39,14 @@ export interface ProductLicense {
   url?: string
 }
 
+/** Shape of metadata.json's "publisher" (see product.ProductPublisher in
+ * the backend) — a CFF entity. */
+export interface ProductPublisher {
+  name: string
+  website?: string | null
+  email?: string | null
+}
+
 export interface ProductAuthor {
   name?: string
   affiliation?: string
@@ -93,15 +101,15 @@ export interface DatapackageContributor {
   [key: string]: unknown
 }
 
-/** One selectable entry from settings.toml's own CAMTRAPDP.organizations
- * (see the backend's wildintel_publisher.config.CamtrapdpSettings) —
+/** One selectable entry from settings.toml's own PRODUCT.organizations
+ * (see the backend's wildintel_publisher.config.ProductSettings) —
  * WizardPage's own Publisher/Rights holder dropdowns both draw from the
- * same fetched list (see api.camtrapdpOrganizations), instead of two
+ * same fetched list (see api.organizations), instead of two
  * separate hardcoded ones. GBIFPublishForm fetches the same list
  * independently for its own "Publishing organization UUID" quick-fill
  * dropdown, using gbif_sandbox_organization_key/
  * gbif_production_organization_key instead. */
-export interface CamtrapdpOrganization {
+export interface Organization {
   title: string
   path?: string | null
   email?: string | null
@@ -112,7 +120,7 @@ export interface CamtrapdpOrganization {
 /** One selectable entry from settings.toml's own GBIF.installations (see
  * the backend's wildintel_publisher.config.GBIFInstallation) —
  * GBIFPublishForm's own "Installation UUID" quick-fill dropdown, same
- * pattern as CamtrapdpOrganization's own gbif_*_organization_key fields
+ * pattern as Organization's own gbif_*_organization_key fields
  * above but for a GBIF installation instead of an organization — a
  * distinct GBIF concept with no Camtrap DP equivalent, so it isn't part of
  * that same shared list. */
@@ -136,6 +144,30 @@ export interface DatapackageFields {
   version?: string | null
   homepage?: string | null
   contributors?: DatapackageContributor[] | null
+}
+
+/** YOLO only — the metadata keys this tool adds to data.yaml (see
+ * yolo_adapter.YoloEditableMetadata in the backend), as edited by the
+ * wizard's metadata step. An empty value removes that key. */
+export interface YoloDataYamlMetadata {
+  title?: string | null
+  description?: string | null
+  version?: string | null
+  homepage?: string | null
+  license?: ProductLicense | null
+  authors: ProductAuthor[]
+  /** Picked from PRODUCT.organizations, same as a Camtrap DP's own
+   * publisher/rightsHolder contributors. */
+  publisher?: ProductPublisher | null
+  copyright_holders: string[]
+}
+
+/** YoloDataYamlMetadata as read back from the working copy's data.yaml,
+ * plus read-only facts about the dataset and its validation warnings. */
+export interface YoloDataYamlFields extends YoloDataYamlMetadata {
+  class_names: string[]
+  split_image_counts: Record<string, number>
+  warnings: string[]
 }
 
 /** Which of DatapackageSummary's required fields the extractor couldn't
@@ -189,6 +221,18 @@ export interface PublishRepoConfig {
   environment?: string
   communities?: string
   communityId?: string
+  // zenodo-only — numeric id of an already-published Zenodo deposition to
+  // create a proper linked NEW VERSION of, instead of an unrelated fresh
+  // deposition. Undefined (the default) creates a brand new deposition,
+  // same as before this field existed — see ZenodoPublishForm's own
+  // "Search existing depositions" button.
+  existingDepositionId?: string
+  // b2share-only — id of an already-published B2SHARE record to create a
+  // proper linked NEW VERSION of, instead of an unrelated fresh draft.
+  // Undefined (the default) creates a brand new draft, same as before this
+  // field existed — see B2SharePublishForm's own "Search existing records"
+  // button.
+  existingRecordId?: string
   // zenodo/b2share, Camtrap DP + mirror only — see common.fit_images_to_size
   fitArchiveSize?: boolean
   maxZipFile?: number
@@ -309,6 +353,8 @@ export interface PublishSessionSummary extends SessionSummaryBase {
     environment?: string | null
     communities?: string | null
     community_id?: string | null
+    existing_deposition_id?: string | null
+    existing_record_id?: string | null
     fit_archive_size?: boolean
     max_zip_file?: number | null
     min_image_edge?: number

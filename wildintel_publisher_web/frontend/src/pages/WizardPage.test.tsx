@@ -19,12 +19,15 @@ vi.mock('../api', () => ({
     camtrapdpFetchArchiveStart: vi.fn(),
     camtrapdpFetchArchiveStatus: vi.fn(),
     resolveLocalSource: vi.fn(),
+    yoloResolveLocalSource: vi.fn(),
+    yoloDataYamlFields: vi.fn(),
+    updateYoloDataYaml: vi.fn(),
     generateProductMetadata: vi.fn(),
     completeProductMetadata: vi.fn(),
     datapackageFields: vi.fn(),
     updateDatapackageFields: vi.fn(),
     datapackageSummary: vi.fn(),
-    camtrapdpOrganizations: vi.fn(),
+    organizations: vi.fn(),
     datapackageDownloadUrl: vi.fn((path: string) => `/api/camtrapdp/download?path=${path}`),
     openFolder: vi.fn(),
     fsBrowse: vi.fn(),
@@ -61,6 +64,16 @@ beforeEach(() => {
   mockedApi.resolveLocalSource.mockImplementation(async (path: string) => (
     { status: 'valid' as const, workingDir: path, sourceDir: path, taskId: 'local-session', error: null }
   ))
+  mockedApi.yoloResolveLocalSource.mockImplementation(async (path: string) => (
+    { status: 'valid' as const, workingDir: `${path}-working`, sourceDir: path, taskId: 'yolo-session', error: null }
+  ))
+  mockedApi.yoloDataYamlFields.mockResolvedValue({
+    title: 'My YOLO', description: null, version: '1.0', homepage: null,
+    license: { id: 'MIT', name: 'MIT', url: '' }, authors: [{ name: 'Jane Doe', affiliation: '' }],
+    publisher: null, copyright_holders: [],
+    class_names: ['cat', 'dog'], split_image_counts: { train: 2, val: 1 }, warnings: [],
+  })
+  mockedApi.updateYoloDataYaml.mockResolvedValue({ ok: true })
   mockedApi.generateProductMetadata.mockResolvedValue({ authors: [] })
   mockedApi.datapackageSummary.mockResolvedValue({ authors: [] })
   // The new metadata-editing step (step === 2) fetches these to pre-fill
@@ -69,11 +82,11 @@ beforeEach(() => {
   // care about this step's own fields aren't forced to mock it themselves.
   mockedApi.datapackageFields.mockResolvedValue({ name: null, title: null, description: null, version: null, homepage: null })
   mockedApi.updateDatapackageFields.mockResolvedValue({ ok: true })
-  // Mirrors settings.toml's own CAMTRAPDP.organizations default (see
-  // wildintel_publisher.config.CamtrapdpSettings) — WizardPage defaults
+  // Mirrors settings.toml's own PRODUCT.organizations default (see
+  // wildintel_publisher.config.ProductSettings) — WizardPage defaults
   // dpPublisher/dpRightsHolder to organizationOptions[0]/[1] respectively,
   // so this order matters for tests that rely on those defaults.
-  mockedApi.camtrapdpOrganizations.mockResolvedValue([
+  mockedApi.organizations.mockResolvedValue([
     { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', email: null },
     { title: 'University of Huelva', path: 'https://www.uhu.es/', email: null },
     { title: 'University of South-Eastern Norway', path: 'https://www.usn.no/', email: null },
@@ -399,7 +412,7 @@ describe('WizardPage coordinate anonymization', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
-    expect(await screen.findByText('Ready to process this package.')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Title')).toHaveValue('My YOLO')
     expect(screen.queryByText('Anonymize deployment coordinates')).not.toBeInTheDocument()
   })
 
@@ -446,6 +459,138 @@ describe('WizardPage coordinate anonymization', () => {
   })
 })
 
+describe('WizardPage YOLO metadata editor', () => {
+  async function reachYoloMetadataStep() {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await screen.findByLabelText('Title')
+  }
+
+  it('works on a session working copy, never on the typed directory', async () => {
+    await reachYoloMetadataStep()
+    expect(mockedApi.yoloResolveLocalSource).toHaveBeenCalledWith('/data/yolo', undefined)
+    expect(mockedApi.yoloDataYamlFields).toHaveBeenCalledWith('/data/yolo-working')
+  })
+
+  it('shows the dataset facts and validation warnings', async () => {
+    mockedApi.yoloDataYamlFields.mockResolvedValue({
+      title: null, description: null, version: null, homepage: null, license: null, authors: [],
+      publisher: null, copyright_holders: [],
+      class_names: ['cat', 'dog'], split_image_counts: { train: 2, val: 1 },
+      warnings: ['3 image(s) under /data/yolo/images have no label file'],
+    })
+    await reachYoloMetadataStep()
+    expect(screen.getByText('cat, dog')).toBeInTheDocument()
+    expect(screen.getByText('train: 2 · val: 1')).toBeInTheDocument()
+    expect(screen.getByText(/have no label file/)).toBeInTheDocument()
+  })
+
+  it('saves the edited metadata into the working copy before generating metadata.json', async () => {
+    await reachYoloMetadataStep()
+    const title = screen.getByLabelText('Title')
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Edited title')
+    await userEvent.click(screen.getByRole('button', { name: /add author/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalled())
+    expect(mockedApi.updateYoloDataYaml).toHaveBeenCalledWith('/data/yolo-working', {
+      title: 'Edited title', description: '', version: '1.0', homepage: '',
+      // data.yaml's bare "MIT" completed with its canonical name/URL
+      license: { id: 'MIT', name: 'MIT License', url: 'https://opensource.org/licenses/MIT' },
+      authors: [{ name: 'Jane Doe', affiliation: '' }],  // the blank added row is dropped
+      // data.yaml had neither — defaults to organizations[0]/[1], same as Camtrap DP
+      publisher: { name: 'Institute of Nature Conservation PAS', website: 'https://www.iop.krakow.pl/' },
+      copyright_holders: ['University of Huelva'],
+    })
+    expect(mockedApi.updateYoloDataYaml.mock.invocationCallOrder[0])
+      .toBeLessThan(mockedApi.generateProductMetadata.mock.invocationCallOrder.at(-1)!)
+  })
+
+  it('lets the user pick the publisher and rights holder from the configured organizations', async () => {
+    await reachYoloMetadataStep()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Publisher' }), 'Spanish National Research Council')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Rights holder' }), 'Massachusetts Institute of Technology')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    await waitFor(() => expect(mockedApi.updateYoloDataYaml).toHaveBeenCalled())
+    const saved = mockedApi.updateYoloDataYaml.mock.calls[0][1]
+    expect(saved.publisher).toEqual({ name: 'Spanish National Research Council', website: 'https://www.csic.es/' })
+    expect(saved.copyright_holders).toEqual(['Massachusetts Institute of Technology'])
+  })
+
+  it('keeps a publisher from data.yaml that is a configured organization, and warns about one that is not', async () => {
+    mockedApi.yoloDataYamlFields.mockResolvedValue({
+      title: 'My YOLO', description: null, version: '1.0', homepage: null, license: null, authors: [],
+      publisher: { name: 'University of South-Eastern Norway' }, copyright_holders: ['Some Unknown Lab'],
+      class_names: ['cat'], split_image_counts: { train: 1, val: 1 }, warnings: [],
+    })
+    await reachYoloMetadataStep()
+
+    expect(screen.getByRole('combobox', { name: 'Publisher' })).toHaveValue('University of South-Eastern Norway')
+    expect(screen.getByRole('combobox', { name: 'Rights holder' })).toHaveValue('University of Huelva')
+    expect(screen.getByText(/"Some Unknown Lab" is the rights holder in data.yaml/)).toBeInTheDocument()
+  })
+
+  it('defaults the license to CC-BY-NC-4.0 when data.yaml has none', async () => {
+    mockedApi.yoloDataYamlFields.mockResolvedValue({
+      title: 'My YOLO', description: null, version: '1.0', homepage: null, license: null, authors: [],
+      publisher: null, copyright_holders: [],
+      class_names: ['cat'], split_image_counts: { train: 1, val: 1 }, warnings: [],
+    })
+    await reachYoloMetadataStep()
+
+    expect(screen.getByLabelText('License')).toHaveValue('CC-BY-NC-4.0')
+    expect(screen.getByText('https://creativecommons.org/licenses/by-nc/4.0/')).toBeInTheDocument()
+    expect(screen.queryByLabelText('License ID')).not.toBeInTheDocument()
+  })
+
+  it('fills in the whole license from the dropdown, and shows free-text fields for Other', async () => {
+    await reachYoloMetadataStep()
+    await userEvent.selectOptions(screen.getByLabelText('License'), 'CC0-1.0')
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await waitFor(() => expect(mockedApi.updateYoloDataYaml).toHaveBeenCalled())
+    expect(mockedApi.updateYoloDataYaml.mock.calls[0][1].license).toEqual({
+      id: 'CC0-1.0', name: 'Creative Commons Zero v1.0 Universal', url: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    })
+  })
+
+  it('requires an id or name for a license typed in by hand', async () => {
+    await reachYoloMetadataStep()
+    await userEvent.selectOptions(screen.getByLabelText('License'), 'Other…')
+
+    expect(screen.getByLabelText('License ID')).toHaveValue('')
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('License name'), 'My Own Terms')
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
+  })
+
+  it('keeps an unrecognized license from data.yaml under Other', async () => {
+    mockedApi.yoloDataYamlFields.mockResolvedValue({
+      title: 'My YOLO', description: null, version: '1.0', homepage: null,
+      license: { id: 'LicenseRef-Custom', name: 'Custom', url: '' }, authors: [],
+      publisher: null, copyright_holders: [],
+      class_names: ['cat'], split_image_counts: { train: 1, val: 1 }, warnings: [],
+    })
+    await reachYoloMetadataStep()
+
+    expect(screen.getByLabelText('License')).toHaveValue('__other__')
+    expect(screen.getByLabelText('License ID')).toHaveValue('LicenseRef-Custom')
+  })
+
+  it('disables Continue while an author has an affiliation but no name', async () => {
+    await reachYoloMetadataStep()
+    await userEvent.click(screen.getByRole('button', { name: /add author/i }))
+    await userEvent.type(screen.getByLabelText('Author 2 affiliation'), 'Somewhere')
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+    expect(screen.getByText('Every author needs a name.')).toBeInTheDocument()
+  })
+})
+
 describe('WizardPage contributors editor', () => {
   it('always shows the fixed publisher and rights holder rows, even with no other contributors', async () => {
     render(<WizardPage />)
@@ -457,7 +602,7 @@ describe('WizardPage contributors editor', () => {
 
     await screen.findByText('Contributors')
     // Both default to organizationOptions[0]/[1] respectively (see the
-    // mocked camtrapdpOrganizations list in beforeEach) — nothing else to
+    // mocked organizations list in beforeEach) — nothing else to
     // identify a specific contributor by, so no generic per-contributor
     // row is shown.
     expect(screen.getByLabelText('Publisher')).toHaveValue('Institute of Nature Conservation PAS')
@@ -1212,12 +1357,11 @@ describe('WizardPage publish order', () => {
     expect(screen.getByText(/their own record isn't assigned until they actually upload/i)).toBeInTheDocument()
   })
 
-  it('asks which DOI is primary for HFH only when hfh + zenodo + b2share are all selected, then passes the choice along', async () => {
+  it('never asks which DOI is primary for an AI Dataset — the backend picks Zenodo', async () => {
     render(<WizardPage />)
     await reachPublishStepYolo()
 
-    // Zenodo is mandatory for YOLO — already selected (and first in publish
-    // order, since it's added the moment the product type is picked) once
+    // Zenodo is mandatory for YOLO — already selected once
     // reachPublishStepYolo runs, nothing to click for it here.
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
@@ -1236,29 +1380,55 @@ describe('WizardPage publish order', () => {
     await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
+    expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
+    expect(screen.queryByText(/Which DOI should Hugging Face Hub cite as primary\?/)).not.toBeInTheDocument()
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishAllStatus.mockResolvedValue({ status: 'running', error: null, dry_run: false, repos: {} })
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+
+    await waitFor(() => expect(mockedApi.publishAllStart).toHaveBeenCalled())
+    expect(mockedApi.publishAllStart.mock.calls[0][0].primaryDoiSource).toBeUndefined()
+  })
+
+  it('asks which DOI is primary for HFH when a Camtrap DP goes to hfh + zenodo + b2share, then passes the choice along', async () => {
+    render(<WizardPage />)
+    await reachPublishStep()
+
+    // GBIF is mandatory for Camtrap DP — already selected.
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
+    await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+
+    for (let step = 1; step <= 4; step++) {
+      await screen.findByText(`Step ${step} of 4.`, { exact: false })
+      await act(async () => {})
+      if (screen.queryByLabelText('HuggingFace Hub token')) await configureHfhAndContinue()
+      else if (screen.queryByLabelText('GBIF username')) await configureGbifAndContinue()
+      else if (screen.queryByLabelText('Zenodo token')) {
+        await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+        await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+      } else {
+        await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+        await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
+        await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+      }
+    }
+
     expect(await screen.findByText(/Which DOI should Hugging Face Hub cite as primary\?/)).toBeInTheDocument()
     expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('radio', { name: /b2share \(eudat\)/i }))
-
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
-    mockedApi.publishAllStatus.mockResolvedValue({
-      status: 'done', error: null, dry_run: false,
-      repos: {
-        hfh: { status: 'done', stage: 'done', error: null, repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output' },
-        zenodo: { status: 'done', stage: 'done', error: null, repo_url: 'https://zenodo.org/records/1', doi: '10.5281/zenodo.1', pid: null, output_dir: '/zenodo/output' },
-        b2share: { status: 'done', stage: 'done', error: null, repo_url: 'https://b2share.eudat.eu/records/1', doi: null, pid: '10.1234/b2share.1', output_dir: '/b2share/output' },
-      },
-    })
-
-    vi.useFakeTimers()
+    mockedApi.publishAllStatus.mockResolvedValue({ status: 'running', error: null, dry_run: false, repos: {} })
     fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
-    await vi.advanceTimersByTimeAsync(2000)
-    vi.useRealTimers()
 
-    expect(mockedApi.publishAllStart).toHaveBeenCalledWith(expect.objectContaining({ primaryDoiSource: 'b2share' }))
+    await waitFor(() => expect(mockedApi.publishAllStart).toHaveBeenCalledWith(
+      expect.objectContaining({ primaryDoiSource: 'b2share' }),
+    ))
   })
 
   it('publishes every repository in one backend call, in the chosen order', async () => {
@@ -1537,6 +1707,47 @@ describe('WizardPage publish order', () => {
 
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
     expect(screen.getByText(/Published to: Zenodo\./)).toBeInTheDocument()
+  })
+
+  it('offers the manual Zenodo "Sync DOI to Hugging Face Hub" form when HFH is not part of the run', async () => {
+    render(<WizardPage />)
+    await reachPublishStepSoftware()
+
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await configureZenodoAndContinue()
+    await screen.findByText('Ready to publish')
+    await runZenodoPublishToDone()
+
+    await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+    expect(screen.getByText('Sync DOI to Hugging Face Hub')).toBeInTheDocument()
+  })
+
+  it('hides the manual Zenodo sync form when HFH was published in the same run', async () => {
+    render(<WizardPage />)
+    await reachPublishStepYolo()
+
+    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await configureZenodoAndContinue()
+    await screen.findByText('Step 2 of 2.', { exact: false })
+    await configureHfhAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishAllStatus.mockResolvedValue({
+      status: 'done', error: null, dry_run: false,
+      repos: {
+        zenodo: { status: 'done', stage: 'done', error: null, repo_url: 'https://sandbox.zenodo.org/records/1', doi: '10.5281/zenodo.1', pid: null, output_dir: '/zenodo/output' },
+        hfh: { status: 'done', stage: 'done', error: null, repo_url: 'https://huggingface.co/datasets/alice/dataset', doi: null, pid: null, output_dir: '/hfh/output' },
+      },
+    })
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+    expect(screen.queryByText('Sync DOI to Hugging Face Hub')).not.toBeInTheDocument()
   })
 
   it('resets back to the first step when "Publish again" is clicked', async () => {

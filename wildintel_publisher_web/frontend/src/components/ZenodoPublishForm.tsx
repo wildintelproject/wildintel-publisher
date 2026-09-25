@@ -47,6 +47,12 @@ export interface ZenodoPublishConfig {
    * per-file upload cap" (50 GiB). */
   maxZipFile?: number
   minImageEdge: number
+  /** Numeric id of an already-published Zenodo deposition to create a
+   * proper linked NEW VERSION of (shares its conceptrecid/conceptdoi) —
+   * takes priority over creating a brand new, unrelated deposition. Blank
+   * creates a new deposition instead. Pick one from the "Search existing
+   * depositions" button below, or type it by hand. */
+  existingDepositionId: string
 }
 
 interface Props {
@@ -86,11 +92,21 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
   const [form, setForm] = useState(() => ({
     outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
     environment: initialConfig?.environment ?? 'sandbox', communities: initialConfig?.communities ?? '',
+    existingDepositionId: initialConfig?.existingDepositionId ?? '',
   }))
-  const [mirrorImages, setMirrorImages] = useState(initialConfig?.mirrorImages ?? true)
+  const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
   const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'prepared')
   const [fitArchiveSize, setFitArchiveSize] = useState(initialConfig?.fitArchiveSize ?? true)
   const [maxZipFile, setMaxZipFile] = useState(initialConfig?.maxZipFile?.toString() ?? '')
+  // Results of the "Search existing depositions" button below (see
+  // handleSearchDepositions) — the token's own published depositions on
+  // form.environment, so the user can pick an existingDepositionId from a
+  // list instead of typing/tracking a numeric id by hand. Cleared (back to
+  // 'idle') whenever the environment changes, since a stale result list
+  // would no longer reflect it.
+  const [depositionSearch, setDepositionSearch] = useState<{
+    status: TestStatus; message: string; results: { id: string; title: string }[]
+  }>({ status: 'idle', message: '', results: [] })
   const [minImageEdge, setMinImageEdge] = useState(initialConfig?.minImageEdge?.toString() ?? '640')
   const [hasSavedToken, setHasSavedToken] = useState(false)
 
@@ -135,11 +151,31 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
     if (key === 'token') setTest({ status: 'idle', message: '' })
+    // A stale result list would no longer reflect the environment it was
+    // searched under.
+    if (key === 'environment') setDepositionSearch({ status: 'idle', message: '', results: [] })
   }
 
   const canTest = form.token !== '' || hasSavedToken
   const isTesting = test.status === 'testing'
   const canContinue = dryRun ? form.outputDir !== '' : form.outputDir !== '' && (form.token !== '' || hasSavedToken)
+
+  async function handleSearchDepositions() {
+    setDepositionSearch({ status: 'testing', message: '', results: [] })
+    try {
+      const results = await api.zenodoDepositions(form.environment, form.token)
+      setDepositionSearch({
+        status: 'ok',
+        message: results.length === 0 ? 'No published depositions found yet.' : '',
+        results,
+      })
+    } catch (e) {
+      setDepositionSearch({
+        status: 'error', results: [],
+        message: e instanceof Error ? e.message : 'Could not search for existing depositions.',
+      })
+    }
+  }
 
   async function handleTestToken() {
     setTest({ status: 'testing', message: '' })
@@ -158,6 +194,7 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
       mirrorImages, outputMode, outputDir: form.outputDir,
       fitArchiveSize, maxZipFile: maxZipFile !== '' ? Number(maxZipFile) : undefined,
       minImageEdge: minImageEdge !== '' ? Number(minImageEdge) : 640,
+      existingDepositionId: form.existingDepositionId,
     })
   }
 
@@ -243,44 +280,107 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
         )}
       </div>
 
-      <div className="mb-4">
-        <span className={labelClass}>Mode</span>
-        <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="zenodo-mode"
-              className="mt-0.5"
-              checked={mirrorImages}
-              onChange={() => setMirrorImages(true)}
-            />
-            {productType === 'software' ? (
-              <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
-                CITATION.cff) into a single zip.</span>
-            ) : (
-              <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-                public images and bundles them inside Zenodo's own camtrapdp.zip.</span>
-            )}
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="zenodo-mode"
-              className="mt-0.5"
-              checked={!mirrorImages}
-              onChange={() => setMirrorImages(false)}
-            />
-            {productType === 'software' ? (
-              <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
-                citing the GitHub repository directly — the source code itself is not copied here.</span>
-            ) : (
-              <span><strong>Link</strong> - the repository stores links to where the product's items
-                (the images) already live on Hugging Face Hub, instead of a copy.</span>
-            )}
-          </label>
+      <div className="mb-6">
+        <label className={labelClass} htmlFor="zenodo-existing-deposition-id">
+          Zenodo record ID (leave blank to create a new deposition)
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="zenodo-existing-deposition-id"
+            className={inputClass}
+            placeholder="Numeric id — leave blank to create a new deposition"
+            value={form.existingDepositionId}
+            onChange={(e) => setField('existingDepositionId', e.target.value)}
+          />
+          <button
+            type="button" className={btnOutline}
+            disabled={!canTest || depositionSearch.status === 'testing'}
+            onClick={handleSearchDepositions}
+          >
+            {depositionSearch.status === 'testing' && <SmallSpinner />}
+            {depositionSearch.status === 'testing' ? 'Searching…' : 'Search existing depositions'}
+          </button>
         </div>
+        <p className={hintClass}>
+          Publishing this run creates a proper linked new version of that exact deposition instead
+          of an unrelated one — takes priority over creating a brand new deposition. Search looks up
+          your own already-published depositions on the selected environment.
+        </p>
+        {depositionSearch.status === 'error' && (
+          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{depositionSearch.message}</p>
+        )}
+        {depositionSearch.status === 'ok' && depositionSearch.message && (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{depositionSearch.message}</p>
+        )}
+        {depositionSearch.status === 'ok' && depositionSearch.results.length > 0 && (
+          <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
+            {depositionSearch.results.map((d) => (
+              <li key={d.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setField('existingDepositionId', d.id)
+                    setDepositionSearch({ status: 'idle', message: '', results: [] })
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                >
+                  <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.id}</div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+
+      {productType === 'yolo' ? (
+        <div className="mb-4">
+          <span className={labelClass}>Mode</span>
+          <p className={hintClass}>
+            An AI Dataset's images and labels are always included in full — its images are local
+            files with no other host to link to, so Mirror and Link would be the same thing.
+          </p>
+        </div>
+      ) : (
+        <div className="mb-4">
+          <span className={labelClass}>Mode</span>
+          <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="radio"
+                name="zenodo-mode"
+                className="mt-0.5"
+                checked={mirrorImages}
+                onChange={() => setMirrorImages(true)}
+              />
+              {productType === 'software' ? (
+                <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
+                  CITATION.cff) into a single zip.</span>
+              ) : (
+                <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
+                  public images and bundles them inside Zenodo's own camtrapdp.zip.</span>
+              )}
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="radio"
+                name="zenodo-mode"
+                className="mt-0.5"
+                checked={!mirrorImages}
+                onChange={() => setMirrorImages(false)}
+              />
+              {productType === 'software' ? (
+                <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
+                  citing the GitHub repository directly — the source code itself is not copied here.</span>
+              ) : (
+                <span><strong>Link</strong> - the repository stores links to where the product's items
+                  (the images) already live on Hugging Face Hub, instead of a copy.</span>
+              )}
+            </label>
+          </div>
+        </div>
+      )}
 
       {showArchiveSizeOptions && (
         <div className="mb-4">

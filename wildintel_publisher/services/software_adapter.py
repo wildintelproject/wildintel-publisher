@@ -81,6 +81,7 @@ def _parse_citation_cff(path: Path) -> dict:
 
 class SoftwareAdapter:
     product_type = product.SOFTWARE
+    always_mirror = False
 
     def validate(self, input_dir: Path) -> None:
         if not (input_dir / GIT_DIRNAME).is_dir():
