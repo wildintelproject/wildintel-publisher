@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import B2SharePublishForm, { SyncPidSection } from '../components/B2SharePublishForm'
 import type { B2SharePublishConfig } from '../components/B2SharePublishForm'
 import CamtrapDPArchiveForm from '../components/CamtrapDPArchiveForm'
@@ -7,6 +7,8 @@ import GBIFPublishForm, { GBIFSyncDoiSection } from '../components/GBIFPublishFo
 import type { GBIFPublishConfig } from '../components/GBIFPublishForm'
 import GitCloneForm from '../components/GitCloneForm'
 import HFHPublishForm from '../components/HFHPublishForm'
+import PublicationKindPicker from '../components/PublicationKindPicker'
+import type { LookupRepo } from '../components/PublicationKindPicker'
 import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
 import type { LocalSourceSelection } from '../components/LocalDirectoryForm'
@@ -16,12 +18,13 @@ import ZenodoPublishForm, { SyncDoiSection } from '../components/ZenodoPublishFo
 import type { ZenodoPublishConfig } from '../components/ZenodoPublishForm'
 import { api } from '../api'
 import { initialLicense } from '../licenses'
+import { isNewerVersion, nextVersion } from '../versions'
 import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
 import type {
   Organization, DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary,
-  SessionFetch, SessionPreprocessing, SessionSummary, TrapperDownloadSelection, YoloDataYamlFields,
+  Publication, SessionFetch, SessionPreprocessing, SessionSummary, TrapperDownloadSelection, YoloDataYamlFields,
   YoloDataYamlMetadata,
 } from '../types'
 
@@ -433,6 +436,23 @@ export default function WizardPage({ resumeSession }: Props) {
   // (api.yoloDataYamlFields), and the editable metadata keys, written back
   // with api.updateYoloDataYaml BEFORE generateProductMetadata runs — same
   // shape as Camtrap DP's own dp* fields above.
+  // Whether this run publishes a brand new dataset or a new version of an
+  // already-published one — asked at the top of the metadata step (see
+  // PublicationKindPicker), before its editor. For a new version, what the
+  // lookup found pre-fills every repository's form and the version number.
+  const [publication, setPublication] = useState<Publication | null>(null)
+  const previousVersion = publication?.kind === 'version' ? publication.previous?.version ?? null : null
+  // Read by the editors' own loaders (effects that shouldn't re-run just
+  // because a lookup finished) to apply the version suggestion themselves.
+  const publicationReady = publication !== null && (publication.kind === 'new' || publication.previous !== null)
+  const previousVersionRef = useRef<string | null>(null)
+  previousVersionRef.current = previousVersion
+  // The version the editors should start from: the one already there if
+  // it's newer than the last published one, else the next major version.
+  function suggestVersion(current: string | null | undefined): string {
+    const previous = previousVersionRef.current
+    return previous && !isNewerVersion(current, previous) ? nextVersion(previous) : current ?? ''
+  }
   const [yoloDataset, setYoloDataset] = useState<YoloDataYamlFields | null>(null)
   const [yoloMetadata, setYoloMetadata] = useState<YoloDataYamlMetadata>({ authors: [], copyright_holders: [] })
   const [yoloOrganizationWarnings, setYoloOrganizationWarnings] = useState<string[]>([])
@@ -565,6 +585,10 @@ export default function WizardPage({ resumeSession }: Props) {
   const supportedRepos = productType ? REPOS_BY_PRODUCT_TYPE[productType] : []
   const sourceOptions = productType ? SOURCE_OPTIONS_BY_PRODUCT_TYPE[productType] : []
   const metadataComplete = summary !== null && missingRequiredFields(summary).length === 0
+  // For a new version: whatever version the product ended up with (the
+  // editor's, or — for Software — its own CITATION.cff's) must be newer
+  // than the last published one, or every repository would refuse it.
+  const versionIsNewer = isNewerVersion(summary?.version, previousVersion)
   const allConfigured = publishStarted && configureIndex >= publishOrder.length
   // Camtrap DP only — for every other product type, HFH's primary DOI is
   // always Zenodo's if selected, else B2SHARE's (decided by the backend,
@@ -638,6 +662,7 @@ export default function WizardPage({ resumeSession }: Props) {
   // "Publish again" starts from a completely clean step 0 — same as a fresh
   // page load, rather than reusing anything from the just-finished publish.
   function handlePublishAgain() {
+    setPublication(null)
     setResumeTaskId(null)
     setResumeVersion(undefined)
     setStep(0)
@@ -874,7 +899,7 @@ export default function WizardPage({ resumeSession }: Props) {
       setDpTitle(fields.title ?? '')
       setDpDescription(fields.description ?? '')
       setDpHomepage(fields.homepage ?? '')
-      setDpVersion(fields.version ?? '')
+      setDpVersion(suggestVersion(fields.version))
       const allContributors = fields.contributors ?? []
       // Pre-select whichever configured organization is already the
       // publisher/rightsHolder, if any — otherwise fall back to
@@ -929,11 +954,20 @@ export default function WizardPage({ resumeSession }: Props) {
           publisher: fields.publisher ?? null, copyright_holders: fields.copyright_holders ?? [],
         }, organizationOptions)
         setYoloDataset(fields)
-        setYoloMetadata(metadata)
+        setYoloMetadata({ ...metadata, version: suggestVersion(metadata.version) })
         setYoloOrganizationWarnings(warnings)
       })
       .catch((e) => setYoloDatasetError(e instanceof Error ? e.message : 'Could not read data.yaml.'))
   }, [download.status, download.path, productType, organizationOptions])
+
+  // A just-found previous version bumps whatever the editors currently hold
+  // (unless it's already newer) — see suggestVersion.
+  useEffect(() => {
+    if (!previousVersion) return
+    setYoloMetadata((m) => ({ ...m, version: suggestVersion(m.version) }))
+    setDpVersion((v) => suggestVersion(v))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- suggestVersion reads the ref, always current
+  }, [previousVersion])
 
   // Resuming a "preprocessed" session (see initialStepForPhase) lands
   // straight on step 3, skipping handleContinueToPreprocessing entirely —
@@ -1364,14 +1398,28 @@ export default function WizardPage({ resumeSession }: Props) {
       {/* ── Step 2: metadata review + anonymize/randomize, before preprocessing ── */}
       {step === 2 && download.status === 'done' && (
         <div>
-          <h4 className="text-lg font-semibold mb-1">Review metadata</h4>
+          <h4 className="text-lg font-semibold mb-1">Metadata</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
+            First choose whether you're publishing a new dataset or a new version of one already published — for a
+            new version, find the previous one so every repository gets linked to it. Then{' '}
             {productType === 'camtrapdp'
-              ? "Edit the package's own datapackage.json fields if needed, then choose any preprocessing before continuing."
+              ? "review the package's own datapackage.json fields, and choose any preprocessing, before continuing."
               : productType === 'yolo'
-                ? 'The dataset passed validation. Edit the descriptive metadata stored in data.yaml if needed before continuing.'
-                : 'Ready to process this package.'}
+                ? 'review the descriptive metadata stored in data.yaml (the dataset already passed validation) before continuing.'
+                : 'continue: this product\'s metadata comes from its own CITATION.cff.'}
           </p>
+
+          <PublicationKindPicker
+            value={publication} onChange={setPublication}
+            repos={REPOS_BY_PRODUCT_TYPE[productType ?? 'camtrapdp'].filter(
+              (r): r is LookupRepo => r === 'hfh' || r === 'zenodo' || r === 'b2share' || r === 'gbif',
+            )}
+          />
+
+          {publicationReady && (<>
+          {(productType === 'camtrapdp' || productType === 'yolo') && (
+            <h5 className="text-base font-semibold mb-3 text-zinc-800 dark:text-zinc-200">2. Review metadata</h5>
+          )}
 
           {productType === 'yolo' && yoloDatasetError && (
             <p className="text-sm text-red-600 dark:text-red-400">{yoloDatasetError}</p>
@@ -1383,6 +1431,7 @@ export default function WizardPage({ resumeSession }: Props) {
             <YoloMetadataEditor
               dataset={yoloDataset} value={yoloMetadata} onChange={setYoloMetadata}
               organizations={organizationOptions} organizationWarnings={yoloOrganizationWarnings}
+              previousVersion={previousVersion}
             />
           )}
 
@@ -1448,6 +1497,11 @@ export default function WizardPage({ resumeSession }: Props) {
                 {!dpVersionValid && (
                   <p className="text-xs text-red-600 dark:text-red-400 mt-1">
                     Use the form N, N.N or N.N.N (e.g. 2, 2.1, 2.1.3) — only the first number is required.
+                  </p>
+                )}
+                {previousVersion && (
+                  <p className={`text-xs mt-1 ${isNewerVersion(dpVersion, previousVersion) ? 'text-zinc-500 dark:text-zinc-400' : 'text-red-600 dark:text-red-400'}`}>
+                    The last published version is {previousVersion} — this one must be newer.
                   </p>
                 )}
               </div>
@@ -1614,6 +1668,7 @@ export default function WizardPage({ resumeSession }: Props) {
           {metadataError && (
             <p className="mt-6 text-sm text-red-600 dark:text-red-400">{metadataError}</p>
           )}
+          </>)}
         </div>
       )}
 
@@ -1651,6 +1706,14 @@ export default function WizardPage({ resumeSession }: Props) {
               summary={summary}
               onComplete={setSummary}
             />
+          )}
+
+          {summary && metadataComplete && !versionIsNewer && (
+            <p className="mt-6 text-sm text-red-600 dark:text-red-400">
+              This is version {summary.version ?? '(none)'}, but version {previousVersion} has already been published —
+              a new version must be newer.
+              {productType === 'software' && ' Bump the version in the repository\'s own CITATION.cff first.'}
+            </p>
           )}
 
           {summary && metadataComplete && (
@@ -1905,6 +1968,7 @@ export default function WizardPage({ resumeSession }: Props) {
           {publishOrder[configureIndex] === 'hfh' && (
             <HFHPublishForm
               productType={productType}
+              publication={publication}
               productTitle={summary?.title}
               productVersion={summary?.version}
               dryRun={dryRun}
@@ -1917,6 +1981,7 @@ export default function WizardPage({ resumeSession }: Props) {
           {publishOrder[configureIndex] === 'zenodo' && (
             <ZenodoPublishForm
               dryRun={dryRun}
+              publication={publication}
               productType={productType}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, zenodo: dir }))}
               initialConfig={repoConfigs.zenodo}
@@ -1927,6 +1992,7 @@ export default function WizardPage({ resumeSession }: Props) {
           {publishOrder[configureIndex] === 'b2share' && (
             <B2SharePublishForm
               dryRun={dryRun}
+              publication={publication}
               productType={productType}
               onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
               initialConfig={repoConfigs.b2share}
@@ -1955,6 +2021,7 @@ export default function WizardPage({ resumeSession }: Props) {
             return publishOrder[configureIndex] === 'gbif' && (
               <GBIFPublishForm
                 dryRun={dryRun}
+                publication={publication}
                 {...backProps}
                 suggestedArchiveUrl={
                   hfhWillProduceRemoteZip
@@ -2234,6 +2301,9 @@ export default function WizardPage({ resumeSession }: Props) {
                 preprocessing
                 || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid || organizationOptions.length === 0))
                 || (productType === 'yolo' && (!yoloDataset || !yoloMetadataValid(yoloMetadata) || organizationOptions.length === 0))
+                || !publicationReady
+                || (productType === 'yolo' && !isNewerVersion(yoloMetadata.version, previousVersion))
+                || (productType === 'camtrapdp' && previousVersion !== null && !isNewerVersion(dpVersion, previousVersion))
               }
             >
               {preprocessing && <SmallSpinner />}
@@ -2242,7 +2312,7 @@ export default function WizardPage({ resumeSession }: Props) {
           )}
 
           {step === 3 && download.status === 'done' && (
-            <button type="button" className={btnPrimary} disabled={!metadataComplete} onClick={() => setStep(4)}>
+            <button type="button" className={btnPrimary} disabled={!metadataComplete || !versionIsNewer} onClick={() => setStep(4)}>
               Next
             </button>
           )}

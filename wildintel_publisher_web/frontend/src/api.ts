@@ -1,6 +1,6 @@
 import type {
   BrowseResult, Organization, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment,
-  YoloDataYamlFields, YoloDataYamlMetadata,
+  YoloDataYamlFields, YoloDataYamlMetadata, PreviousVersion,
   GBIFInstallation, OutputMode, PublishRepoConfig, ResearchProject, SessionSummary,
 } from './types'
 
@@ -205,6 +205,22 @@ export const api = {
       '/api/hfh/config',
     ),
 
+  // Whether this Hugging Face Hub dataset already exists — the HFH form
+  // warns when a "new dataset" would publish on top of it.
+  // The saved token's own datasets (its user's and organizations') — the
+  // "new version" picker's list (see PublicationKindPicker).
+  hfhDatasets: () => req<{ id: string; title: string; version?: string | null; published?: string | null }[]>('/api/hfh/datasets'),
+
+  hfhRepoExists: (repoId: string) =>
+    req<{ exists: boolean }>(`/api/hfh/repo-exists?repo_id=${encodeURIComponent(repoId)}`),
+
+  // The previous version of an already-published dataset, found on every
+  // repository reachable from one identifier (a HFH repo_id, a Zenodo/
+  // B2SHARE record id, or any of their URLs/DOIs) — see
+  // services.previous_version_service.
+  previousVersion: (repo: 'hfh' | 'zenodo' | 'b2share' | 'gbif', identifier: string) =>
+    post<PreviousVersion>('/api/publish/previous-version', { repo, identifier }),
+
   hfhTestToken: (repoId: string, token: string, version?: string) =>
     post<{ ok: boolean; username: string; version_conflict: boolean }>(
       '/api/hfh/test-token', { repo_id: repoId, token, version },
@@ -298,7 +314,7 @@ export const api = {
   // tracking a numeric id by hand. Unlike GBIF's public Registry search (by
   // organization), Zenodo's deposit API is always scoped to the token.
   zenodoDepositions: (environment: string, token: string, query?: string) =>
-    post<{ id: string; title: string }[]>('/api/zenodo/depositions', { environment, token: token || null, query: query || null }),
+    post<{ id: string; title: string; version?: string | null; published?: string | null }[]>('/api/zenodo/depositions', { environment, token: token || null, query: query || null }),
 
   zenodoSyncDoi: (params: { zenodoOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ doi: string; repo_url: string }>('/api/zenodo/sync-doi', {
@@ -364,7 +380,7 @@ export const api = {
   // organization), B2SHARE's (InvenioRDM) user-records API is always
   // scoped to the token.
   b2shareRecords: (environment: string, token: string, query?: string) =>
-    post<{ id: string; title: string }[]>('/api/b2share/records', { environment, token: token || null, query: query || null }),
+    post<{ id: string; title: string; version?: string | null; published?: string | null }[]>('/api/b2share/records', { environment, token: token || null, query: query || null }),
 
   b2shareSyncPid: (params: { b2shareOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ pid: string | null; repo_url: string }>('/api/b2share/sync-pid', {
@@ -402,7 +418,7 @@ export const api = {
   // typing/tracking a UUID by hand. A public GBIF Registry read; no
   // credentials involved.
   gbifOrganizationDatasets: (organizationKey: string, environment: string) =>
-    post<{ key: string; title: string }[]>('/api/gbif/organization-datasets', {
+    post<{ key: string; title: string; published?: string | null }[]>('/api/gbif/organization-datasets', {
       organization_key: organizationKey, environment,
     }),
 

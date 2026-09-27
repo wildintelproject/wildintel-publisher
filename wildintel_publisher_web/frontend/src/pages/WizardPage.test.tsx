@@ -22,6 +22,10 @@ vi.mock('../api', () => ({
     yoloResolveLocalSource: vi.fn(),
     yoloDataYamlFields: vi.fn(),
     updateYoloDataYaml: vi.fn(),
+    previousVersion: vi.fn(),
+    hfhRepoExists: vi.fn(),
+    hfhDatasets: vi.fn(),
+    zenodoDepositions: vi.fn(),
     generateProductMetadata: vi.fn(),
     completeProductMetadata: vi.fn(),
     datapackageFields: vi.fn(),
@@ -55,6 +59,13 @@ vi.mock('../api', () => ({
 
 const mockedApi = vi.mocked(api)
 
+// Every run now starts the metadata step by asking whether this is a new
+// dataset or a new version (see PublicationKindPicker) — the editor below
+// it only shows up once answered.
+async function answerNewDataset() {
+  await userEvent.click(await screen.findByRole('radio', { name: /a new dataset/i }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks() // call history must not leak between tests (e.g. .not.toHaveBeenCalled() checks)
   mockedApi.trapperGetConfig.mockResolvedValue({ base_url: null, user_name: null, has_password: false })
@@ -74,6 +85,7 @@ beforeEach(() => {
     class_names: ['cat', 'dog'], split_image_counts: { train: 2, val: 1 }, warnings: [],
   })
   mockedApi.updateYoloDataYaml.mockResolvedValue({ ok: true })
+  mockedApi.hfhRepoExists.mockResolvedValue({ exists: false })
   mockedApi.generateProductMetadata.mockResolvedValue({ authors: [] })
   mockedApi.datapackageSummary.mockResolvedValue({ authors: [] })
   // The new metadata-editing step (step === 2) fetches these to pre-fill
@@ -220,6 +232,7 @@ describe('WizardPage download flow', () => {
     vi.useRealTimers()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(screen.getByText('Package downloaded')).toBeInTheDocument())
@@ -278,6 +291,7 @@ describe('WizardPage local directory flow', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
 
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
@@ -297,6 +311,7 @@ describe('WizardPage local directory flow', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
 
     await userEvent.click(screen.getByRole('button', { name: /^back$/i }))
@@ -319,6 +334,7 @@ describe('WizardPage local directory flow', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
@@ -355,6 +371,7 @@ async function reachPublishStep() {
   await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  await answerNewDataset()
 
   await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
@@ -380,6 +397,7 @@ async function reachPublishStepYolo() {
   await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  await answerNewDataset()
 
   await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
@@ -400,6 +418,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     expect(await screen.findByText('Anonymize deployment coordinates')).toBeInTheDocument()
   })
@@ -411,6 +430,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     expect(await screen.findByLabelText('Title')).toHaveValue('My YOLO')
     expect(screen.queryByText('Anonymize deployment coordinates')).not.toBeInTheDocument()
@@ -423,6 +443,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
     await screen.findByText('Anonymize deployment coordinates')
 
     expect(screen.queryByLabelText(/decimal places/i)).not.toBeInTheDocument()
@@ -444,6 +465,7 @@ describe('WizardPage coordinate anonymization', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
     await screen.findByText('Anonymize deployment coordinates')
 
     await userEvent.click(screen.getByRole('checkbox', { name: /anonymize deployment coordinates/i }))
@@ -467,6 +489,7 @@ describe('WizardPage YOLO metadata editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
     await screen.findByLabelText('Title')
   }
 
@@ -591,6 +614,167 @@ describe('WizardPage YOLO metadata editor', () => {
   })
 })
 
+const PREVIOUS_V3 = {
+  title: 'My YOLO', version: '3.0', warnings: [],
+  hfh: { repo_id: 'alice/my-yolo', url: 'https://huggingface.co/datasets/alice/my-yolo', version: '3.0' },
+  zenodo: { record_id: '609082', environment: 'sandbox' as const, url: 'https://sandbox.zenodo.org/records/609082', doi: '10.5072/zenodo.609082', version: '3.0' },
+  b2share: null, gbif: null,
+}
+
+describe('WizardPage new dataset vs. new version', () => {
+  async function reachMetadataStepYolo() {
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  }
+
+  async function findPreviousVersion() {
+    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await userEvent.type(screen.getByLabelText('Previous version identifier'), 'alice/my-yolo')
+    await userEvent.click(screen.getByRole('button', { name: /^find$/i }))
+  }
+
+  it('asks the question before showing the editor', async () => {
+    await reachMetadataStepYolo()
+
+    expect(await screen.findByText('1. What are you publishing?')).toBeInTheDocument()
+    expect(screen.queryByText('2. Review metadata')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+
+    await answerNewDataset()
+    expect(await screen.findByLabelText('Title')).toBeInTheDocument()
+    expect(screen.getByText('2. Review metadata')).toBeInTheDocument()
+  })
+
+  it('finds the previous version from one identifier, and suggests the next version number', async () => {
+    mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)
+    await reachMetadataStepYolo()
+    await findPreviousVersion()
+
+    expect(mockedApi.previousVersion).toHaveBeenCalledWith('hfh', 'alice/my-yolo')
+    expect(await screen.findByText('609082')).toBeInTheDocument()
+    expect(screen.getByText(/last published version:/i)).toBeInTheDocument()
+    // data.yaml said 1.0 — older than the last published 3.0, so bumped
+    expect(await screen.findByLabelText('Version')).toHaveValue('4.0')
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
+  })
+
+  it('lists what was already published to the chosen repository, and looks up the one picked', async () => {
+    mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)
+    mockedApi.zenodoDepositions.mockResolvedValue([
+      { id: '609036', title: 'My YOLO' }, { id: '700001', title: 'Something else' },
+    ])
+    await reachMetadataStepYolo()
+    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await userEvent.selectOptions(screen.getByLabelText('Previous version repository'), 'zenodo')
+    await waitFor(() => expect(screen.getByLabelText('Previous version environment')).toHaveValue('sandbox'))
+
+    await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
+    // every listed item also links to its own page, in a new tab
+    expect(await screen.findByRole('link', { name: /open something else in a new tab/i }))
+      .toHaveAttribute('href', 'https://sandbox.zenodo.org/records/700001')
+    await userEvent.click(await screen.findByText('My YOLO'))
+
+    expect(mockedApi.zenodoDepositions).toHaveBeenCalledWith('sandbox', '')
+    expect(mockedApi.previousVersion).toHaveBeenCalledWith('zenodo', 'https://sandbox.zenodo.org/records/609036')
+    expect(await screen.findByText('609082')).toBeInTheDocument()
+  })
+
+  it('filters the published list as the user types', async () => {
+    mockedApi.hfhDatasets.mockResolvedValue([
+      { id: 'alice/my-yolo', title: 'My YOLO', version: '3.0' },
+      { id: 'alice/camtrap', title: 'Camera traps', version: '1.0' },
+      { id: 'wildintel/other', title: 'Other thing', version: null },
+    ])
+    await reachMetadataStepYolo()
+    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
+    expect(await screen.findByText('3 found')).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Filter published datasets'), 'cam')
+    expect(screen.getByText('Camera traps')).toBeInTheDocument()
+    expect(screen.queryByText('My YOLO')).not.toBeInTheDocument()
+    expect(screen.getByText('1 of 3')).toBeInTheDocument()
+
+    await userEvent.clear(screen.getByLabelText('Filter published datasets'))
+    await userEvent.type(screen.getByLabelText('Filter published datasets'), 'zzz')
+    expect(screen.getByText(/nothing matches/i)).toBeInTheDocument()
+  })
+
+  it('sorts the published list newest first by default, or by title', async () => {
+    mockedApi.hfhDatasets.mockResolvedValue([
+      { id: 'alice/b', title: 'Bravo', version: '1.0', published: '2026-01-10' },
+      { id: 'alice/a', title: 'alpha', version: '1.0', published: '2026-09-25' },
+      { id: 'alice/c', title: 'Charlie', version: '1.0', published: null },
+    ])
+    await reachMetadataStepYolo()
+    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
+    await screen.findByText('3 found')
+
+    const titles = () => screen.getAllByRole('link', { name: /^open .* in a new tab$/i })
+      .map((a) => a.getAttribute('aria-label')!.replace(/^Open | in a new tab$/g, ''))
+    expect(titles()).toEqual(['alpha', 'Bravo', 'Charlie'])  // newest first, undated last
+    expect(screen.getByText(/published 2026-09-25/)).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText('Sort published datasets'), 'title')
+    expect(titles()).toEqual(['alpha', 'Bravo', 'Charlie'])
+
+    mockedApi.hfhDatasets.mockResolvedValue([
+      { id: 'alice/z', title: 'Zulu', version: '1.0', published: '2026-09-25' },
+      { id: 'alice/a', title: 'Alpha', version: '1.0', published: '2026-01-01' },
+    ])
+    await userEvent.selectOptions(screen.getByLabelText('Sort published datasets'), 'published')
+    await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
+    await screen.findByText('2 found')
+    expect(titles()).toEqual(['Zulu', 'Alpha'])
+    await userEvent.selectOptions(screen.getByLabelText('Sort published datasets'), 'title')
+    expect(titles()).toEqual(['Alpha', 'Zulu'])
+  })
+
+  it('lists the Hugging Face Hub datasets of the saved token', async () => {
+    mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)
+    mockedApi.hfhDatasets.mockResolvedValue([{ id: 'alice/my-yolo', title: 'My YOLO', version: '3.0' }])
+    await reachMetadataStepYolo()
+    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+
+    expect(screen.queryByLabelText('Previous version environment')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
+    // Same two-line shape as every other repository: title, then id · version
+    const item = await screen.findByRole('button', { name: /my yolo.*alice\/my-yolo.*version.*3\.0/i })
+    expect(screen.getByRole('link', { name: /open my yolo in a new tab/i }))
+      .toHaveAttribute('href', 'https://huggingface.co/datasets/alice/my-yolo')
+    await userEvent.click(item)
+
+    expect(mockedApi.previousVersion).toHaveBeenCalledWith('hfh', 'alice/my-yolo')
+  })
+
+  it('blocks a version that is not newer than the last published one', async () => {
+    mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)
+    await reachMetadataStepYolo()
+    await findPreviousVersion()
+    const version = await screen.findByLabelText('Version')
+    await userEvent.clear(version)
+    await userEvent.type(version, '3.0')
+
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+    expect(screen.getByText(/the last published version is 3\.0/i)).toBeInTheDocument()
+  })
+
+  it('shows the lookup error and keeps the editor hidden', async () => {
+    mockedApi.previousVersion.mockRejectedValue(new Error("Could not read 'alice/my-yolo': not found"))
+    await reachMetadataStepYolo()
+    await findPreviousVersion()
+
+    expect(await screen.findByText(/could not read 'alice\/my-yolo'/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+  })
+})
+
 describe('WizardPage contributors editor', () => {
   it('always shows the fixed publisher and rights holder rows, even with no other contributors', async () => {
     render(<WizardPage />)
@@ -599,6 +783,7 @@ describe('WizardPage contributors editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     await screen.findByText('Contributors')
     // Both default to organizationOptions[0]/[1] respectively (see the
@@ -627,6 +812,7 @@ describe('WizardPage contributors editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
     await screen.findByText('Contributors')
 
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
@@ -648,6 +834,7 @@ describe('WizardPage contributors editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
     await screen.findByText('Contributors')
 
     // Both dropdowns draw from the exact same configured list.
@@ -688,6 +875,7 @@ describe('WizardPage contributors editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     await screen.findByText('Alice')
     expect(screen.getByText('Bob')).toBeInTheDocument()
@@ -727,6 +915,7 @@ describe('WizardPage contributors editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     await screen.findByText('Alice')
     // "Someone Else" (the source's own "publisher") is gone from the
@@ -760,6 +949,7 @@ describe('WizardPage contributors editor', () => {
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await answerNewDataset()
 
     await screen.findByText(/was listed as rights holder/)
     expect(screen.getByText(/"Some Other University" was listed as rights holder/)).toBeInTheDocument()
@@ -792,6 +982,7 @@ describe('WizardPage Camtrap DP archive flow', () => {
     vi.useRealTimers()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(screen.getByText('Package downloaded')).toBeInTheDocument())
@@ -846,6 +1037,7 @@ describe('WizardPage Camtrap DP archive flow', () => {
     vi.useRealTimers()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
@@ -884,6 +1076,7 @@ async function reachPublishStepSoftware() {
   vi.useRealTimers()
 
   await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+  await answerNewDataset()
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
@@ -912,6 +1105,7 @@ describe('WizardPage metadata errors', () => {
     vi.useRealTimers()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     expect(await screen.findByText(/has no CITATION\.cff/i)).toBeInTheDocument()
@@ -937,6 +1131,7 @@ describe('WizardPage metadata errors', () => {
     vi.useRealTimers()
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
+    await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
   }
 

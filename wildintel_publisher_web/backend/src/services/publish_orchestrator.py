@@ -460,7 +460,7 @@ async def _upload_one(
         else:
             await asyncio.to_thread(
                 zenodo_cli.upload_to_zenodo, build_dir, token=cfg["token"], environment=cfg["environment"],
-                communities=cfg.get("communities"), hfh_repo_id=hfh_repo_id,
+                communities=cfg.get("communities"), hfh_repo_id=hfh_repo_id or cfg.get("related_hfh_repo_id"),
                 existing_deposition_id=cfg.get("existing_deposition_id"),
             )
     elif repo == "b2share":
@@ -482,7 +482,7 @@ async def _upload_one(
         else:
             await asyncio.to_thread(
                 b2share_cli.upload_to_b2share, build_dir, token=cfg["token"], environment=cfg["environment"],
-                community_id=cfg["community_id"], hfh_repo_id=hfh_repo_id,
+                community_id=cfg["community_id"], hfh_repo_id=hfh_repo_id or cfg.get("related_hfh_repo_id"),
                 existing_record_id=cfg.get("existing_record_id"),
             )
 
@@ -507,12 +507,12 @@ async def _reupload_one(cfg: dict, *, build_dir: Path, dry_run: bool) -> None:
     elif repo == "zenodo":
         await asyncio.to_thread(
             zenodo_cli.upload_to_zenodo, build_dir, token=cfg["token"], environment=cfg["environment"],
-            communities=cfg.get("communities"), hfh_repo_id=cfg.get("hfh_repo_id"),
+            communities=cfg.get("communities"), hfh_repo_id=cfg.get("hfh_repo_id") or cfg.get("related_hfh_repo_id"),
         )
     elif repo == "b2share":
         await asyncio.to_thread(
             b2share_cli.upload_to_b2share, build_dir, token=cfg["token"], environment=cfg["environment"],
-            community_id=cfg["community_id"], hfh_repo_id=cfg.get("hfh_repo_id"),
+            community_id=cfg["community_id"], hfh_repo_id=cfg.get("hfh_repo_id") or cfg.get("related_hfh_repo_id"),
         )
 
 
@@ -1100,6 +1100,17 @@ async def _run(
         # re-uploaded from scratch.
         FINALIZED_STAGES = {"finalized", "releasing", "done"}
         UPLOADED_STAGES = {"uploaded", "finalizing"} | FINALIZED_STAGES
+
+        # Zenodo/B2SHARE records link back to the Hugging Face Hub dataset
+        # published in the same run (their related_identifiers) — what lets
+        # a later "new version" lookup find it from them (see
+        # previous_version_service). Only upload_to_X's own related
+        # identifier uses it: prepare's own hfh_repo_id (Link mode's media
+        # rewrite) is left alone.
+        hfh_repo_in_run = next((c.get("repo_id") for c in repos if c["repo"] == "hfh"), None)
+        for cfg in repos:
+            if cfg["repo"] in ("zenodo", "b2share") and hfh_repo_in_run:
+                cfg["related_hfh_repo_id"] = hfh_repo_in_run
 
         current_input_dir = input_dir
         for i, cfg in enumerate(repos):

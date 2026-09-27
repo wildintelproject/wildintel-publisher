@@ -246,6 +246,39 @@ describe('ZenodoPublishForm', () => {
   })
 })
 
+describe('ZenodoPublishForm new dataset vs. new version', () => {
+  const previous = {
+    title: 'T', version: '3.0', warnings: [],
+    zenodo: { record_id: '609082', environment: 'production' as const, url: 'https://zenodo.org/records/609082', version: '3.0' },
+  }
+
+  it('pre-fills the previous version\'s record and environment, and requires the record', async () => {
+    const onConfigured = vi.fn()
+    render(<ZenodoPublishForm publication={{ kind: 'version', previous }} onConfigured={onConfigured} />)
+
+    const record = await screen.findByLabelText(/previous version's zenodo record id/i)
+    expect(record).toHaveValue('609082')
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('production'))
+
+    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await userEvent.clear(record)
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+  })
+
+  it('hides the existing-record field for a new dataset', async () => {
+    render(<ZenodoPublishForm publication={{ kind: 'new', previous: null }} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.queryByLabelText(/zenodo record id/i)).not.toBeInTheDocument()
+  })
+
+  it('explains a new version with no previous Zenodo record', async () => {
+    render(<ZenodoPublishForm publication={{ kind: 'version', previous: { ...previous, zenodo: null } }} onConfigured={vi.fn()} />)
+
+    expect(await screen.findByText(/no zenodo record was found for the previous version/i)).toBeInTheDocument()
+  })
+})
+
 describe('SyncDoiSection', () => {
   it('prefills the HFH export directory/username from settings, and syncs the DOI once the repository name is given', async () => {
     mockedApi.hfhGetConfig.mockResolvedValue({

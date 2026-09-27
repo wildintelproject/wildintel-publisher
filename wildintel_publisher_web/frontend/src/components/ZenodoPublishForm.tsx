@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { OutputMode, ProductType } from '../types'
+import type { OutputMode, ProductType, Publication } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
@@ -83,16 +83,22 @@ interface Props {
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
+  /** New dataset vs. new version (see PublicationKindPicker) — hides the
+   * existing-record field for a new dataset, and pre-fills it (plus its
+   * environment) from the previous version's own record otherwise. Omitted
+   * (e.g. a resumed session) keeps the field as a plain optional one. */
+  publication?: Publication | null
   onConfigured: (config: ZenodoPublishConfig) => void
 }
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
-export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function ZenodoPublishForm({ dryRun, productType, publication, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+  const found = publication?.kind === 'version' ? publication.previous?.zenodo ?? null : null
   const [form, setForm] = useState(() => ({
     outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
-    environment: initialConfig?.environment ?? 'sandbox', communities: initialConfig?.communities ?? '',
-    existingDepositionId: initialConfig?.existingDepositionId ?? '',
+    environment: initialConfig?.environment ?? found?.environment ?? 'sandbox', communities: initialConfig?.communities ?? '',
+    existingDepositionId: initialConfig?.existingDepositionId ?? found?.record_id ?? '',
   }))
   const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
   const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'prepared')
@@ -133,7 +139,7 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
-          environment: config.environment,
+          environment: found?.environment ?? config.environment,
           communities: config.communities ?? f.communities,
         }))
       })
@@ -158,7 +164,9 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
 
   const canTest = form.token !== '' || hasSavedToken
   const isTesting = test.status === 'testing'
-  const canContinue = dryRun ? form.outputDir !== '' : form.outputDir !== '' && (form.token !== '' || hasSavedToken)
+  const canContinue = (dryRun ? form.outputDir !== '' : form.outputDir !== '' && (form.token !== '' || hasSavedToken))
+    // A new version must be created from the previous version's own record.
+    && !(found && form.existingDepositionId.trim() === '')
 
   async function handleSearchDepositions() {
     setDepositionSearch({ status: 'testing', message: '', results: [] })
@@ -280,58 +288,77 @@ export default function ZenodoPublishForm({ dryRun, productType, onOutputDirChan
         )}
       </div>
 
-      <div className="mb-6">
-        <label className={labelClass} htmlFor="zenodo-existing-deposition-id">
-          Zenodo record ID (leave blank to create a new deposition)
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="zenodo-existing-deposition-id"
-            className={inputClass}
-            placeholder="Numeric id — leave blank to create a new deposition"
-            value={form.existingDepositionId}
-            onChange={(e) => setField('existingDepositionId', e.target.value)}
-          />
-          <button
-            type="button" className={btnOutline}
-            disabled={!canTest || depositionSearch.status === 'testing'}
-            onClick={handleSearchDepositions}
-          >
-            {depositionSearch.status === 'testing' && <SmallSpinner />}
-            {depositionSearch.status === 'testing' ? 'Searching…' : 'Search existing depositions'}
-          </button>
+      {publication?.kind !== 'new' && (
+        <div className="mb-6">
+          <label className={labelClass} htmlFor="zenodo-existing-deposition-id">
+            {found ? `Previous version's Zenodo record ID` : 'Zenodo record ID (leave blank to create a new deposition)'}
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="zenodo-existing-deposition-id"
+              className={inputClass}
+              placeholder="Numeric id — leave blank to create a new deposition"
+              value={form.existingDepositionId}
+              onChange={(e) => setField('existingDepositionId', e.target.value)}
+            />
+            <button
+              type="button" className={btnOutline}
+              disabled={!canTest || depositionSearch.status === 'testing'}
+              onClick={handleSearchDepositions}
+            >
+              {depositionSearch.status === 'testing' && <SmallSpinner />}
+              {depositionSearch.status === 'testing' ? 'Searching…' : 'Search existing depositions'}
+            </button>
+          </div>
+          <p className={hintClass}>
+            Publishing this run creates a proper linked new version of that exact deposition instead
+            of an unrelated one — takes priority over creating a brand new deposition. Search looks up
+            your own already-published depositions on the selected environment.
+          </p>
+          {depositionSearch.status === 'error' && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{depositionSearch.message}</p>
+          )}
+          {depositionSearch.status === 'ok' && depositionSearch.message && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{depositionSearch.message}</p>
+          )}
+          {depositionSearch.status === 'ok' && depositionSearch.results.length > 0 && (
+            <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
+              {depositionSearch.results.map((d) => (
+                <li key={d.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setField('existingDepositionId', d.id)
+                      setDepositionSearch({ status: 'idle', message: '', results: [] })
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  >
+                    <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.id}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        {found && (
+          <p className={hintClass}>
+            Pre-filled from the previous version{found.version ? ` (${found.version})` : ''}: this run publishes a new
+            version of that record.
+          </p>
+        )}
+        {publication?.kind === 'version' && !found && (
+          <p className={hintClass}>
+            No Zenodo record was found for the previous version — leave this blank to give the dataset its first
+            Zenodo record.
+          </p>
+        )}
+        {found && form.environment !== found.environment && (
+          <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+            ⚠ The previous version is on Zenodo's {found.environment} environment, not {form.environment}.
+          </p>
+        )}
         </div>
-        <p className={hintClass}>
-          Publishing this run creates a proper linked new version of that exact deposition instead
-          of an unrelated one — takes priority over creating a brand new deposition. Search looks up
-          your own already-published depositions on the selected environment.
-        </p>
-        {depositionSearch.status === 'error' && (
-          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{depositionSearch.message}</p>
-        )}
-        {depositionSearch.status === 'ok' && depositionSearch.message && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{depositionSearch.message}</p>
-        )}
-        {depositionSearch.status === 'ok' && depositionSearch.results.length > 0 && (
-          <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
-            {depositionSearch.results.map((d) => (
-              <li key={d.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setField('existingDepositionId', d.id)
-                    setDepositionSearch({ status: 'idle', message: '', results: [] })
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                >
-                  <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.id}</div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      )}
 
       {productType === 'yolo' ? (
         <div className="mb-4">

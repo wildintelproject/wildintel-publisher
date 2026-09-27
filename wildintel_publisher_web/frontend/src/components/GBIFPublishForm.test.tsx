@@ -477,3 +477,24 @@ describe('GBIFPublishForm dataset picker', () => {
     expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({ datasetKey: 'existing-uuid' }))
   })
 })
+
+
+describe('GBIFPublishForm new dataset vs. new version', () => {
+  it('pre-fills and requires the previous version\'s own GBIF dataset', async () => {
+    const previous = {
+      title: 'T', version: '3.0', warnings: [],
+      gbif: { dataset_key: 'uuid-9', environment: 'sandbox' as const, url: 'https://registry.gbif-test.org/dataset/uuid-9' },
+    }
+    render(<GBIFPublishForm publication={{ kind: 'version', previous }} onConfigured={vi.fn()} />)
+
+    expect(await screen.findByLabelText(/previous version's gbif dataset uuid/i)).toHaveValue('uuid-9')
+    expect(screen.getByText(/updates that same gbif dataset/i)).toBeInTheDocument()
+  })
+
+  it('hides the existing-dataset field for a new dataset', async () => {
+    render(<GBIFPublishForm publication={{ kind: 'new', previous: null }} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+
+    expect(screen.queryByLabelText(/dataset uuid/i)).not.toBeInTheDocument()
+  })
+})

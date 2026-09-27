@@ -666,20 +666,26 @@ def test_zenodo_search_my_depositions_lists_published_ones_scoped_to_the_token()
     from wildintel_publisher.services.zenodo import search_my_depositions
 
     def fake_get(url, **kwargs):
+        if url.endswith("/records/222/files/CITATION.cff/content"):
+            return MagicMock(status_code=200, text="cff-version: 1.2.0\nversion: '2.0'\n")
+        if "/files/" in url:
+            return MagicMock(status_code=404, text="")
         assert url.endswith("/deposit/depositions")
         assert kwargs["params"]["status"] == "published"
         assert kwargs["params"]["q"] == "camera trap"
         return _fake_response(200, [
-            {"id": 111, "metadata": {"title": "Camera Trap Survey v1"}},
+            {"id": 111, "metadata": {"title": "Camera Trap Survey v1", "version": "1.0", "publication_date": "2026-09-25"}},
             {"id": 222, "metadata": {}},
+            {"id": 333, "metadata": {"title": "No version anywhere"}},
         ])
 
     with patch("httpx.get", side_effect=fake_get):
         results = search_my_depositions("https://sandbox.zenodo.org/api", "faketoken", query="camera trap")
 
     assert results == [
-        {"id": "111", "title": "Camera Trap Survey v1"},
-        {"id": "222", "title": "(untitled)"},
+        {"id": "111", "title": "Camera Trap Survey v1", "version": "1.0", "published": "2026-09-25"},  # Zenodo's own metadata
+        {"id": "222", "title": "(untitled)", "version": "2.0", "published": None},  # version from its CITATION.cff
+        {"id": "333", "title": "No version anywhere", "version": None, "published": None},
     ]
 
 
@@ -740,3 +746,22 @@ def test_zenodo_prepare_software_self_contained_mode_zips_the_original_repo_file
     assert "CITATION.cff" in names
     assert not any(name.startswith(".git/") for name in names)
     assert "metadata.json" not in names
+
+
+def test_zenodo_search_my_depositions_walks_every_page(monkeypatch):
+    from wildintel_publisher.services import zenodo
+
+    monkeypatch.setattr(zenodo, "SEARCH_PAGE_SIZE", 2)
+    pages = {1: [{"id": 1, "metadata": {"version": "1"}}, {"id": 2, "metadata": {"version": "1"}}],
+             2: [{"id": 3, "metadata": {"version": "1"}}]}
+    requested = []
+
+    def fake_get(url, **kwargs):
+        requested.append(kwargs["params"]["page"])
+        return _fake_response(200, pages[kwargs["params"]["page"]])
+
+    with patch("httpx.get", side_effect=fake_get):
+        results = zenodo.search_my_depositions("https://sandbox.zenodo.org/api", "faketoken")
+
+    assert [r["id"] for r in results] == ["1", "2", "3"]
+    assert requested == [1, 2]  # stops at the first short page

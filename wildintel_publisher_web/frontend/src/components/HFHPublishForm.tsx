@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { OutputMode, ProductType } from '../types'
+import type { OutputMode, ProductType, Publication } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
@@ -60,6 +60,10 @@ interface Props {
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
+  /** New dataset vs. new version (see PublicationKindPicker): a new
+   * version pre-fills the previous version's own repository; a new dataset
+   * gets a warning if the repository typed in already exists. */
+  publication?: Publication | null
   onConfigured: (config: HfhPublishConfig) => void
 }
 
@@ -69,9 +73,13 @@ function slugifyRepoName(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '')
 }
 
-export default function HFHPublishForm({ productType, productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function HFHPublishForm({ productType, publication, productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+  const found = publication?.kind === 'version' ? publication.previous?.hfh ?? null : null
   const [form, setForm] = useState(() => {
-    if (!initialConfig) return { outputDir: '', hfUser: '', repoName: '', token: '' }
+    if (!initialConfig) {
+      const [hfUser, repoName] = found ? found.repo_id.split('/') : ['', '']
+      return { outputDir: '', hfUser: hfUser ?? '', repoName: repoName ?? '', token: '' }
+    }
     const [hfUser, repoName] = initialConfig.repoId.split('/')
     return { outputDir: initialConfig.outputDir, hfUser: hfUser ?? '', repoName: repoName ?? '', token: initialConfig.token }
   })
@@ -83,6 +91,21 @@ export default function HFHPublishForm({ productType, productTitle, productVersi
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
 
   const repoId = form.hfUser && form.repoName ? `${form.hfUser}/${form.repoName}` : ''
+
+  // A "new dataset" going to a repository that already exists would really
+  // publish a new version on top of someone else's (or an earlier) dataset.
+  const [existingRepo, setExistingRepo] = useState<string | null>(null)
+  useEffect(() => {
+    setExistingRepo(null)
+    if (publication?.kind !== 'new' || !repoId) return
+    let cancelled = false
+    const handle = setTimeout(() => {
+      api.hfhRepoExists(repoId)
+        .then((r) => { if (!cancelled && r.exists) setExistingRepo(repoId) })
+        .catch(() => { /* just no warning */ })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [repoId, publication?.kind])
 
   // Prefill the username/org from settings.toml — the same file 'hfh
   // config' reads/writes on the CLI. Only the username is remembered
@@ -106,7 +129,7 @@ export default function HFHPublishForm({ productType, productTitle, productVersi
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
-          hfUser: config.username || f.hfUser,
+          hfUser: f.hfUser || config.username || '',
         }))
       })
       .catch(() => {})
@@ -193,6 +216,29 @@ export default function HFHPublishForm({ productType, productTitle, productVersi
           />
         </div>
       </div>
+      {found && repoId === found.repo_id && (
+        <p className={hintClass}>
+          New version of <span className="font-mono">{found.repo_id}</span>
+          {found.version && <> — its last version is <span className="font-mono">{found.version}</span></>}.
+        </p>
+      )}
+      {found && repoId !== found.repo_id && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          ⚠ The previous version is in <span className="font-mono">{found.repo_id}</span> — publishing to another
+          repository won't be linked to it.
+        </p>
+      )}
+      {publication?.kind === 'version' && !found && (
+        <p className={hintClass}>
+          No Hugging Face Hub dataset was found for the previous version — this creates its first one.
+        </p>
+      )}
+      {existingRepo && existingRepo === repoId && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          ⚠ <span className="font-mono">{repoId}</span> already exists. For a new version of it, go back to the
+          metadata step and choose "A new version of an already published dataset" — or pick another name.
+        </p>
+      )}
       <p className={hintClass + ' mb-4'}>
         {repoId
           ? <>The repository identifier will be: <span className="font-mono">{repoId}</span></>

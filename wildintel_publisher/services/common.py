@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 from zipfile import ZipFile
@@ -428,6 +429,29 @@ def write_homepage(output_dir: Path, url: str) -> None:
     called in link mode: media stays wherever it already was (e.g. Trapper),
     so this HFH repo isn't really the media's home."""
     update_datapackage_fields(output_dir, {"homepage": url})
+
+
+def citation_versions(urls: dict[str, str], *, timeout: int = 20) -> dict[str, str]:
+    """{key: CITATION.cff URL} -> {key: its "version"}, fetched in parallel —
+    for listing already-published records whose repository metadata has no
+    version of its own. Unreachable/unparseable ones are just left out."""
+    def fetch(item):
+        key, url = item
+        try:
+            response = httpx.get(url, timeout=timeout, follow_redirects=True)
+            data = yaml.safe_load(response.text) if response.status_code == 200 else None
+        except Exception:
+            return key, None
+        version = data.get("version") if isinstance(data, dict) else None
+        # An old export's never-filled template placeholder isn't a version.
+        if version is None or str(version).startswith("REPLACE_WITH"):
+            return key, None
+        return key, str(version)
+
+    if not urls:
+        return {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return {key: version for key, version in pool.map(fetch, urls.items()) if version}
 
 
 def resolve_license(licenses: list) -> dict:

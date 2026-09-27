@@ -124,3 +124,16 @@ def test_patch_citation_with_doi_sandbox_rerun_is_idempotent(tmp_path):
 def test_patch_citation_with_doi_no_op_when_file_missing(tmp_path):
     _patch_citation_with_doi(tmp_path / "CITATION.cff", doi="10.5281/x", record_url="https://x", environment="production")  # must not raise
     assert not (tmp_path / "CITATION.cff").exists()
+
+
+def test_build_zenodo_metadata_sends_the_datasets_own_version_when_known():
+    with_version = build_zenodo_metadata(
+        title="T", description="D", authors=[{"name": "A"}], license_id="MIT", communities=None,
+        related_identifier_url=None, version="3.0",
+    )
+    without = build_zenodo_metadata(
+        title="T", description="D", authors=[{"name": "A"}], license_id="MIT", communities=None,
+        related_identifier_url=None,
+    )
+    assert with_version["version"] == "3.0"
+    assert "version" not in without

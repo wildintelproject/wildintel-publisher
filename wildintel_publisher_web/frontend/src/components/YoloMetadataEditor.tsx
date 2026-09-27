@@ -1,5 +1,6 @@
 import type { Organization, ProductAuthor, ProductLicense, YoloDataYamlFields, YoloDataYamlMetadata } from '../types'
 import { COMMON_LICENSES, findCommonLicense } from '../licenses'
+import { isNewerVersion } from '../versions'
 import { authorIsInvalid, licenseIsInvalid, organizationPublisher } from '../yoloMetadata'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100'
@@ -22,12 +23,15 @@ interface Props {
   /** Why a publisher/rights holder from data.yaml was replaced (see
    * withOrganizationDefaults). */
   organizationWarnings: string[]
+  /** For a new version of an already-published dataset — the one being
+   * published must be newer (see WizardPage's own Continue gating). */
+  previousVersion?: string | null
 }
 
 /** The wizard's metadata step for a YOLO dataset: edits the keys this tool
  * adds to data.yaml (not part of the YOLO spec itself) on the session's
  * working copy — the user's own data.yaml is never modified. */
-export default function YoloMetadataEditor({ dataset, value, onChange, organizations, organizationWarnings }: Props) {
+export default function YoloMetadataEditor({ dataset, value, onChange, organizations, organizationWarnings, previousVersion }: Props) {
   const set = <K extends keyof YoloDataYamlMetadata>(key: K, fieldValue: YoloDataYamlMetadata[K]) =>
     onChange({ ...value, [key]: fieldValue })
   const license = value.license ?? {}
@@ -83,6 +87,11 @@ export default function YoloMetadataEditor({ dataset, value, onChange, organizat
           id="yolo-version" type="text" className={`${inputClass} sm:w-48 font-mono`}
           value={value.version ?? ''} onChange={(e) => set('version', e.target.value)}
         />
+        {previousVersion && (
+          <p className={isNewerVersion(value.version, previousVersion) ? hintClass : 'text-xs text-red-600 dark:text-red-400 mt-1'}>
+            The last published version is {previousVersion} — this one must be newer.
+          </p>
+        )}
       </div>
       <div>
         <label htmlFor="yolo-homepage" className={labelClass}>Homepage</label>

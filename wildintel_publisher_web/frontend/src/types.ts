@@ -377,3 +377,54 @@ export interface PublishSessionSummary extends SessionSummaryBase {
  * prop, which branches on `phase` to decide what to pre-fill and which
  * wizard step to land on. */
 export type SessionSummary = FetchSession | PreprocessingSession | PublishSessionSummary
+
+/** Whether the wizard is publishing a brand new dataset, or a new version
+ * of one already published (see PublicationKindPicker) — asked before the
+ * metadata step's editor. */
+export type PublicationKind = 'new' | 'version'
+
+export interface FoundHfh {
+  repo_id: string
+  url: string
+  /** Its highest version tag — the version last published there. */
+  version?: string | null
+}
+
+export interface FoundRecord {
+  /** Always the LATEST version's own record id — a new version is created
+   * from it (see services.previous_version_service in the backend). */
+  record_id: string
+  environment: 'sandbox' | 'production'
+  url: string
+  doi?: string | null
+  title?: string | null
+  version?: string | null
+}
+
+/** The previous version, found on every repository reachable from one
+ * identifier (api.previousVersion). */
+/** GBIF datasets have no versions of their own — a new version updates
+ * this same dataset (see gbif.register_gbif_dataset's dataset_key). */
+export interface FoundGbif {
+  dataset_key: string
+  environment: 'sandbox' | 'production'
+  url: string
+  doi?: string | null
+  title?: string | null
+}
+
+export interface PreviousVersion {
+  title?: string | null
+  version?: string | null
+  hfh?: FoundHfh | null
+  zenodo?: FoundRecord | null
+  b2share?: FoundRecord | null
+  gbif?: FoundGbif | null
+  warnings: string[]
+}
+
+export interface Publication {
+  kind: PublicationKind
+  /** Only for kind 'version' — null until it's been looked up. */
+  previous: PreviousVersion | null
+}

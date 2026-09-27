@@ -356,3 +356,48 @@ def test_copy_prepared_output_files_keeps_readme_alongside_citation_and_checksum
     names = {p.name for p in target_dir.iterdir()}
     assert {"CITATION.cff", "checksums-sha256.txt", "README.md"} <= names
     assert "LICENSE" not in names
+
+
+def test_repo_exists_reports_whether_the_dataset_is_already_there():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    with patch("services.hfh_service.hfh_service._repo_exists", side_effect=lambda api, repo_id, token: repo_id == "alice/taken"):
+        client = TestClient(app)
+        assert client.get("/api/hfh/repo-exists", params={"repo_id": "alice/taken"}).json() == {"exists": True}
+        assert client.get("/api/hfh/repo-exists", params={"repo_id": "alice/free"}).json() == {"exists": False}
+
+
+def test_my_datasets_lists_the_users_and_its_organizations_datasets(monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from fastapi.testclient import TestClient
+    from main import app
+
+    monkeypatch.setenv("HF_TOKEN", "hf_x")
+    api = MagicMock()
+    api.list_datasets.side_effect = lambda author, expand: {
+        "alice": [SimpleNamespace(
+            id="alice/zeta", card_data=SimpleNamespace(pretty_name="Zeta dataset"),
+            last_modified=datetime(2026, 9, 25, 10, 38, tzinfo=timezone.utc),
+        )],
+        "wildintel": [SimpleNamespace(id="wildintel/alpha", card_data=None, last_modified=None)],
+    }[author]
+    api.list_repo_refs.side_effect = lambda repo_id, repo_type: SimpleNamespace(
+        tags=[SimpleNamespace(name="1.0"), SimpleNamespace(name="10.0"), SimpleNamespace(name="2.0")]
+        if repo_id == "alice/zeta" else [],
+    )
+    with (
+        patch("services.hfh_service.whoami", return_value={"name": "alice", "orgs": [{"name": "wildintel"}]}),
+        patch("services.hfh_service.HfApi", return_value=api),
+    ):
+        response = TestClient(app).get("/api/hfh/datasets")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        # sorted by title: pretty_name when the card has one, else the id
+        {"id": "wildintel/alpha", "title": "wildintel/alpha", "version": None, "published": None},
+        {"id": "alice/zeta", "title": "Zeta dataset", "version": "10.0", "published": "2026-09-25"},  # highest tag
+    ]

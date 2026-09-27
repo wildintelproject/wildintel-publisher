@@ -158,6 +158,17 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
 - CLI/Web: Zenodo records now show `README.md` as their default file preview instead of
   `checksums-sha256.txt`, the first previewable file alphabetically.
 
+- Web: the metadata step now asks first whether this is a **new dataset** or a **new
+  version** of one already published. For a new version, one identifier from any
+  repository (a Hugging Face Hub dataset, a Zenodo/B2SHARE record or a GBIF dataset — id,
+  URL or DOI) is enough: the others are found through the links between them, always at
+  their latest version. The next version number is suggested (and one that isn't newer
+  is refused), and every repository's form comes pre-filled — same Hugging Face Hub
+  repository, Zenodo/B2SHARE record to create the new version from, GBIF dataset to
+  update. For a new dataset those fields are hidden, and the Hugging Face Hub form warns
+  when the repository already exists. Zenodo/B2SHARE records now also link back to the
+  Hugging Face Hub dataset published in the same run, so it can be found from them later.
+
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four
   files loose at the zip's own root — GBIF's `CAMTRAP_DP` crawler unpacks the archive and

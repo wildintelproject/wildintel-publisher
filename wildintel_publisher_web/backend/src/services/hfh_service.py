@@ -19,11 +19,12 @@ import os
 import shutil
 import tempfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from dynaconf import loaders
-from huggingface_hub import snapshot_download, whoami
+from huggingface_hub import HfApi, snapshot_download, whoami
 from wildintel_publisher.config import DEFAULT_CONFIG_FILE, get_hfh_output_dir, load_settings
 from wildintel_publisher.services import common as camtrapdp_common
 from wildintel_publisher.services import hfh as hfh_service
@@ -52,6 +53,49 @@ def get_connection_defaults() -> dict:
         "timeout": DEFAULT_TIMEOUT,
         "has_token": bool(os.environ.get(HF_TOKEN_ENV_VAR) or settings.HFH.token),
     }
+
+
+def list_my_datasets(token: str) -> list[dict]:
+    """Datasets owned by the token's own user and by the organizations it
+    belongs to — the wizard's "new version" picker lists them (see
+    PublicationKindPicker), same shape as Zenodo/B2SHARE's own search_*
+    helpers: its dataset card's pretty_name as title (the README front
+    matter this tool writes), and its highest version tag."""
+    from services.previous_version_service import highest_version
+
+    info = whoami(token=token)
+    owners = [info.get("name"), *(org.get("name") for org in info.get("orgs") or [])]
+    api = HfApi(token=token)
+    datasets = [
+        dataset for owner in filter(None, owners)
+        for dataset in api.list_datasets(author=owner, expand=["cardData", "lastModified"])
+    ]
+
+    def tags(repo_id: str) -> list[str]:
+        try:
+            return [tag.name for tag in api.list_repo_refs(repo_id, repo_type="dataset").tags]
+        except Exception:
+            return []
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        versions = dict(zip([d.id for d in datasets], pool.map(lambda d: highest_version(tags(d.id)), datasets)))
+    return sorted(
+        (
+            {
+                "id": d.id, "title": getattr(d.card_data, "pretty_name", None) or d.id,
+                "version": versions.get(d.id),
+                # A Hub dataset has no publication date of its own: its
+                # last change is when its latest version was published.
+                "published": d.last_modified.date().isoformat() if getattr(d, "last_modified", None) else None,
+            }
+            for d in datasets
+        ),
+        key=lambda d: d["title"].lower(),
+    )
+
+
+def repo_exists(repo_id: str, token: str | None) -> bool:
+    return hfh_service._repo_exists(HfApi(token=token), repo_id, token)
 
 
 def resolve_token(token: str | None) -> str:

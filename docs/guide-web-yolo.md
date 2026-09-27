@@ -24,6 +24,17 @@ there's no equivalent of Camtrap DP's "Trapper Instance" source.
 
 ## 3. Confirm the package and its description
 
+**New dataset or new version?** The metadata step first asks whether this is a brand new
+dataset or a new version of one already published. For a new version, pick it from what
+you already published on one repository (**List what I published here**, using the saved
+credentials), or give one identifier you know — a Hugging Face Hub dataset, a Zenodo or B2SHARE record (its id, URL or
+DOI) — and the wizard finds the rest through the links the earlier publish left between
+them, always picking each record's latest version. It then suggests the next version
+number (and refuses one that isn't newer than the last published one), and pre-fills
+every repository's form: the same Hugging Face Hub repository, and the Zenodo/B2SHARE
+record to create the new version from. For a new dataset, those fields are hidden
+instead, and the Hugging Face Hub form warns if the repository you type already exists.
+
 Once the wizard has read the local directory, it shows where it lives. If its common
 description is missing something required (title, description, version, license,
 authors), a form prompts for exactly what's missing; once complete, a summary card shows

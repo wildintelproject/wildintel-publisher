@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { Organization, GBIFInstallation } from '../types'
+import type { Organization, GBIFInstallation, Publication } from '../types'
 
 // This organization's own UUID for `environment` — sandbox and production
 // are separate GBIF Registry systems, each with its own UUID for the same
@@ -124,6 +124,10 @@ interface Props {
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
+  /** New dataset vs. new version (see PublicationKindPicker) — hides the
+   * existing-dataset field for a new dataset, and pre-fills it (plus its
+   * environment) from the previous version's own GBIF dataset otherwise. */
+  publication?: Publication | null
   onConfigured: (config: GBIFPublishConfig) => void
 }
 
@@ -131,12 +135,13 @@ type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 export default function GBIFPublishForm({
   dryRun, suggestedArchiveUrl, archiveUrlLocked, archiveNotPublishedYet, standaloneRegistration,
-  pendingFromOtherRepo, initialConfig, onBack, backLabel, onConfigured,
+  pendingFromOtherRepo, initialConfig, onBack, backLabel, onConfigured, publication,
 }: Props) {
+  const found = publication?.kind === 'version' ? publication.previous?.gbif ?? null : null
   const [form, setForm] = useState(() => initialConfig ?? {
-    outputDir: '', archiveUrl: '', environment: 'sandbox',
+    outputDir: '', archiveUrl: '', environment: found?.environment ?? 'sandbox',
     publishingOrganizationKey: '', installationKey: '', registryLanguage: 'eng',
-    username: '', password: '', datasetKey: '',
+    username: '', password: '', datasetKey: found?.dataset_key ?? '',
   })
   const [hasSavedCredentials, setHasSavedCredentials] = useState(false)
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
@@ -194,7 +199,7 @@ export default function GBIFPublishForm({
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
-          environment: config.environment,
+          environment: found?.environment ?? config.environment,
           publishingOrganizationKey: config.publishing_organization_key ?? f.publishingOrganizationKey,
           installationKey: config.installation_key ?? f.installationKey,
           registryLanguage: config.registry_language ?? f.registryLanguage,
@@ -311,10 +316,12 @@ export default function GBIFPublishForm({
   const hasTypedCredentials = form.username !== '' && form.password !== ''
   const canTest = hasTypedCredentials || hasSavedCredentials
   const isTesting = test.status === 'testing'
-  const canContinue = dryRun
+  const canContinue = (dryRun
     ? true
     : form.archiveUrl !== '' && form.publishingOrganizationKey !== '' && form.installationKey !== ''
-      && (hasTypedCredentials || hasSavedCredentials)
+      && (hasTypedCredentials || hasSavedCredentials))
+    // A new version updates the previous version's own GBIF dataset.
+    && !(found && form.datasetKey.trim() === '')
 
   async function handleValidateArchive() {
     setArchiveCheck({ status: 'testing', message: '' })
@@ -504,56 +511,76 @@ export default function GBIFPublishForm({
         (manual review, cannot be automated).
       </p>
 
-      <div className="mb-6">
-        <label className={labelClass} htmlFor="gbif-dataset-key">Dataset UUID (leave blank to create a new dataset)</label>
-        <div className="flex gap-2">
-          <input
-            id="gbif-dataset-key"
-            className={inputClass}
-            placeholder="UUID — leave blank to create a new dataset"
-            value={form.datasetKey}
-            onChange={(e) => setField('datasetKey', e.target.value)}
-          />
-          <button
-            type="button" className={btnOutline}
-            disabled={!form.publishingOrganizationKey || datasetSearch.status === 'testing'}
-            onClick={handleSearchDatasets}
-          >
-            {datasetSearch.status === 'testing' && <SmallSpinner />}
-            {datasetSearch.status === 'testing' ? 'Searching…' : 'Search existing datasets'}
-          </button>
+      {publication?.kind !== 'new' && (
+        <div className="mb-6">
+          <label className={labelClass} htmlFor="gbif-dataset-key">
+            {found ? "Previous version's GBIF dataset UUID" : 'Dataset UUID (leave blank to create a new dataset)'}
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="gbif-dataset-key"
+              className={inputClass}
+              placeholder="UUID — leave blank to create a new dataset"
+              value={form.datasetKey}
+              onChange={(e) => setField('datasetKey', e.target.value)}
+            />
+            <button
+              type="button" className={btnOutline}
+              disabled={!form.publishingOrganizationKey || datasetSearch.status === 'testing'}
+              onClick={handleSearchDatasets}
+            >
+              {datasetSearch.status === 'testing' && <SmallSpinner />}
+              {datasetSearch.status === 'testing' ? 'Searching…' : 'Search existing datasets'}
+            </button>
+          </div>
+          <p className={hintClass}>
+            Publishing this run updates that exact dataset instead of creating a new one — takes priority
+            over whatever this app already remembers locally. Search looks up datasets already published
+            by the organization above, on the selected environment.
+          </p>
+          {datasetSearch.status === 'error' && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{datasetSearch.message}</p>
+          )}
+          {datasetSearch.status === 'ok' && datasetSearch.message && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{datasetSearch.message}</p>
+          )}
+          {datasetSearch.status === 'ok' && datasetSearch.results.length > 0 && (
+            <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
+              {datasetSearch.results.map((d) => (
+                <li key={d.key}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setField('datasetKey', d.key)
+                      setDatasetSearch({ status: 'idle', message: '', results: [] })
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  >
+                    <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.key}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        {found && (
+          <p className={hintClass}>
+            Pre-filled from the previous version: this run updates that same GBIF dataset (GBIF datasets have no
+            versions of their own).
+          </p>
+        )}
+        {publication?.kind === 'version' && !found && (
+          <p className={hintClass}>
+            No GBIF dataset was found for the previous version — leave this blank to register the dataset's first one.
+          </p>
+        )}
+        {found && form.environment !== found.environment && (
+          <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+            ⚠ The previous version is on GBIF's {found.environment} environment, not {form.environment}.
+          </p>
+        )}
         </div>
-        <p className={hintClass}>
-          Publishing this run updates that exact dataset instead of creating a new one — takes priority
-          over whatever this app already remembers locally. Search looks up datasets already published
-          by the organization above, on the selected environment.
-        </p>
-        {datasetSearch.status === 'error' && (
-          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{datasetSearch.message}</p>
-        )}
-        {datasetSearch.status === 'ok' && datasetSearch.message && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{datasetSearch.message}</p>
-        )}
-        {datasetSearch.status === 'ok' && datasetSearch.results.length > 0 && (
-          <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
-            {datasetSearch.results.map((d) => (
-              <li key={d.key}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setField('datasetKey', d.key)
-                    setDatasetSearch({ status: 'idle', message: '', results: [] })
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                >
-                  <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.key}</div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      )}
 
       <div className="mb-6">
         <div className="grid grid-cols-2 gap-4 mb-1">

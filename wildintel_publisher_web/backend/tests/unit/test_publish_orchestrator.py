@@ -1354,6 +1354,46 @@ def test_publish_all_passes_existing_deposition_id_through_to_zenodo(tmp_path):
     assert captured["existing_deposition_id"] == "999"
 
 
+def test_publish_all_links_zenodo_back_to_the_hfh_dataset_published_in_the_same_run(tmp_path):
+    """Even in Mirror mode (no media rewrite), Zenodo's related identifiers
+    point at the Hugging Face Hub dataset of the same run — what lets a
+    later "new version" lookup find it from the Zenodo record alone (see
+    previous_version_service)."""
+    captured = {}
+
+    def fake_prepare(*, input_dir, output_dir, **kwargs):
+        captured.setdefault("prepare_hfh_repo_id", kwargs.get("hfh_repo_id", "absent"))
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_zenodo(output_dir, **kwargs):
+        captured["upload_hfh_repo_id"] = kwargs.get("hfh_repo_id")
+        (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": None}), encoding="utf-8")
+
+    with (
+        patch("services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare),
+        patch("services.publish_orchestrator.hfh_cli.upload_to_huggingface", return_value="https://huggingface.co/datasets/alice/dataset"),
+        patch("services.publish_orchestrator.hfh_cli.tag_release_on_huggingface"),
+        patch("services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
+        patch("services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare),
+        patch("services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=fake_upload_zenodo),
+        patch("services.publish_orchestrator.zenodo_cli.release_on_zenodo", return_value={"doi": None, "record_url": "u"}),
+    ):
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp",
+                "repos": [
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x", "environment": "sandbox"},
+                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "token": "hf_x"},
+                ],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert captured["upload_hfh_repo_id"] == "alice/dataset"
+    assert captured["prepare_hfh_repo_id"] is None  # prepare's own (Link-mode) value untouched
+
+
 def test_publish_all_passes_existing_record_id_through_to_b2share(tmp_path):
     """RepoPublishConfig.existing_record_id (see B2SharePublishForm.tsx's
     own search button) must reach b2share_cli.upload_to_b2share unchanged —

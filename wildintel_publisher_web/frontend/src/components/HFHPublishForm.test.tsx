@@ -8,12 +8,14 @@ vi.mock('../api', () => ({
   api: {
     hfhGetConfig: vi.fn(),
     hfhTestToken: vi.fn(),
+    hfhRepoExists: vi.fn(),
   },
 }))
 
 const mockedApi = vi.mocked(api)
 
 beforeEach(() => {
+  mockedApi.hfhRepoExists.mockResolvedValue({ exists: false })
   mockedApi.hfhGetConfig.mockResolvedValue({
     username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
   })
@@ -212,5 +214,41 @@ describe('HFHPublishForm', () => {
       repoId: 'alice/dataset', token: 'hf_x', priv: false, mirrorImages: false,
       outputMode: 'passthrough', outputDir: '/hfh/output',
     })
+  })
+})
+
+
+describe('HFHPublishForm new dataset vs. new version', () => {
+  const previous = {
+    title: 'T', version: '3.0', warnings: [],
+    hfh: { repo_id: 'alice/my-yolo', url: 'https://huggingface.co/datasets/alice/my-yolo', version: '3.0' },
+  }
+
+  it('pre-fills the previous version\'s own repository', async () => {
+    mockedApi.hfhGetConfig.mockResolvedValue({ username: 'someone-else', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true })
+    render(<HFHPublishForm publication={{ kind: 'version', previous }} productTitle="Other title" onConfigured={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByLabelText('User or organization')).toHaveValue('alice'))
+    expect(screen.getByLabelText('Repository name')).toHaveValue('my-yolo')
+    expect(screen.getByText(/its last version is/i)).toBeInTheDocument()
+  })
+
+  it('warns when the repository is changed away from the previous version\'s', async () => {
+    render(<HFHPublishForm publication={{ kind: 'version', previous }} onConfigured={vi.fn()} />)
+    const name = screen.getByLabelText('Repository name')
+    await userEvent.clear(name)
+    await userEvent.type(name, 'another')
+
+    expect(screen.getByText(/publishing to another repository won't be linked to it/i)).toBeInTheDocument()
+  })
+
+  it('warns when a new dataset would go to a repository that already exists', async () => {
+    mockedApi.hfhRepoExists.mockResolvedValue({ exists: true })
+    render(<HFHPublishForm publication={{ kind: 'new', previous: null }} onConfigured={vi.fn()} />)
+    await userEvent.type(screen.getByLabelText('User or organization'), 'alice')
+    await userEvent.type(screen.getByLabelText('Repository name'), 'taken')
+
+    expect(await screen.findByText(/already exists\. for a new version of it/i)).toBeInTheDocument()
+    expect(mockedApi.hfhRepoExists).toHaveBeenLastCalledWith('alice/taken')
   })
 })

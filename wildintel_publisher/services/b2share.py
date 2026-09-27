@@ -75,6 +75,10 @@ CITATION_TEMPLATE_FILE = COMMON_TEMPLATES_DIR / "CITATION.cff.j2"
 
 README_FILENAME = "README.md"
 CITATION_FILENAME = "CITATION.cff"
+# search_my_records walks every page of the user's published records, up to
+# this many of them in total.
+SEARCH_PAGE_SIZE = 100
+SEARCH_MAX_PAGES = 50
 RECORD_FILENAME = "b2share_record.json"
 
 B2SHARE_PID_DESCRIPTION = "B2SHARE (EUDAT) dataset record PID/DOI"
@@ -361,7 +365,7 @@ def _check_response(response: httpx.Response, expected: tuple, context: str) -> 
 
 def build_b2share_metadata(
     *, title: str, description: str, authors: list, license_id: str,
-    related_identifier_url: Optional[str],
+    related_identifier_url: Optional[str], version: Optional[str] = None,
 ) -> dict:
     """Devuelve el body completo de POST /api/records (InvenioRDM) — no solo
     "metadata": B2SHARE también exige "access"/"files" a nivel superior.
@@ -402,6 +406,8 @@ def build_b2share_metadata(
         "publisher": "EUDAT B2SHARE",
         "publication_date": datetime.now().date().isoformat(),
     }
+    if version:
+        metadata["version"] = version
     if related_identifier_url:
         metadata["related_identifiers"] = [{
             "identifier": related_identifier_url,
@@ -513,19 +519,39 @@ def search_my_records(api_base_url: str, token: str, query: Optional[str] = None
     one by hand. `query`, if given, is ANDed with is_published:true.
 
     Returns:
-        A list of {"id", "title"} — only what the picker needs to show.
+        A list of {"id", "title", "version", "published"} (YYYY-MM-DD) —
+        only what the picker needs.
 
     Raises:
         RuntimeError: if the token is invalid, or the API call fails.
     """
     q = "is_published:true" if not query else f"is_published:true AND ({query})"
-    response = httpx.get(
-        f"{api_base_url}/user/records", headers=_headers(token), params={"q": q, "size": 100}, timeout=60,
-    )
-    _check_response(response, (200,), "List existing B2SHARE records")
-    hits = response.json().get("hits", {}).get("hits", [])
+    all_hits: list[dict] = []
+    for page in range(1, SEARCH_MAX_PAGES + 1):
+        response = httpx.get(
+            f"{api_base_url}/user/records", headers=_headers(token),
+            params={"q": q, "size": SEARCH_PAGE_SIZE, "page": page}, timeout=60,
+        )
+        _check_response(response, (200,), "List existing B2SHARE records")
+        body = response.json().get("hits", {})
+        batch = body.get("hits", [])
+        all_hits.extend(batch)
+        total = body.get("total")
+        if len(batch) < SEARCH_PAGE_SIZE or (isinstance(total, int) and len(all_hits) >= total):
+            break
+    # One entry per dataset: its latest version only (InvenioRDM lists
+    # every version of a record here).
+    hits = [r for r in all_hits if (r.get("versions") or {}).get("is_latest", True)]
+    versions = common.citation_versions({
+        str(r["id"]): f"{api_base_url}/records/{r['id']}/files/{CITATION_FILENAME}/content"
+        for r in hits if not (r.get("metadata") or {}).get("version")
+    })
     return [
-        {"id": str(r["id"]), "title": (r.get("metadata") or {}).get("title") or "(untitled)"}
+        {
+            "id": str(r["id"]), "title": (r.get("metadata") or {}).get("title") or "(untitled)",
+            "version": (r.get("metadata") or {}).get("version") or versions.get(str(r["id"])),
+            "published": ((r.get("metadata") or {}).get("publication_date") or r.get("created") or "")[:10] or None,
+        }
         for r in hits
     ]
 
@@ -671,6 +697,7 @@ def upload_to_b2share(
         authors=authors,
         license_id=license["id"],
         related_identifier_url=related_identifier_url,
+        version=product_meta.get("version"),
     )
 
     already_uploaded: set[str] = set()

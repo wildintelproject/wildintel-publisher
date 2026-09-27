@@ -159,3 +159,10 @@ def test_patch_citation_with_pid_rerun_is_idempotent(tmp_path):
     data = yaml.safe_load(citation_path.read_text(encoding="utf-8"))
     assert len(data["identifiers"]) == 1
     assert data["identifiers"][0]["value"] == "http://hdl.handle.net/11304/bbbb"
+
+
+def test_build_b2share_metadata_sends_the_datasets_own_version_when_known():
+    body = build_b2share_metadata(
+        title="T", description="D", authors=[{"name": "A"}], license_id="MIT", related_identifier_url=None, version="3.0",
+    )
+    assert body["metadata"]["version"] == "3.0"

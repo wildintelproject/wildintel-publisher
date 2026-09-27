@@ -148,14 +148,17 @@ def test_search_organization_datasets_returns_key_and_title():
     page = {
         "offset": 0, "limit": 100, "endOfRecords": True, "count": 2,
         "results": [
-            {"key": "uuid-1", "title": "Dataset One", "type": "OCCURRENCE"},
+            {"key": "uuid-1", "title": "Dataset One", "type": "OCCURRENCE", "pubDate": "2026-05-01T00:00:00.000+0000"},
             {"key": "uuid-2", "title": "Dataset Two", "type": "OCCURRENCE"},
         ],
     }
     with patch("httpx.get", return_value=MagicMock(status_code=200, json=lambda: page)) as fake_get:
         result = search_organization_datasets("org-1", "sandbox")
 
-    assert result == [{"key": "uuid-1", "title": "Dataset One"}, {"key": "uuid-2", "title": "Dataset Two"}]
+    assert result == [
+        {"key": "uuid-1", "title": "Dataset One", "published": "2026-05-01"},  # its pubDate
+        {"key": "uuid-2", "title": "Dataset Two", "published": None},
+    ]
     fake_get.assert_called_once_with(
         "https://api.gbif-test.org/v1/organization/org-1/publishedDataset",
         params={"limit": 100, "offset": 0}, timeout=60,
@@ -167,7 +170,7 @@ def test_search_organization_datasets_falls_back_to_untitled():
     with patch("httpx.get", return_value=MagicMock(status_code=200, json=lambda: page)):
         result = search_organization_datasets("org-1", "sandbox")
 
-    assert result == [{"key": "uuid-1", "title": "(untitled)"}]
+    assert result == [{"key": "uuid-1", "title": "(untitled)", "published": None}]
 
 
 def test_search_organization_datasets_pages_through_multiple_requests():
@@ -184,7 +187,7 @@ def test_search_organization_datasets_pages_through_multiple_requests():
     ]):
         result = search_organization_datasets("org-1", "sandbox")
 
-    assert result == [{"key": "uuid-1", "title": "Dataset One"}, {"key": "uuid-2", "title": "Dataset Two"}]
+    assert [(d["key"], d["title"]) for d in result] == [("uuid-1", "Dataset One"), ("uuid-2", "Dataset Two")]
 
 
 def _fake_stream_response(status_code: int, body: bytes) -> MagicMock:

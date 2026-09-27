@@ -116,7 +116,13 @@ def search_organization_datasets(organization_key: str, environment: str) -> lis
         )
         _check_response(response, (200,), "List organization's published datasets")
         page = response.json()
-        datasets.extend({"key": d["key"], "title": d.get("title") or "(untitled)"} for d in page["results"])
+        datasets.extend(
+            {
+                "key": d["key"], "title": d.get("title") or "(untitled)",
+                "published": (d.get("pubDate") or d.get("modified") or d.get("created") or "")[:10] or None,
+            }
+            for d in page["results"]
+        )
         if page.get("endOfRecords", True):
             break
         offset += limit

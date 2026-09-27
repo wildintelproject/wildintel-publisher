@@ -568,19 +568,23 @@ def test_b2share_search_my_records_lists_published_ones_scoped_to_the_token():
     from wildintel_publisher.services.b2share import search_my_records
 
     def fake_get(url, **kwargs):
+        if url.endswith("/records/rec-2/files/CITATION.cff/content"):
+            return MagicMock(status_code=200, text="cff-version: 1.2.0\nversion: '4.0'\n")
         assert url.endswith("/user/records")
         assert kwargs["params"]["q"] == "is_published:true AND (camera trap)"
         return _fake_response(200, {"hits": {"hits": [
-            {"id": "rec-1", "metadata": {"title": "Camera Trap Survey v1"}},
+            {"id": "rec-1", "metadata": {"title": "Camera Trap Survey v1", "version": "1.0"}, "created": "2026-08-01T10:00:00+00:00"},
             {"id": "rec-2", "metadata": {}},
+            # an older version of rec-1's dataset — only the latest is listed
+            {"id": "rec-0", "metadata": {"title": "Camera Trap Survey v0"}, "versions": {"is_latest": False}},
         ]}})
 
     with patch("httpx.get", side_effect=fake_get):
         results = search_my_records("https://trng-b2share.eudat.eu/api", "faketoken", query="camera trap")
 
     assert results == [
-        {"id": "rec-1", "title": "Camera Trap Survey v1"},
-        {"id": "rec-2", "title": "(untitled)"},
+        {"id": "rec-1", "title": "Camera Trap Survey v1", "version": "1.0", "published": "2026-08-01"},  # from "created"
+        {"id": "rec-2", "title": "(untitled)", "version": "4.0", "published": None},
     ]
 
 
@@ -607,3 +611,24 @@ def test_b2share_prepare_software_reference_mode_copies_no_source_and_cites_the_
     readme = (output_dir / "README.md").read_text(encoding="utf-8")
     assert "https://github.com/example/my-app" in readme
     assert "REPLACE_WITH_HF_USER/dataset" not in readme
+
+
+def test_b2share_search_my_records_walks_every_page(monkeypatch):
+    from wildintel_publisher.services import b2share
+
+    monkeypatch.setattr(b2share, "SEARCH_PAGE_SIZE", 2)
+    pages = {
+        1: [{"id": "a", "metadata": {"version": "1"}}, {"id": "b", "metadata": {"version": "1"}}],
+        2: [{"id": "c", "metadata": {"version": "1"}}, {"id": "d", "metadata": {"version": "1"}}],
+    }
+    requested = []
+
+    def fake_get(url, **kwargs):
+        requested.append(kwargs["params"]["page"])
+        return _fake_response(200, {"hits": {"total": 4, "hits": pages[kwargs["params"]["page"]]}})
+
+    with patch("httpx.get", side_effect=fake_get):
+        results = b2share.search_my_records("https://trng-b2share.eudat.eu/api", "faketoken")
+
+    assert [r["id"] for r in results] == ["a", "b", "c", "d"]
+    assert requested == [1, 2]  # stops once "total" is reached, with no extra empty page

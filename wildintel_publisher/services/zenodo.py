@@ -34,6 +34,10 @@ CITATION_TEMPLATE_FILE = COMMON_TEMPLATES_DIR / "CITATION.cff.j2"
 
 README_FILENAME = "README.md"
 CITATION_FILENAME = "CITATION.cff"
+# search_my_depositions walks every page of the user's published
+# depositions, up to this many of them in total.
+SEARCH_PAGE_SIZE = 100
+SEARCH_MAX_PAGES = 50
 RECORD_FILENAME = "zenodo_record.json"
 
 SANDBOX_DOI_DESCRIPTION = "Zenodo Sandbox DOI for workflow testing only"
@@ -433,22 +437,44 @@ def search_my_depositions(api_base_url: str, token: str, query: Optional[str] = 
     (see upload_to_zenodo) instead of typing/tracking a numeric id by hand.
     `query` is Zenodo's own Elasticsearch-syntax 'q' search parameter,
     matched against title/description/etc — optional, an empty search just
-    lists every one of the user's own published depositions (up to 100).
+    lists every one of the user's own published depositions, page by page
+    (up to SEARCH_PAGE_SIZE * SEARCH_MAX_PAGES).
+
+    Zenodo only lists each dataset's latest version here.
 
     Returns:
-        A list of {"id", "title"} — only what the picker needs to show.
+        A list of {"id", "title", "version", "published"} (YYYY-MM-DD) —
+        only what the picker needs.
 
     Raises:
         RuntimeError: if the token is invalid, or the API call fails.
     """
-    params: dict = {"status": "published", "size": 100}
+    params: dict = {"status": "published", "size": SEARCH_PAGE_SIZE}
     if query:
         params["q"] = query
-    response = httpx.get(f"{api_base_url}/deposit/depositions", headers=_headers(token), params=params, timeout=60)
-    _check_response(response, (200,), "List existing Zenodo depositions")
+    depositions: list[dict] = []
+    for page in range(1, SEARCH_MAX_PAGES + 1):
+        response = httpx.get(
+            f"{api_base_url}/deposit/depositions", headers=_headers(token), params={**params, "page": page}, timeout=60,
+        )
+        _check_response(response, (200,), "List existing Zenodo depositions")
+        batch = response.json()
+        depositions.extend(batch)
+        if len(batch) < SEARCH_PAGE_SIZE:
+            break
+    # Only records published before "version" was sent to Zenodo lack it —
+    # read from their own CITATION.cff instead.
+    versions = common.citation_versions({
+        str(d["id"]): f"{api_base_url}/records/{d['id']}/files/{CITATION_FILENAME}/content"
+        for d in depositions if not (d.get("metadata") or {}).get("version")
+    })
     return [
-        {"id": str(d["id"]), "title": (d.get("metadata") or {}).get("title") or "(untitled)"}
-        for d in response.json()
+        {
+            "id": str(d["id"]), "title": (d.get("metadata") or {}).get("title") or "(untitled)",
+            "version": (d.get("metadata") or {}).get("version") or versions.get(str(d["id"])),
+            "published": ((d.get("metadata") or {}).get("publication_date") or d.get("created") or "")[:10] or None,
+        }
+        for d in depositions
     ]
 
 
@@ -479,7 +505,10 @@ def is_already_published(deposition: dict) -> bool:
     return False
 
 
-def build_zenodo_metadata(*, title: str, description: str, authors: list, license_id: str, communities: Optional[str], related_identifier_url: Optional[str]) -> dict:
+def build_zenodo_metadata(
+    *, title: str, description: str, authors: list, license_id: str, communities: Optional[str],
+    related_identifier_url: Optional[str], version: Optional[str] = None,
+) -> dict:
     creators = []
     for author in authors:
         if author.get("given_names"):
@@ -500,6 +529,10 @@ def build_zenodo_metadata(*, title: str, description: str, authors: list, licens
         "license": license_id.lower(),
         "prereserve_doi": True,
     }
+    if version:
+        # The dataset's own version — shown on the record page, instead of
+        # Zenodo's own "v1/v2..." numbering of its record versions.
+        metadata["version"] = version
     if related_identifier_url:
         metadata["related_identifiers"] = [
             {"identifier": related_identifier_url, "relation": "isSupplementTo", "resource_type": "dataset", "scheme": "url"}
@@ -574,6 +607,7 @@ def upload_to_zenodo(
         license_id=license["id"],
         communities=communities,
         related_identifier_url=related_identifier_url,
+        version=product_meta.get("version"),
     )
 
     already_uploaded: set[str] = set()

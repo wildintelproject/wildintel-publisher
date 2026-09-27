@@ -9,7 +9,11 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from schemas.requests import PublishAllRequest, RepoPublishConfig, ResumePublishRequest
-from services import b2share_service, gbif_service, hfh_service, publish_orchestrator, session_store, zenodo_service
+from services import (
+    b2share_service, gbif_service, hfh_service, previous_version_service, publish_orchestrator, session_store,
+    zenodo_service,
+)
+from services.previous_version_service import PreviousVersion, PreviousVersionRequest
 
 router = APIRouter(prefix="/api/publish", tags=["publish"])
 
@@ -171,3 +175,16 @@ def status(task_id: str) -> dict:
     if result is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")
     return result
+
+
+@router.post("/previous-version")
+def previous_version(req: PreviousVersionRequest) -> PreviousVersion:
+    """For the wizard's "new version of an already published dataset":
+    finds that dataset's latest version on every repository it can reach
+    from req's one identifier (see services.previous_version_service)."""
+    try:
+        return previous_version_service.lookup(req)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(404, str(exc)) from exc

@@ -23,6 +23,33 @@ def get_config() -> dict:
     return hfh_service.get_connection_defaults()
 
 
+@router.get("/datasets")
+def my_datasets() -> list[dict]:
+    """The saved token's own datasets (its user's and its organizations')
+    — for the wizard's "new version" picker."""
+    try:
+        token = hfh_service.resolve_token(None)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    try:
+        return hfh_service.list_my_datasets(token)
+    except HfHubHTTPError as exc:
+        raise HTTPException(401, "Incorrect or expired HuggingFace Hub token.") from exc
+
+
+@router.get("/repo-exists")
+def repo_exists(repo_id: str) -> dict:
+    """Whether a Hugging Face Hub dataset already exists — for the wizard
+    to warn when a "new dataset" would actually publish on top of an
+    existing one. Uses the saved token when there is one, so the user's own
+    private datasets count too."""
+    try:
+        token = hfh_service.resolve_token(None)
+    except ValueError:
+        token = None
+    return {"exists": hfh_service.repo_exists(repo_id, token)}
+
+
 @router.post("/test-token")
 def test_token(req: HFHTestTokenRequest) -> dict:
     """Verify a HuggingFace Hub token, and save it (with repo_id, if given)
