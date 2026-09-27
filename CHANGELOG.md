@@ -169,6 +169,15 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   when the repository already exists. Zenodo/B2SHARE records now also link back to the
   Hugging Face Hub dataset published in the same run, so it can be found from them later.
 
+- CLI/Web: Camtrap DP and YOLO exports to Hugging Face Hub now carry `task_categories`,
+  `tags` and `size_categories` in their README's frontmatter, so the dataset shows up
+  under the Hub's own discovery filters instead of only full-text search.
+  `size_categories` is computed from what's actually on disk (media/image count), never
+  hand-maintained. A YOLO export also gets an `images/<split>/metadata.jsonl` alongside
+  the usual `images/`/`labels/` layout, in the format Hugging Face's `ImageFolder` loader
+  recognizes for object detection — the Hub's Dataset Viewer can then render each image
+  with its bounding boxes.
+
 ### Fixed
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four
   files loose at the zip's own root — GBIF's `CAMTRAP_DP` crawler unpacks the archive and

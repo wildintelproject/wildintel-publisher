@@ -4,12 +4,25 @@ own name, and append a "© <year> <holder(s)>" notice for any "rightsHolder"
 contributor(s) (see common.resolve_copyright_holders) — falling back to the
 old hardcoded repo name when there's no publisher at all (e.g. Software,
 or a YOLO dataset whose data.yaml sets none)."""
+import csv
+
+import pytest
+
 from wildintel_publisher.config import B2ShareSettings, HFHSettings, ZenodoSettings
-from wildintel_publisher.services import b2share, hfh, product, zenodo
+from wildintel_publisher.services import b2share, common, hfh, product, zenodo
 
 AUTHORS = [{"name": "Jane Doe"}]
 PUBLISHER = {"name": "WildINTEL", "website": "https://wildintel.eu/", "email": "wildintelproject@gmail.com"}
 COPYRIGHT_HOLDERS = ["Institute of Nature Conservation PAS"]
+
+
+@pytest.fixture(autouse=True)
+def _media_csv(tmp_path):
+    # readme_context (see CamtrapDPAdapter.readme_context) reads media.csv
+    # for its Hugging Face discovery fields, regardless of which repo's
+    # write_readme is under test here.
+    with (tmp_path / common.MEDIA_CSV_FILENAME).open("w", newline="", encoding="utf-8") as f:
+        csv.DictWriter(f, fieldnames=["mediaID"]).writeheader()
 
 
 def _citation_line(readme_text: str) -> str:

@@ -153,7 +153,17 @@ class CamtrapDPAdapter:
         common.write_local_zip(output_dir, zip_filename=zip_path.name, embed_images=embed_images)
 
     def readme_context(self, output_dir: Path) -> dict:
-        return {}  # Camtrap DP's README fragments (see templates/*/_readme-format-camtrapdp.md.j2) need nothing extra
+        # Hugging Face Hub Dataset Card discovery fields (see
+        # README-camtrapdp-body.md.j2's frontmatter) — size_category is
+        # computed from media.csv's own row count (public media only, since
+        # this runs after prepare's keep_only_public_media), never
+        # hand-maintained, so it can't go stale.
+        _, media_rows = common.read_csv(output_dir / common.MEDIA_CSV_FILENAME)
+        return {
+            "task_categories": ["image-classification"],
+            "tags": ["wildlife", "camera-trap", "camtrap-dp"],
+            "size_category": common.hf_size_category(len(media_rows)),
+        }
 
 
 product.register_adapter(CamtrapDPAdapter())

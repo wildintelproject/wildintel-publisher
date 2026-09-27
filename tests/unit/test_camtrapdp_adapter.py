@@ -9,13 +9,23 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from wildintel_publisher.services import common
 from wildintel_publisher.services.camtrapdp_adapter import CAMTRAPDP_DESCRIPTION_FOOTER, CamtrapDPAdapter
 
 
-def test_readme_context_has_nothing_extra(tmp_path):
-    # Camtrap DP's README fragments (templates/*/_readme-format-camtrapdp.md.j2)
-    # need nothing beyond the generic context every product type gets.
-    assert CamtrapDPAdapter().readme_context(tmp_path) == {}
+def test_readme_context_reports_hf_discovery_fields_sized_from_media_csv(tmp_path):
+    with (tmp_path / common.MEDIA_CSV_FILENAME).open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["mediaID"])
+        writer.writeheader()
+        writer.writerows({"mediaID": f"m{i}"} for i in range(3))
+
+    context = CamtrapDPAdapter().readme_context(tmp_path)
+
+    assert context == {
+        "task_categories": ["image-classification"],
+        "tags": ["wildlife", "camera-trap", "camtrap-dp"],
+        "size_category": "n<1K",
+    }
 
 
 def _write_minimal_datapackage(root: Path, *, description) -> Path:

@@ -4,10 +4,12 @@ README.md ("Invalid YAML in README.md: bad indentation of a mapping
 entry") because pretty_name was interpolated unquoted — see
 templates/common/README-{camtrapdp,yolo,software}-body.md.j2's
 `pretty_name: {{ dataset_name | tojson }}`."""
+import csv
+
 import yaml
 
 from wildintel_publisher.config import HFHSettings
-from wildintel_publisher.services import hfh, product
+from wildintel_publisher.services import common, hfh, product
 
 
 def _extract_frontmatter(readme_text: str) -> dict:
@@ -17,6 +19,8 @@ def _extract_frontmatter(readme_text: str) -> dict:
 
 def test_hfh_readme_frontmatter_is_valid_yaml_when_title_has_a_colon(tmp_path):
     title = "Iberian CamTrap: Revision 1"
+    with (tmp_path / common.MEDIA_CSV_FILENAME).open("w", newline="", encoding="utf-8") as f:
+        csv.DictWriter(f, fieldnames=["mediaID"]).writeheader()
 
     path = hfh.write_readme(
         tmp_path, HFHSettings(), "1.0.0", product.get_adapter(product.CAMTRAPDP),

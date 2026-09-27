@@ -195,6 +195,7 @@ def prepare_zenodo_export(
     common.write_license(
         LICENSE_TEMPLATE_FILE, output_dir,
         license_id=license["id"], license_name=license["name"], license_url=license["url"],
+        product_type=adapter.product_type,
     )
     common.write_citation(
         CITATION_TEMPLATE_FILE, output_dir,

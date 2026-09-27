@@ -183,6 +183,11 @@ def test_hfh_prepare_shards_a_split_over_the_per_folder_limit(tmp_path, monkeypa
     result = runner.invoke(app, ["hfh", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
 
     assert result.exit_code == 0, result.output
-    assert not [p for p in (output_dir / "images" / "train").iterdir() if p.is_file()]
+    # metadata.jsonl (write_hf_metadata_jsonl) is the one loose file that's
+    # meant to stay directly under images/<split>/, never sharded — it's a
+    # small manifest, not an image subject to Hugging Face Hub's per-folder
+    # file-count limit, and its own file_name entries already point into the
+    # bucket subfolders for the images they describe.
+    assert [p.name for p in (output_dir / "images" / "train").iterdir() if p.is_file()] == ["metadata.jsonl"]
     assert "hash-named subfolders" in (output_dir / "README.md").read_text(encoding="utf-8")
     assert (input_dir / "images" / "train" / "img1.jpg").is_file()  # the source is never touched

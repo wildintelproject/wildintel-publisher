@@ -852,16 +852,54 @@ def format_apa_citation(
     return citation
 
 
-def write_license(template_file: Path, output_dir: Path, *, license_id: str, license_name: str, license_url: str) -> Path:
+def write_license(
+    template_file: Path, output_dir: Path, *, license_id: str, license_name: str, license_url: str,
+    product_type: str,
+) -> Path:
+    """product_type gates LICENSE.j2's own camera-trap/Trapper provenance
+    paragraph (product.CAMTRAPDP only) — the same distinction the README
+    templates already make (see README-camtrapdp-body.md.j2's Privacy
+    section vs. README-yolo-body.md.j2/README-software-body.md.j2, which
+    have none), so a YOLO or software LICENSE file no longer claims a
+    Trapper/camera-trap provenance it doesn't have."""
     path = output_dir / "LICENSE"
     text = render_text_template(
         template_file,
         license_id=license_id,
         license_name=license_name,
         license_url=license_url,
+        product_type=product_type,
     )
     path.write_text(text, encoding="utf-8")
     return path
+
+
+# Hugging Face Hub's own `size_categories` Dataset Card bucket labels (see
+# https://huggingface.co/docs/hub/en/datasets-cards#size-categories), keyed
+# by the upper bound (exclusive) of the example count each one covers.
+_HF_SIZE_CATEGORIES = [
+    (1_000, "n<1K"),
+    (10_000, "1K<n<10K"),
+    (100_000, "10K<n<100K"),
+    (1_000_000, "100K<n<1M"),
+    (10_000_000, "1M<n<10M"),
+    (100_000_000, "10M<n<100M"),
+    (1_000_000_000, "100M<n<1B"),
+    (10_000_000_000, "1B<n<10B"),
+    (100_000_000_000, "10B<n<100B"),
+    (1_000_000_000_000, "100B<n<1T"),
+]
+
+
+def hf_size_category(example_count: int) -> str:
+    """The `size_categories` bucket label for a dataset with this many
+    examples (images for YOLO, media items for Camtrap DP) — computed from
+    what's actually on disk at prepare time, so it can't drift out of sync
+    with the dataset the way a hand-maintained tag would."""
+    for upper_bound, label in _HF_SIZE_CATEGORIES:
+        if example_count < upper_bound:
+            return label
+    return "n>1T"
 
 
 def write_citation(

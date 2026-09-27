@@ -10,6 +10,16 @@
 ---
 license: {{ license_id | lower }}
 pretty_name: {{ dataset_name | tojson }}
+task_categories:
+{% for tc in task_categories %}
+  - {{ tc }}
+{% endfor %}
+size_categories:
+  - {{ size_category }}
+tags:
+{% for tag in tags %}
+  - {{ tag }}
+{% endfor %}
 ---
 
 # {{ dataset_name }}

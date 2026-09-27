@@ -46,6 +46,7 @@ regardless of the "Mode" (Mirror/Link) the user picked in the wizard.
 """
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import zipfile
@@ -53,6 +54,7 @@ from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Optional
 
 import yaml
+from PIL import Image
 from pydantic import (
     BaseModel, BeforeValidator, ConfigDict, Field, NonNegativeInt, TypeAdapter, ValidationError,
     ValidationInfo, field_validator, model_validator,
@@ -577,6 +579,71 @@ def split_image_counts(directory: Path) -> dict[str, int]:
     }
 
 
+def _coords_to_pixel_bbox(coords: list[float], width: int, height: int) -> list[float]:
+    """Converts one YoloLabelLine's normalized coords — either a bounding
+    box (4 values: x_center, y_center, w, h) or a polygon (an even number
+    >= 6 of x, y vertices) — into a single pixel-space [x, y, width, height]
+    box (top-left corner), the shape Hugging Face's ImageFolder object-
+    detection convention expects. A polygon's box is just its own bounding
+    box (min/max over its vertices) — there's no tighter shape metadata.jsonl
+    can represent."""
+    if len(coords) == 4:
+        cx, cy, w, h = coords
+        box_w, box_h = w * width, h * height
+        return [(cx * width) - box_w / 2, (cy * height) - box_h / 2, box_w, box_h]
+    xs = [coords[i] * width for i in range(0, len(coords), 2)]
+    ys = [coords[i] * height for i in range(1, len(coords), 2)]
+    x_min, y_min = min(xs), min(ys)
+    return [x_min, y_min, max(xs) - x_min, max(ys) - y_min]
+
+
+def write_hf_metadata_jsonl(output_dir: Path) -> None:
+    """Writes images/<split>/metadata.jsonl for every split — the format
+    Hugging Face's ImageFolder loader recognizes for object-detection
+    datasets (a "objects" column of {bbox, categories} per row, keyed by
+    file_name — see https://huggingface.co/docs/datasets/image_dataset),
+    so the Hub's Dataset Viewer can render each image with its bounding
+    boxes instead of just the raw label .txt lines. Additive only: the
+    images/<split>/*.jpg + labels/<split>/*.txt layout trainers already read
+    directly is untouched, so this changes nothing for YOLO training itself.
+    Must run after shard_large_splits (if that ran at all), so file_name
+    already reflects any hash-bucket subfolder."""
+    root = dataset_root(output_dir)
+    for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
+        images_split_dir = root / IMAGES_DIRNAME / split
+        images = _split_files(images_split_dir, suffixes=IMAGE_SUFFIXES)
+        if not images:
+            continue
+        labels = _split_files(root / LABELS_DIRNAME / split, suffixes={".txt"})
+        lines = []
+        for key in sorted(images, key=str):
+            image_path = images[key]
+            entry: dict[str, Any] = {"file_name": image_path.relative_to(images_split_dir).as_posix()}
+            label_path = labels.get(key)
+            if label_path is not None:
+                try:
+                    with Image.open(image_path) as img:
+                        width, height = img.size
+                except Exception:
+                    # Unreadable/corrupt image — skip its bounding boxes
+                    # rather than fail the whole export over one bad file;
+                    # it still gets a file_name row, just without "objects".
+                    logger.warning(f"Could not read {image_path} to compute its bounding boxes for metadata.jsonl.")
+                    width = height = None
+                if width is not None:
+                    bboxes, categories = [], []
+                    for line in label_path.read_text(encoding="utf-8").splitlines():
+                        tokens = line.split()
+                        if not tokens:
+                            continue
+                        categories.append(int(tokens[0]))
+                        bboxes.append(_coords_to_pixel_bbox([float(t) for t in tokens[1:]], width, height))
+                    if bboxes:
+                        entry["objects"] = {"bbox": bboxes, "categories": categories}
+            lines.append(json.dumps(entry))
+        (images_split_dir / "metadata.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 class YoloAdapter:
     product_type = product.YOLO
     always_mirror = True  # see product.ProductAdapter.always_mirror
@@ -688,13 +755,22 @@ class YoloAdapter:
             homepage = YoloMetadata.model_validate(_load_data_yaml(output_dir)).homepage
         except ValidationError:
             homepage = None
+        stats = dataset_statistics(output_dir, config)
+        total_images = sum(s["images"] for s in stats["split_stats"])
         return {
             "num_classes": config.num_classes, "class_names": config.names,
-            **dataset_statistics(output_dir, config),
+            **stats,
             "sharded_splits": sharded_splits(output_dir),
             # The dataset's own homepage, if data.yaml gives one — where the
             # README's "Contributing" section points (omitted otherwise).
             "contributing_url": homepage,
+            # Hugging Face Hub Dataset Card discovery fields (see
+            # README-yolo-body.md.j2's frontmatter) — size_category is
+            # computed from what's actually on disk (common.hf_size_category),
+            # never hand-maintained, so it can't go stale.
+            "task_categories": ["object-detection"],
+            "tags": ["wildlife", "camera-trap", "yolo"],
+            "size_category": common.hf_size_category(total_images),
         }
 
 

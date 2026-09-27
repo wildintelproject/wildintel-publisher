@@ -121,6 +121,12 @@ def prepare_hfh_export(
                 f"  {split}: over {yolo_adapter.HFH_MAX_FILES_PER_DIRECTORY:,} files in one folder — spread "
                 "over hash-named subfolders (Hugging Face Hub's own per-folder limit)."
             )
+        # images/<split>/metadata.jsonl — lets the Hub's Dataset Viewer
+        # render each image with its bounding boxes, on top of (not instead
+        # of) the labels/<split>/*.txt files trainers read directly. Run
+        # after shard_large_splits so file_name already reflects any
+        # hash-bucket subfolder.
+        yolo_adapter.write_hf_metadata_jsonl(output_dir)
 
     title = product_meta["title"]
     description = product_meta["description"]
@@ -141,6 +147,7 @@ def prepare_hfh_export(
     common.write_license(
         LICENSE_TEMPLATE_FILE, output_dir,
         license_id=license["id"], license_name=license["name"], license_url=license["url"],
+        product_type=adapter.product_type,
     )
     common.write_citation(
         CITATION_TEMPLATE_FILE, output_dir,
