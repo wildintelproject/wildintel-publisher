@@ -1754,7 +1754,9 @@ finishes — see the "When it's done" step of the
 after Hugging Face Hub was already published on its own), this section — shown on the
 final "All done!" screen once Zenodo has published — reflects the Zenodo DOI into the
 <code>CITATION.cff</code> of an <em>already-published</em> Hugging Face Hub export, and re-uploads just
-that changed file (plus <code>checksums-sha256.txt</code>).</p>
+that changed file (plus <code>checksums-sha256.txt</code>). It's only shown when Hugging Face Hub
+isn't part of the same run: when it is, the DOI is already cross-referenced into it
+automatically, before its version is tagged.</p>
 <p><img alt="Sync DOI form" src="../img/web/zenodo-sync-doi-form.png" /></p>
 <ul>
 <li><strong>Hugging Face Hub export directory</strong> — read-only, taken from <code>settings.toml</code>.</li>

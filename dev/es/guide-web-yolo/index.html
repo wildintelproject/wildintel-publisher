@@ -1418,10 +1418,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-choose-the-primary-doi-only-if-hfh-zenodo-and-b2share-are-all-selected" class="md-nav__link">
+  <a href="#6-the-primary-doi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)
+        6. The primary DOI
       
     </span>
   </a>
@@ -1788,10 +1788,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-choose-the-primary-doi-only-if-hfh-zenodo-and-b2share-are-all-selected" class="md-nav__link">
+  <a href="#6-the-primary-doi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)
+        6. The primary DOI
       
     </span>
   </a>
@@ -1856,6 +1856,16 @@ start</a>.</p>
 there's no equivalent of Camtrap DP's "Trapper Instance" source.</p>
 <p><img alt="Choosing where the dataset comes from" src="../../img/web/source-selection-yolo.png" /></p>
 <h2 id="3-confirm-the-package-and-its-description">3. Confirm the package and its description</h2>
+<p><strong>New dataset or new version?</strong> The metadata step first asks whether this is a brand new
+dataset or a new version of one already published. For a new version, pick it from what
+you already published on one repository (<strong>List what I published here</strong>, using the saved
+credentials), or give one identifier you know — a Hugging Face Hub dataset, a Zenodo or B2SHARE record (its id, URL or
+DOI) — and the wizard finds the rest through the links the earlier publish left between
+them, always picking each record's latest version. It then suggests the next version
+number (and refuses one that isn't newer than the last published one), and pre-fills
+every repository's form: the same Hugging Face Hub repository, and the Zenodo/B2SHARE
+record to create the new version from. For a new dataset, those fields are hidden
+instead, and the Hugging Face Hub form warns if the repository you type already exists.</p>
 <p>Once the wizard has read the local directory, it shows where it lives. If its common
 description is missing something required (title, description, version, license,
 authors), a form prompts for exactly what's missing; once complete, a summary card shows
@@ -1870,8 +1880,10 @@ B2SHARE on top of Zenodo, a <strong>publish order</strong> list lets you reorder
 repository publishes the local dataset itself, and each next one publishes whatever the
 previous one wrote to its own output — so, for example, publishing to Hugging Face Hub
 before Zenodo lets Zenodo's record link back to it. A YOLO dataset's images always travel
-together with <code>data.yaml</code> in self-contained/mirror mode — there's no external repository
-for them to link to instead the way Camtrap DP can.</p>
+together with <code>data.yaml</code> — there's no external repository for them to link to instead
+the way Camtrap DP can, so the repository forms don't offer a Mirror/Link choice at all:
+Hugging Face Hub gets <code>data.yaml</code>, <code>images/</code> and <code>labels/</code> as loose files, and Zenodo and
+B2SHARE get them bundled into a single <code>yolo.zip</code>.</p>
 <p>This is the same mandatory-repo mechanic used for <a href="../guide-web-software/#4-choose-repositories">Software
 Application</a> (Zenodo there too), just with
 Hugging Face Hub and B2SHARE still available alongside it here.</p>
@@ -1880,12 +1892,11 @@ Hugging Face Hub and B2SHARE still available alongside it here.</p>
 configuration form — see that repository's own page for the full form, field-by-field,
 with a screenshot: <a href="../guide-web-hfh/">Hugging Face Hub</a>, <a href="../guide-web-zenodo/">Zenodo</a>,
 <a href="../guide-web-b2share/">B2SHARE</a>.</p>
-<h2 id="6-choose-the-primary-doi-only-if-hfh-zenodo-and-b2share-are-all-selected">6. Choose the primary DOI (only if HFH, Zenodo and B2SHARE are all selected)</h2>
-<p>If Hugging Face Hub, Zenodo, and B2SHARE are all selected together, you're asked which
-of Zenodo's or B2SHARE's DOI should be treated as <em>primary</em> in Hugging Face Hub's own
-citation file — Hugging Face Hub never has a DOI of its own, so this only comes up when
-there's more than one candidate to choose from.</p>
-<p><img alt="Choosing the primary DOI" src="../../img/web/primary-doi-choice.png" /></p>
+<h2 id="6-the-primary-doi">6. The primary DOI</h2>
+<p>Hugging Face Hub never has a DOI of its own, so its citation file cites another
+repository's as <em>primary</em>: always Zenodo's (mandatory for this product type), with
+B2SHARE's, if selected too, added as an alternate identifier. Unlike Camtrap DP, there's
+no question to answer here.</p>
 <h2 id="7-confirm-and-publish">7. Confirm and publish</h2>
 <p>After a final summary screen, <strong>Publish</strong> runs the whole sequence on its own: uploading
 to every selected repository, cross-referencing whatever DOIs Zenodo/B2SHARE obtained
@@ -1895,8 +1906,8 @@ with a single live progress view showing every repository's status as it goes.</
 <p>The wizard confirms which repositories were published, but doesn't print each one's
 resulting URL/DOI/PID directly on this screen — check the repository itself, or the
 record file its own output directory holds (<code>zenodo_record.json</code>, <code>b2share_record.json</code>).
-If Zenodo and/or B2SHARE were published, you can also use the <strong>Sync DOI</strong>/<strong>Sync PID</strong>
-sections shown here — besides reflecting the DOI/PID into an already-published Hugging
+If Zenodo and/or B2SHARE were published without Hugging Face Hub in the same run, you
+can also use the <strong>Sync DOI</strong>/<strong>Sync PID</strong> sections shown here — besides reflecting the DOI/PID into an already-published Hugging
 Face Hub export, they confirm success with a direct link back to it (see
 <a href="../guide-web-zenodo/#sync-doi-to-hugging-face-hub">Zenodo</a>/
 <a href="../guide-web-b2share/#sync-piddoi-to-hugging-face-hub">B2SHARE</a>). If B2SHARE is still

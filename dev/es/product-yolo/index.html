@@ -512,10 +512,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-what-gets-published" class="md-nav__link">
+  <a href="#3-validation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. What gets published
+        3. Validation
       
     </span>
   </a>
@@ -523,10 +523,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-where-it-can-be-published" class="md-nav__link">
+  <a href="#4-what-gets-published" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Where it can be published
+        4. What gets published
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-where-it-can-be-published" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Where it can be published
       
     </span>
   </a>
@@ -1707,10 +1718,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-what-gets-published" class="md-nav__link">
+  <a href="#3-validation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. What gets published
+        3. Validation
       
     </span>
   </a>
@@ -1718,10 +1729,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-where-it-can-be-published" class="md-nav__link">
+  <a href="#4-what-gets-published" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Where it can be published
+        4. What gets published
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-where-it-can-be-published" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Where it can be published
       
     </span>
   </a>
@@ -1767,11 +1789,19 @@ annotation/export tool you use) and is published directly from there.</p>
 <h2 id="2-raw-dataset-layout">2. Raw dataset layout</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>.
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── images/
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── train/         ← training images (required, at least one file)
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── val/           ← validation images (required, at least one file)
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── train/         ← training images (required, at least one image)
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── val/           ← validation images (required, at least one image)
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   └── test/          ← test images (optional)
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>└── data.yaml           ← standard Ultralytics/YOLO config
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>├── labels/            ← optional, one .txt per image, same split layout as images/
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   ├── train/
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   ├── val/
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   └── test/
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>└── data.yaml           ← standard Ultralytics/YOLO config
 </code></pre></div>
+<p>Only this <code>images/&lt;split&gt;</code> layout is supported. The alternative Ultralytics layout
+(<code>train/images</code>, <code>train/labels</code>, …) needs to be reorganised first. Images can be
+nested in subfolders inside each split. A label file shares its image's relative
+path (<code>images/train/site-a/0001.jpg</code> ↔ <code>labels/train/site-a/0001.txt</code>).</p>
 <p><code>data.yaml</code> is the standard YOLO training config (split paths, number of classes, class
 id → name mapping). It can additionally carry a handful of optional descriptive keys —
 harmless to any YOLO trainer, which simply ignores keys it doesn't recognise:</p>
@@ -1790,13 +1820,77 @@ harmless to any YOLO trainer, which simply ignores keys it doesn't recognise:</p
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Jane Doe</span>
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">affiliation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">My Institution</span>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="nt">homepage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://example.org</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="nt">publisher</span><span class="p">:</span><span class="w">                         </span><span class="c1"># credited in CITATION.cff&#39;s preferred-citation</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">University of Huelva</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nt">website</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://www.uhu.es/</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="nt">copyright_holders</span><span class="p">:</span><span class="w">                 </span><span class="c1"># &quot;© &lt;year&gt; &lt;names&gt;&quot; in the citation</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Spanish National Research Council</span>
 </code></pre></div>
+<p>In the web app, the metadata step edits these descriptive keys on a copy of
+<code>data.yaml</code> kept inside the session — your own dataset directory is never modified.
+The publisher and rights holder are picked from the organizations configured in
+<code>settings.toml</code> (<code>[[PRODUCT.organizations]]</code>), the same list Camtrap DP uses. The license
+is picked from a list of common ones (CC-BY-NC-4.0 by default, WildINTEL's own policy),
+which fills in its id, full name and URL at once; "Other…" lets you type any other.</p>
 <p>Unlike Camtrap DP, there is no <code>filePublic</code>/privacy concept — every image under
 <code>images/</code> is treated as publishable, and no media-reference URL needs rewriting: the
 images themselves either travel with the export (mirror mode) or are simply left out
 of that particular publish (link mode) — see
 <a href="../publishing-guide/#publishing-modes">Publishing modes</a> in the Publishing Guide.</p>
-<h2 id="3-what-gets-published">3. What gets published</h2>
+<h2 id="3-validation">3. Validation</h2>
+<p>The dataset is validated before anything is published. Errors stop the process;
+warnings are only logged.</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data.yaml</code> exists and is valid YAML</td>
+<td>error</td>
+</tr>
+<tr>
+<td><code>train</code>/<code>val</code> (and <code>test</code>, if present) point to <code>images/train</code>, <code>images/val</code>, <code>images/test</code></td>
+<td>error</td>
+</tr>
+<tr>
+<td><code>names</code> lists at least one class; a mapping uses consecutive ids starting at 0</td>
+<td>error</td>
+</tr>
+<tr>
+<td><code>nc</code>, if present, equals the number of <code>names</code></td>
+<td>error</td>
+</tr>
+<tr>
+<td><code>images/train</code> and <code>images/val</code> contain at least one image (<code>.jpg</code>, <code>.png</code>, <code>.tif</code>, <code>.webp</code>, …)</td>
+<td>error</td>
+</tr>
+<tr>
+<td>Every line of every <code>labels/</code> file is <code>class x y w h</code> (box) or <code>class x1 y1 x2 y2 x3 y3 …</code> (polygon), with the class id lower than the number of classes and every coordinate between 0 and 1</td>
+<td>error, listing the file and line of the first 10 problems</td>
+</tr>
+<tr>
+<td><code>data.yaml</code> declares <code>test</code> but <code>images/test</code> has no images</td>
+<td>warning</td>
+</tr>
+<tr>
+<td>Images with no label file (background images)</td>
+<td>warning</td>
+</tr>
+<tr>
+<td>Label files with no matching image</td>
+<td>warning</td>
+</tr>
+<tr>
+<td>Non-image files inside <code>images/&lt;split&gt;</code></td>
+<td>warning (they're published as-is)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-what-gets-published">4. What gets published</h2>
 <p>Before a YOLO dataset can be published anywhere, it's given a common description — the
 same envelope every product type carries, regardless of its own underlying format:</p>
 <table>
@@ -1819,6 +1913,10 @@ same envelope every product type carries, regardless of its own underlying forma
 <td>Authors (name, affiliation)</td>
 <td>the authors list</td>
 </tr>
+<tr>
+<td>Publisher, rights holders</td>
+<td>the publisher mapping and copyright_holders list (optional)</td>
+</tr>
 </tbody>
 </table>
 <p>Title, description, version, license, and authors are <strong>required</strong> — if <code>data.yaml</code>
@@ -1830,13 +1928,22 @@ which prompts for whatever's missing) before publishing can proceed.</p>
 format section is rendered specifically for YOLO (split layout, class count and names),
 distinct from Camtrap DP's own wording.</p>
 <div class="admonition note">
-<p class="admonition-title">Mirror mode always bundles the full <code>images/</code> tree</p>
+<p class="admonition-title">Mirror and Link are the same for YOLO</p>
 <p>For Camtrap DP, mirror mode downloads remote images that otherwise wouldn't exist
-locally. For YOLO, the images are already local — mirror mode simply means bundling
-everything (<code>data.yaml</code> plus the whole <code>images/</code> tree) together, rather than leaving
-<code>images/</code> out of that particular publish.</p>
+locally, and link mode points at a copy hosted elsewhere. A YOLO dataset's images are
+already local and have nowhere else to point at, so every export always includes
+<code>data.yaml</code>, <code>images/</code> and <code>labels/</code>: loose on Hugging Face Hub, bundled into
+<code>yolo.zip</code> on Zenodo and B2SHARE.</p>
 </div>
-<h2 id="4-where-it-can-be-published">4. Where it can be published</h2>
+<div class="admonition note">
+<p class="admonition-title">Very large splits on Hugging Face Hub</p>
+<p>Hugging Face Hub accepts at most 10,000 files per folder. A split over that limit is
+spread, on Hugging Face Hub only, over hash-named subfolders
+(<code>images/train/3f/img.jpg</code>, with its label at <code>labels/train/3f/img.txt</code>) — still valid
+YOLO, since trainers look for images recursively. Your own dataset, <code>yolo.zip</code> and
+the local output folders keep the original layout.</p>
+</div>
+<h2 id="5-where-it-can-be-published">5. Where it can be published</h2>
 <table>
 <thead>
 <tr>

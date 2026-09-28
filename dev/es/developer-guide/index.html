@@ -2253,8 +2253,9 @@ in this publish can ever be a DOI <em>source</em>?" without hardcoding repositor
 </ol>
 <p>If it doesn't provide a DOI (like Hugging Face Hub), leave <code>PROVIDES_DOI = False</code> and
 skip all of the above — <code>doi_populate.populate()</code> treats your repository purely as a DOI
-<em>destination</em>, cross-referencing others' DOIs into your <code>CITATION.cff</code>, and (if it's the
-only repository without its own DOI) asking the user which one should be primary.</p>
+<em>destination</em>, cross-referencing others' DOIs into your <code>CITATION.cff</code>, with one of them
+as primary (<code>primary_doi_source</code> — Zenodo's, else B2SHARE's, by default; see
+<code>publish_orchestrator._default_primary_doi_source</code>; the wizard asks only for Camtrap DP).</p>
 <h3 id="commonpy-helpers-to-reuse-rather-than-reimplement"><code>common.py</code> helpers to reuse rather than reimplement</h3>
 <ul>
 <li><code>render_text_template</code> — Jinja2 rendering used by every repository's own
