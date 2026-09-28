@@ -130,6 +130,74 @@ export interface GBIFInstallation {
   production_installation_key?: string | null
 }
 
+/** settings.toml, as the settings page reads it (GET /api/settings) — see
+ * the backend's wildintel_publisher.config.Settings and its router,
+ * api.routers.app_settings. A secret field (config.py's
+ * json_schema_extra={"secret": True}) never comes back as a value, only as
+ * a has_<field> boolean. */
+export interface AppSettings {
+  TRAPPER: {
+    base_url: string | null
+    has_user_name: boolean
+    has_user_password: boolean
+    project_id: number | null
+    license_id: string | null
+    license_name: string | null
+    license_url: string | null
+    dataset_slug: string | null
+    dataset_name: string | null
+    description: string | null
+  }
+  HFH: {
+    message: string | null
+    repository_code: string | null
+    repo_id: string | null
+    username: string | null
+    has_token: boolean
+  }
+  ZENODO: {
+    environment: 'sandbox' | 'production' | null
+    communities: string | null
+    has_token: boolean
+  }
+  B2SHARE: {
+    environment: 'sandbox' | 'production' | null
+    community_id: string | null
+    has_token: boolean
+  }
+  GBIF: {
+    environment: 'sandbox' | 'production' | null
+    publishing_organization_key: string | null
+    installation_key: string | null
+    registry_language: string | null
+    has_username: boolean
+    has_password: boolean
+    installations: GBIFInstallation[]
+  }
+  PRODUCT: {
+    organizations: Organization[]
+  }
+}
+
+/** PUT /api/settings's own body — same shape as AppSettings, but each
+ * has_<field> boolean becomes the real (writable) field: a secret left
+ * blank keeps the one already saved, same rule as everywhere else in this
+ * app (see TrapperConnectionForm). */
+export interface AppSettingsUpdate {
+  TRAPPER: Omit<AppSettings['TRAPPER'], 'has_user_name' | 'has_user_password'> & {
+    user_name: string | null
+    user_password: string | null
+  }
+  HFH: Omit<AppSettings['HFH'], 'has_token'> & { token: string | null }
+  ZENODO: Omit<AppSettings['ZENODO'], 'has_token'> & { token: string | null }
+  B2SHARE: Omit<AppSettings['B2SHARE'], 'has_token'> & { token: string | null }
+  GBIF: Omit<AppSettings['GBIF'], 'has_username' | 'has_password'> & {
+    username: string | null
+    password: string | null
+  }
+  PRODUCT: AppSettings['PRODUCT']
+}
+
 /** name/title/description/version/homepage/contributors read straight from
  * datapackage.json itself (see services.common.read_datapackage_metadata in
  * the backend) — distinct from DatapackageSummary above, which comes from

@@ -496,4 +496,12 @@ def load_settings(config_file: Path = DEFAULT_CONFIG_FILE) -> Settings:
     return Settings.model_validate(dynaconf_settings.to_dict())
 
 
+def save_settings(new: Settings, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
+    """Sobrescribe config_file entero con new — ver el router de
+    settings.toml (web app), que preserva los secretos que llegan en blanco
+    antes de llamar a esto."""
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    loaders.toml_loader.write(str(config_file), new.model_dump(mode="json"), merge=False)
+
+
 settings = load_settings()

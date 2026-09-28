@@ -12,7 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from settings import configure_logging, settings
-from api.routers import b2share, camtrapdp, camtrapdp_source, fs, gbif, health, hfh, product, publish, software, trapper, yolo, zenodo
+from api.routers import (
+    app_settings, b2share, camtrapdp, camtrapdp_source, fs, gbif, health, hfh, product, publish, software, trapper,
+    yolo, zenodo,
+)
 
 configure_logging()
 
@@ -33,6 +36,7 @@ app.add_middleware(
 
 for _router in [
     health.router,
+    app_settings.router,
     trapper.router,
     camtrapdp.router,
     camtrapdp_source.router,

@@ -1,4 +1,5 @@
 import type {
+  AppSettings, AppSettingsUpdate,
   BrowseResult, Organization, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment,
   YoloDataYamlFields, YoloDataYamlMetadata, PreviousVersion,
   GBIFInstallation, OutputMode, PublishRepoConfig, ResearchProject, SessionSummary,
@@ -23,6 +24,14 @@ function post<T>(url: string, body: unknown): Promise<T> {
   })
 }
 
+function put<T>(url: string, body: unknown): Promise<T> {
+  return req<T>(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export const api = {
   checkHealth: async (): Promise<boolean> => {
     try {
@@ -35,6 +44,9 @@ export const api = {
 
   checkVersion: () =>
     req<{ current: string; latest: string | null; update_available: boolean; release_url: string | null }>('/api/version'),
+
+  getSettings: () => req<AppSettings>('/api/settings'),
+  saveSettings: (update: AppSettingsUpdate) => put<AppSettings>('/api/settings', update),
 
   trapperGetConfig: () =>
     req<{ base_url: string | null; user_name: string | null; has_password: boolean }>('/api/trapper/config'),

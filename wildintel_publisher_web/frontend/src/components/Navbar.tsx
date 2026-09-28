@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
 
-interface Props { version: string | null }
+interface Props {
+  version: string | null
+  /** Opens the settings page (settings.toml — see SettingsPage). */
+  onOpenSettings: () => void
+  settingsOpen: boolean
+}
 
 const btnOutline = 'px-3 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors'
 
-export default function Navbar({ version }: Props) {
+export default function Navbar({ version, onOpenSettings, settingsOpen }: Props) {
   const [dark, setDark] = useState(true)
 
   useEffect(() => {
@@ -32,6 +37,14 @@ export default function Navbar({ version }: Props) {
           >
             ? Help
           </a>
+
+          <button
+            className={`${btnOutline} ${settingsOpen ? 'bg-zinc-100 dark:bg-zinc-800' : ''}`}
+            title="Settings" aria-label="Settings" aria-pressed={settingsOpen}
+            onClick={onOpenSettings}
+          >
+            ⚙️
+          </button>
 
           <button
             className={btnOutline}

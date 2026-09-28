@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import ResumeSessionsPage from './pages/ResumeSessionsPage'
+import SettingsPage from './pages/SettingsPage'
 import WelcomePage from './pages/WelcomePage'
 import WizardPage from './pages/WizardPage'
 import { api } from './api'
@@ -20,6 +21,9 @@ export default function App() {
   // takes over for the rest of this browser session.
   const [unfinishedSessions, setUnfinishedSessions] = useState<SessionSummary[] | null>(null)
   const [resumeSession, setResumeSession] = useState<SessionSummary | null>(null)
+  // The settings page is shown over the rest, which stays mounted (just
+  // hidden) — so a wizard run in progress isn't lost.
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -48,25 +52,28 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Navbar version={currentVersion} />
+      <Navbar version={currentVersion} settingsOpen={settingsOpen} onOpenSettings={() => setSettingsOpen(true)} />
       {backendDown && (
         <div className="bg-red-50 dark:bg-red-950 border-b border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm text-center py-2">
           Backend not reachable — is the server running?
         </div>
       )}
       <main className="flex-1">
-        {started
-          ? <WizardPage resumeSession={resumeSession ?? undefined} />
-          : showResumeScreen
-            ? (
-              <ResumeSessionsPage
-                sessions={unfinishedSessions!}
-                onResume={(session) => { setResumeSession(session); setStarted(true) }}
-                onDiscarded={(taskId) => setUnfinishedSessions((s) => (s ?? []).filter((x) => x.task_id !== taskId))}
-                onSkip={() => setUnfinishedSessions([])}
-              />
-            )
-            : <WelcomePage onStart={() => setStarted(true)} />}
+        {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
+        <div className={settingsOpen ? 'hidden' : ''}>
+          {started
+            ? <WizardPage resumeSession={resumeSession ?? undefined} />
+            : showResumeScreen
+              ? (
+                <ResumeSessionsPage
+                  sessions={unfinishedSessions!}
+                  onResume={(session) => { setResumeSession(session); setStarted(true) }}
+                  onDiscarded={(taskId) => setUnfinishedSessions((s) => (s ?? []).filter((x) => x.task_id !== taskId))}
+                  onSkip={() => setUnfinishedSessions([])}
+                />
+              )
+              : <WelcomePage onStart={() => setStarted(true)} />}
+        </div>
       </main>
       <Footer />
     </div>
