@@ -9,6 +9,8 @@ import GitCloneForm from '../components/GitCloneForm'
 import HFHPublishForm from '../components/HFHPublishForm'
 import PublicationKindPicker from '../components/PublicationKindPicker'
 import type { LookupRepo } from '../components/PublicationKindPicker'
+import S3ImageUploadPicker, { EMPTY_S3_CONFIG } from '../components/S3ImageUploadPicker'
+import type { S3Config } from '../components/S3ImageUploadPicker'
 import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
 import type { LocalSourceSelection } from '../components/LocalDirectoryForm'
@@ -17,6 +19,7 @@ import YoloMetadataEditor from '../components/YoloMetadataEditor'
 import ZenodoPublishForm, { SyncDoiSection } from '../components/ZenodoPublishForm'
 import type { ZenodoPublishConfig } from '../components/ZenodoPublishForm'
 import { api } from '../api'
+import type { S3UploadStatus } from '../api'
 import { initialLicense } from '../licenses'
 import { isNewerVersion, nextVersion } from '../versions'
 import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
@@ -191,8 +194,11 @@ function sleep(ms: number) {
 const IMAGE_TIMEOUT = 60
 
 const STAGE_LABELS: Record<string, string> = {
-  preparing: 'Preparing…',
+  downloading: 'Downloading images…',
+  hashing: 'Hashing images…',
   uploading: 'Uploading…',
+  rewriting: 'Rewriting media.csv…',
+  preparing: 'Preparing…',
   finalizing: 'Saving output…',
   finalized: 'Waiting to publish…',
   releasing: 'Publishing…',
@@ -390,6 +396,24 @@ export default function WizardPage({ resumeSession }: Props) {
   // source (see the effect below) unless the user has edited it by hand.
   const [mediaIdDomain, setMediaIdDomain] = useState(sessionPreprocessing(resumeSession)?.media_id_domain ?? 'localhost')
   const [mediaIdDomainEdited, setMediaIdDomainEdited] = useState(false)
+  // Camtrap DP only — asked right before PublicationKindPicker (see step
+  // === 2 below): whether to upload every public image to a S3-compatible
+  // bucket before publishing metadata anywhere, so every repo published
+  // afterwards treats this package as already publicly hosted (see
+  // S3ImageUploadPicker's own docstring). null until answered; the
+  // Continue button (step === 2's own) stays disabled until answered. The
+  // actual download+upload runs from that same Continue button (see
+  // handleContinueToPreprocessing), right after the datapackage.json edits
+  // and generateProductMetadata have been applied — so by the time the user
+  // picks where to publish, the images are already in the bucket.
+  const [s3Wanted, setS3Wanted] = useState<boolean | null>(null)
+  const [s3Config, setS3Config] = useState<S3Config>(EMPTY_S3_CONFIG)
+  // The upload's own live status while it runs (null before it starts).
+  const [s3Progress, setS3Progress] = useState<S3UploadStatus | null>(null)
+  // Which package + bucket config the images were last uploaded for — going
+  // Back and pressing Continue again with the same ones doesn't redo it
+  // (media.csv's filePath already points at the bucket by then).
+  const [s3UploadedKey, setS3UploadedKey] = useState<string | null>(null)
   // Camtrap DP only — datapackage.json's own name/title/description/
   // homepage/version, editable in the new step between download and
   // preprocessing (see step === 2 below). Pre-filled from
@@ -703,6 +727,9 @@ export default function WizardPage({ resumeSession }: Props) {
     setExecutionDone(false)
     setExecutionError(null)
     setProgress({})
+    setS3Wanted(null)
+    setS3Progress(null)
+    setS3UploadedKey(null)
   }
 
   // Builds one repo's config payload for publishAllStart, from whatever
@@ -990,6 +1017,22 @@ export default function WizardPage({ resumeSession }: Props) {
   // already-rounded coordinate or an already-UUID mediaID is a no-op, and
   // update_datapackage_fields/generate_metadata_json both just overwrite
   // with whatever's currently in the form.
+  // Downloads every public image of the package and uploads it to the S3
+  // bucket (rewriting media.csv's filePath to the public URLs), polling the
+  // backend task until it ends — see the backend's services.s3_service.
+  // Throws with the task's own error message when it fails.
+  async function uploadImagesToS3(inputDir: string, mediaDir: string | null) {
+    setS3Progress({ status: 'running', stage: '', error: null, downloaded_images: 0, uploaded: 0, total: 0, rewritten: null, dry_run: !!s3Config.dryRun, log: [] })
+    const { task_id } = await api.s3UploadStart(inputDir, s3Config, mediaDir ?? undefined)
+    while (true) {
+      await sleep(1000)
+      const status = await api.s3UploadStatus(task_id)
+      setS3Progress(status)
+      if (status.status === 'done') return
+      if (status.status === 'error') throw new Error(`Uploading the images to the bucket failed: ${status.error ?? 'unknown error'}`)
+    }
+  }
+
   async function handleContinueToPreprocessing() {
     if (!download.path || !productType) return
     setPreprocessing(true)
@@ -1016,6 +1059,18 @@ export default function WizardPage({ resumeSession }: Props) {
         download.path, productType, anonymizeCoordinates, coordinateDecimals, randomizeMediaIds, mediaIdDomain,
         sessionTaskId ?? undefined,
       )
+      // After the edits above are applied (anonymize/randomize included) and
+      // before choosing where to publish: get the images into the bucket.
+      if (productType === 'camtrapdp' && s3Wanted === true) {
+        const uploadKey = JSON.stringify([download.path, s3Config])
+        if (s3UploadedKey !== uploadKey) {
+          await uploadImagesToS3(download.path, download.sourcePath)
+          // A dry run uploaded nothing: stay here (its file/key log is
+          // shown below) so it can be re-run for real.
+          if (s3Config.dryRun) return
+          setS3UploadedKey(uploadKey)
+        }
+      }
       setSummary(newSummary)
       setStep(3)
     } catch (e) {
@@ -1409,6 +1464,13 @@ export default function WizardPage({ resumeSession }: Props) {
                 : 'continue: this product\'s metadata comes from its own CITATION.cff.'}
           </p>
 
+          {productType === 'camtrapdp' && (
+            <S3ImageUploadPicker
+              wanted={s3Wanted} onWantedChange={setS3Wanted}
+              config={s3Config} onConfigChange={setS3Config}
+            />
+          )}
+
           <PublicationKindPicker
             value={publication} onChange={setPublication}
             repos={REPOS_BY_PRODUCT_TYPE[productType ?? 'camtrapdp'].filter(
@@ -1661,6 +1723,28 @@ export default function WizardPage({ resumeSession }: Props) {
                     never collide with each other.
                   </p>
                 </div>
+              )}
+            </div>
+          )}
+
+          {s3Wanted === true && s3Progress && (preprocessing || s3Progress.dry_run) && (
+            <div className="mt-6" role="status">
+              <p className="text-sm text-blue-600 dark:text-blue-400">
+                ☁️ {s3Progress.status === 'done'
+                  ? `${s3Progress.dry_run ? 'Dry run finished — nothing was uploaded' : 'Upload finished'} (${s3Progress.log.filter((e) => e.action !== 'failed').length} files)`
+                  : (STAGE_LABELS[s3Progress.stage] ?? 'Uploading images to the bucket…')}
+                {s3Progress.stage === 'uploading' && s3Progress.total > 0 && ` (${s3Progress.uploaded}/${s3Progress.total})`}
+              </p>
+              {s3Progress.log.length > 0 && (
+                <ul className="mt-2 max-h-64 overflow-auto rounded border border-zinc-200 dark:border-zinc-700 p-2 text-xs font-mono text-zinc-700 dark:text-zinc-300">
+                  {s3Progress.log.map((entry, i) => (
+                    <li key={i} className={entry.action === 'failed' ? 'text-red-600 dark:text-red-400' : undefined}>
+                      {entry.action === 'failed'
+                        ? <>{entry.file} ✘ {entry.key}</>
+                        : <>{entry.file} → {entry.key} <span className="text-zinc-500">({entry.action})</span></>}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )}
@@ -2304,10 +2388,11 @@ export default function WizardPage({ resumeSession }: Props) {
                 || !publicationReady
                 || (productType === 'yolo' && !isNewerVersion(yoloMetadata.version, previousVersion))
                 || (productType === 'camtrapdp' && previousVersion !== null && !isNewerVersion(dpVersion, previousVersion))
+                || (productType === 'camtrapdp' && s3Wanted === null)
               }
             >
               {preprocessing && <SmallSpinner />}
-              {preprocessing ? 'Processing…' : 'Continue'}
+              {preprocessing ? (s3Progress?.status === 'running' ? 'Uploading images…' : 'Processing…') : 'Continue'}
             </button>
           )}
 

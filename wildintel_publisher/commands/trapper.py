@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 
 from wildintel_publisher.commands.config_commands import build_section_config_app
-from wildintel_publisher.config import TrapperSettings, get_trapper_output_dir, settings
+from wildintel_publisher.config import CamtrapDPSettings, TrapperSettings, get_trapper_output_dir, settings
 from wildintel_publisher.services import trapper as trapper_service
 
 console = Console()
@@ -23,6 +23,7 @@ app     = typer.Typer(help="Commands related to Trapper.")
 app.add_typer(build_section_config_app("TRAPPER", TrapperSettings), name="config")
 
 TRAPPER_DEFAULTS = settings.TRAPPER
+CAMTRAPDP_DEFAULTS = settings.CAMTRAPDP
 
 # Igual que hfh_service.DEFAULT_VERSION — se repite en vez de importar
 # services.hfh aquí, para no acoplar 'trapper download' a la sección hfh.
@@ -32,6 +33,11 @@ DEFAULT_VERSION = "1.0"
 def _trapper_help(field: str) -> str:
     """Reutiliza la description de TrapperSettings como help= del flag equivalente."""
     return TrapperSettings.model_fields[field].description
+
+
+def _camtrapdp_help(field: str) -> str:
+    """Igual que _trapper_help, para los campos de CamtrapDPSettings."""
+    return CamtrapDPSettings.model_fields[field].description
 
 
 def _require_connection_params(
@@ -103,23 +109,23 @@ def download(
         help="Network timeout (seconds) to generate and download the package. Increase it for large projects.",
     ),
     title: Optional[str] = typer.Option(
-        TRAPPER_DEFAULTS.dataset_name, "--title", help=_trapper_help("dataset_name"),
+        CAMTRAPDP_DEFAULTS.dataset_name, "--title", help=_camtrapdp_help("dataset_name"),
     ),
     description: Optional[str] = typer.Option(
-        TRAPPER_DEFAULTS.description, "--description", help=_trapper_help("description"),
+        CAMTRAPDP_DEFAULTS.description, "--description", help=_camtrapdp_help("description"),
     ),
     version: str = typer.Option(
         DEFAULT_VERSION, "--version",
         help="Version written inside datapackage.json.",
     ),
     license_id: Optional[str] = typer.Option(
-        TRAPPER_DEFAULTS.license_id, "--license-id", help=_trapper_help("license_id"),
+        CAMTRAPDP_DEFAULTS.license_id, "--license-id", help=_camtrapdp_help("license_id"),
     ),
     license_name: Optional[str] = typer.Option(
-        TRAPPER_DEFAULTS.license_name, "--license-name", help=_trapper_help("license_name"),
+        CAMTRAPDP_DEFAULTS.license_name, "--license-name", help=_camtrapdp_help("license_name"),
     ),
     license_url: Optional[str] = typer.Option(
-        TRAPPER_DEFAULTS.license_url, "--license-url", help=_trapper_help("license_url"),
+        CAMTRAPDP_DEFAULTS.license_url, "--license-url", help=_camtrapdp_help("license_url"),
     ),
     include_events: bool = typer.Option(
         True, "--include-events/--no-include-events",
@@ -152,6 +158,8 @@ def download(
             license_name=license_name,
             license_url=license_url,
             include_events=include_events,
+            retry_attempts=TRAPPER_DEFAULTS.retry_attempts,
+            retry_wait_seconds=TRAPPER_DEFAULTS.retry_wait_seconds,
         )
     except Exception as exc:
         logging.error("Could not fetch the Camtrap DP package: %s", exc)

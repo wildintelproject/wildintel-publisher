@@ -180,6 +180,7 @@ async def _run_fetch(
     TRAPPER section — same defaults 'trapper download' itself falls back to
     when its own --title/--description/--license-* flags aren't given."""
     trapper_defaults = settings.TRAPPER
+    camtrapdp_defaults = settings.CAMTRAPDP
     fetch = {
         "source_type": "trapper",
         "params": _fetch_params(
@@ -198,13 +199,15 @@ async def _run_fetch(
             deployment_id=deployment_id,
             output_dir=output_dir,
             clear_cache=clear_cache,
-            title=trapper_defaults.dataset_name,
-            description=trapper_defaults.description,
+            title=camtrapdp_defaults.dataset_name,
+            description=camtrapdp_defaults.description,
             version=DEFAULT_VERSION,
-            license_id=trapper_defaults.license_id,
-            license_name=trapper_defaults.license_name,
-            license_url=trapper_defaults.license_url,
+            license_id=camtrapdp_defaults.license_id,
+            license_name=camtrapdp_defaults.license_name,
+            license_url=camtrapdp_defaults.license_url,
             include_events=include_events,
+            retry_attempts=trapper_defaults.retry_attempts,
+            retry_wait_seconds=trapper_defaults.retry_wait_seconds,
         )
         _download_tasks[task_id] = {"status": "done", "path": str(path), "error": None}
         fetch["input_dir"] = str(path)

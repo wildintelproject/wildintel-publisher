@@ -48,6 +48,9 @@ export const api = {
   getSettings: () => req<AppSettings>('/api/settings'),
   saveSettings: (update: AppSettingsUpdate) => put<AppSettings>('/api/settings', update),
 
+  // Deletes the log file and its rotated copies — logging goes on, into a new one.
+  clearLog: () => req<{ deleted: number }>('/api/settings/log', { method: 'DELETE' }),
+
   trapperGetConfig: () =>
     req<{ base_url: string | null; user_name: string | null; has_password: boolean }>('/api/trapper/config'),
 
@@ -442,6 +445,46 @@ export const api = {
       hfh_token: params.hfhToken,
     }),
 
+  s3GetConfig: () =>
+    req<{
+      endpoint_url: string | null
+      region: string | null
+      bucket: string | null
+      prefix: string | null
+      public_base_url: string | null
+      verify_ssl: boolean
+      has_access_key: boolean
+      has_secret_key: boolean
+    }>('/api/s3/config'),
+
+  s3TestConnection: (params: {
+    endpointUrl?: string; region?: string; bucket: string; accessKey?: string; secretKey?: string; verifySsl?: boolean
+  }) =>
+    post<{ ok: boolean }>('/api/s3/test-connection', {
+      endpoint_url: params.endpointUrl || null,
+      region: params.region || null,
+      bucket: params.bucket,
+      access_key: params.accessKey || null,
+      secret_key: params.secretKey || null,
+      verify_ssl: params.verifySsl ?? null,
+    }),
+
+  // Downloads every public image of the package in inputDir and uploads it
+  // to the bucket, rewriting media.csv's filePath to the public URLs — the
+  // wizard starts it right after the metadata step has been applied, before
+  // the user picks where to publish (see WizardPage's
+  // handleContinueToPreprocessing). mediaDir: where media.csv's locally-
+  // referenced images live when that isn't inputDir (a local source).
+  s3UploadStart: (inputDir: string, s3: S3UploadParams, mediaDir?: string) =>
+    post<{ task_id: string }>('/api/s3/upload', {
+      input_dir: inputDir,
+      media_dir: mediaDir || null,
+      ..._s3UploadToApi(s3),
+    }),
+
+  s3UploadStatus: (taskId: string) =>
+    req<S3UploadStatus>(`/api/s3/upload/${taskId}`),
+
   // Publishes every selected repo in one go: upload phase for all of them,
   // then a cross-repo DOI populate pass, then release/lock for all of them
   // (see the backend's services.publish_orchestrator/doi_populate) — the
@@ -521,6 +564,50 @@ export const api = {
   // Permanently discards an interrupted session instead of resuming it.
   discardPublishSession: (taskId: string) =>
     req<{ status: string }>(`/api/publish/sessions/${taskId}`, { method: 'DELETE' }),
+}
+
+/** GET /api/s3/upload/{task_id} — see the backend's services.s3_service.
+ * `total` is the number of unique objects to PUT once stage is "uploading". */
+export interface S3UploadStatus {
+  status: 'running' | 'done' | 'error'
+  stage: string
+  error: string | null
+  downloaded_images: number
+  uploaded: number
+  total: number
+  rewritten: number | null
+  dry_run: boolean
+  /** One entry per file processed so far: the object key it got (or would get, in a dry run) — for a 'failed' one, `key` holds the reason. */
+  log: { file: string; key: string; action: 'uploaded' | 'would-upload' | 'duplicate' | 'failed' }[]
+}
+
+// Same fields as S3ImageUploadPicker's own S3Config — kept separate here to
+// avoid a component -> api.ts import for what's otherwise a thin wrapper
+// over S3UploadRequest.
+export interface S3UploadParams {
+  endpointUrl?: string
+  region?: string
+  bucket: string
+  prefix?: string
+  publicBaseUrl?: string
+  accessKey?: string
+  secretKey?: string
+  dryRun?: boolean
+  verifySsl?: boolean
+}
+
+function _s3UploadToApi(s3: S3UploadParams) {
+  return {
+    endpoint_url: s3.endpointUrl || null,
+    region: s3.region || null,
+    bucket: s3.bucket || null,
+    prefix: s3.prefix || null,
+    public_base_url: s3.publicBaseUrl || null,
+    access_key: s3.accessKey || null,
+    secret_key: s3.secretKey || null,
+    dry_run: !!s3.dryRun,
+    verify_ssl: s3.verifySsl ?? null,
+  }
 }
 
 function _repoConfigToApi(r: PublishRepoConfig) {

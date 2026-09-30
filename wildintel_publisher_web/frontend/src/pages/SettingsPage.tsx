@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { AppSettings, AppSettingsUpdate, GBIFInstallation, Organization } from '../types'
+import type { AppSettings, AppSettingsUpdate, GBIFInstallation, LogLevel, Organization } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
@@ -20,12 +20,15 @@ interface Draft {
   trapperUserName: string
   trapperUserPassword: string
   trapperProjectId: string
-  trapperLicenseId: string
-  trapperLicenseName: string
-  trapperLicenseUrl: string
-  trapperDatasetSlug: string
-  trapperDatasetName: string
-  trapperDescription: string
+  logLevel: LogLevel
+  camtrapdpLicenseId: string
+  camtrapdpLicenseName: string
+  camtrapdpLicenseUrl: string
+  camtrapdpDatasetSlug: string
+  camtrapdpDatasetName: string
+  camtrapdpDescription: string
+  trapperRetryAttempts: string
+  trapperRetryWaitSeconds: string
 
   hfhMessage: string
   hfhRepositoryCode: string
@@ -49,6 +52,17 @@ interface Draft {
   gbifPassword: string
   gbifInstallations: GBIFInstallation[]
 
+  s3EndpointUrl: string
+  s3Region: string
+  s3Bucket: string
+  s3Prefix: string
+  s3PublicBaseUrl: string
+  s3VerifySsl: boolean
+  s3AccessKey: string
+  s3SecretKey: string
+  s3RetryAttempts: string
+  s3RetryWaitSeconds: string
+
   organizations: Organization[]
 }
 
@@ -58,12 +72,15 @@ function toDraft(s: AppSettings): Draft {
     trapperUserName: '',
     trapperUserPassword: '',
     trapperProjectId: s.TRAPPER.project_id != null ? String(s.TRAPPER.project_id) : '',
-    trapperLicenseId: s.TRAPPER.license_id ?? '',
-    trapperLicenseName: s.TRAPPER.license_name ?? '',
-    trapperLicenseUrl: s.TRAPPER.license_url ?? '',
-    trapperDatasetSlug: s.TRAPPER.dataset_slug ?? '',
-    trapperDatasetName: s.TRAPPER.dataset_name ?? '',
-    trapperDescription: s.TRAPPER.description ?? '',
+    logLevel: s.GENERAL.log_level,
+    camtrapdpLicenseId: s.CAMTRAPDP.license_id ?? '',
+    camtrapdpLicenseName: s.CAMTRAPDP.license_name ?? '',
+    camtrapdpLicenseUrl: s.CAMTRAPDP.license_url ?? '',
+    camtrapdpDatasetSlug: s.CAMTRAPDP.dataset_slug ?? '',
+    camtrapdpDatasetName: s.CAMTRAPDP.dataset_name ?? '',
+    camtrapdpDescription: s.CAMTRAPDP.description ?? '',
+    trapperRetryAttempts: String(s.TRAPPER.retry_attempts),
+    trapperRetryWaitSeconds: String(s.TRAPPER.retry_wait_seconds),
 
     hfhMessage: s.HFH.message ?? '',
     hfhRepositoryCode: s.HFH.repository_code ?? '',
@@ -87,6 +104,17 @@ function toDraft(s: AppSettings): Draft {
     gbifPassword: '',
     gbifInstallations: s.GBIF.installations,
 
+    s3EndpointUrl: s.S3.endpoint_url ?? '',
+    s3Region: s.S3.region ?? '',
+    s3Bucket: s.S3.bucket ?? '',
+    s3Prefix: s.S3.prefix ?? '',
+    s3PublicBaseUrl: s.S3.public_base_url ?? '',
+    s3VerifySsl: s.S3.verify_ssl,
+    s3AccessKey: '',
+    s3SecretKey: '',
+    s3RetryAttempts: String(s.S3.retry_attempts),
+    s3RetryWaitSeconds: String(s.S3.retry_wait_seconds),
+
     organizations: s.PRODUCT.organizations,
   }
 }
@@ -99,20 +127,37 @@ function projectIdValid(v: string): boolean {
   return v.trim() === '' || /^\d+$/.test(v.trim())
 }
 
+// tenacity's own knobs (see common.retrying): attempts is the TOTAL number of
+// tries (1 = no retry), wait the base seconds between them (doubling each time).
+function retryAttemptsValid(v: string): boolean {
+  return /^\d+$/.test(v.trim()) && Number(v) >= 1
+}
+
+function retryWaitValid(v: string): boolean {
+  return v.trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0
+}
+
 function toUpdate(d: Draft): AppSettingsUpdate | null {
   if (!projectIdValid(d.trapperProjectId)) return null
+  if (!retryAttemptsValid(d.trapperRetryAttempts) || !retryWaitValid(d.trapperRetryWaitSeconds)) return null
+  if (!retryAttemptsValid(d.s3RetryAttempts) || !retryWaitValid(d.s3RetryWaitSeconds)) return null
   return {
     TRAPPER: {
       base_url: orNull(d.trapperUrl),
       user_name: d.trapperUserName || null,
       user_password: d.trapperUserPassword || null,
       project_id: d.trapperProjectId.trim() ? Number(d.trapperProjectId) : null,
-      license_id: orNull(d.trapperLicenseId),
-      license_name: orNull(d.trapperLicenseName),
-      license_url: orNull(d.trapperLicenseUrl),
-      dataset_slug: orNull(d.trapperDatasetSlug),
-      dataset_name: orNull(d.trapperDatasetName),
-      description: orNull(d.trapperDescription),
+      retry_attempts: Number(d.trapperRetryAttempts),
+      retry_wait_seconds: Number(d.trapperRetryWaitSeconds),
+    },
+    GENERAL: { log_level: d.logLevel },
+    CAMTRAPDP: {
+      license_id: orNull(d.camtrapdpLicenseId),
+      license_name: orNull(d.camtrapdpLicenseName),
+      license_url: orNull(d.camtrapdpLicenseUrl),
+      dataset_slug: orNull(d.camtrapdpDatasetSlug),
+      dataset_name: orNull(d.camtrapdpDatasetName),
+      description: orNull(d.camtrapdpDescription),
     },
     HFH: {
       message: orNull(d.hfhMessage),
@@ -140,20 +185,42 @@ function toUpdate(d: Draft): AppSettingsUpdate | null {
       password: d.gbifPassword || null,
       installations: d.gbifInstallations,
     },
+    S3: {
+      endpoint_url: orNull(d.s3EndpointUrl),
+      region: orNull(d.s3Region),
+      bucket: orNull(d.s3Bucket),
+      prefix: orNull(d.s3Prefix),
+      public_base_url: orNull(d.s3PublicBaseUrl),
+      verify_ssl: d.s3VerifySsl,
+      access_key: d.s3AccessKey || null,
+      secret_key: d.s3SecretKey || null,
+      retry_attempts: Number(d.s3RetryAttempts),
+      retry_wait_seconds: Number(d.s3RetryWaitSeconds),
+    },
     PRODUCT: { organizations: d.organizations },
   }
 }
 
 // ── Layout pieces ───────────────────────────────────────────────────────
 
-type SectionId = 'trapper' | 'hfh' | 'zenodo' | 'b2share' | 'gbif' | 'product'
+const LOG_LEVELS: { value: LogLevel; label: string; hint: string }[] = [
+  { value: 'ERROR', label: 'Error', hint: 'Only what went wrong.' },
+  { value: 'WARNING', label: 'Warning', hint: 'Also what may be wrong: retries, failed images…' },
+  { value: 'INFO', label: 'Info', hint: 'Also what the app does: each download, upload, publication… started and finished.' },
+  { value: 'DEBUG', label: 'Debug', hint: 'Everything: each image uploaded to the bucket, full tracebacks. Big logs — for tracking a problem down.' },
+]
+
+type SectionId = 'general' | 'trapper' | 'camtrapdp' | 'hfh' | 'zenodo' | 'b2share' | 'gbif' | 's3' | 'product'
 
 const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
+  { id: 'general', label: 'General', icon: '⚙️' },
   { id: 'trapper', label: 'Trapper', icon: '📷' },
+  { id: 'camtrapdp', label: 'Camtrap DP', icon: '🦌' },
   { id: 'hfh', label: 'HuggingFace Hub', icon: '🤗' },
   { id: 'zenodo', label: 'Zenodo', icon: '📚' },
   { id: 'b2share', label: 'B2SHARE', icon: '🗄️' },
   { id: 'gbif', label: 'GBIF', icon: '🌍' },
+  { id: 's3', label: 'S3 image hosting', icon: '☁️' },
   { id: 'product', label: 'Organizations', icon: '🏢' },
 ]
 
@@ -192,6 +259,34 @@ function EnvironmentField({ label, value, onChange }: { label: string; value: En
 }
 
 const passwordHint = (has: boolean, what = 'value') => (has ? `A ${what} is saved — leave it blank to keep it.` : `No ${what} saved yet.`)
+
+/** The two tenacity knobs shared by TRAPPER and S3 (see common.retrying). */
+function RetryFields({ attempts, wait, onAttemptsChange, onWaitChange }: {
+  attempts: string; wait: string; onAttemptsChange: (v: string) => void; onWaitChange: (v: string) => void
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <Field
+        label="Retry attempts" hint="Total tries per network call before giving up — 1 means no retry."
+        error={retryAttemptsValid(attempts) ? null : 'A whole number, 1 or more.'}
+      >
+        <input
+          className={inputClass} inputMode="numeric" value={attempts} aria-label="Retry attempts"
+          aria-invalid={!retryAttemptsValid(attempts)} onChange={(e) => onAttemptsChange(e.target.value)}
+        />
+      </Field>
+      <Field
+        label="Seconds between retries" hint="Wait before the first retry; it doubles on each further attempt."
+        error={retryWaitValid(wait) ? null : 'A number of seconds, 0 or more.'}
+      >
+        <input
+          className={inputClass} inputMode="decimal" value={wait} aria-label="Seconds between retries"
+          aria-invalid={!retryWaitValid(wait)} onChange={(e) => onWaitChange(e.target.value)}
+        />
+      </Field>
+    </div>
+  )
+}
 
 // ── List editors (GBIF.installations, PRODUCT.organizations) ─────────────
 
@@ -273,10 +368,21 @@ interface Props {
  * only hand-editable in the file itself, see api.routers.product's own
  * comment). One Save saves every section. */
 export default function SettingsPage({ onClose }: Props) {
-  const [section, setSection] = useState<SectionId>('trapper')
+  const [section, setSection] = useState<SectionId>('general')
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [status, setStatus] = useState<{ kind: 'idle' | 'saving' | 'saved' | 'error'; message?: string }>({ kind: 'idle' })
+  const [clearLog, setClearLog] = useState<{ kind: 'idle' | 'confirming' | 'clearing' | 'cleared' | 'error'; message?: string }>({ kind: 'idle' })
+
+  async function handleClearLog() {
+    setClearLog({ kind: 'clearing' })
+    try {
+      await api.clearLog()
+      setClearLog({ kind: 'cleared' })
+    } catch (e) {
+      setClearLog({ kind: 'error', message: e instanceof Error ? e.message : 'Could not clear the log.' })
+    }
+  }
 
   useEffect(() => {
     api.getSettings()
@@ -356,15 +462,76 @@ export default function SettingsPage({ onClose }: Props) {
                 onChange={(e) => set('trapperProjectId', e.target.value)}
               />
             </Field>
+            <RetryFields
+              attempts={draft.trapperRetryAttempts} wait={draft.trapperRetryWaitSeconds}
+              onAttemptsChange={(v) => set('trapperRetryAttempts', v)} onWaitChange={(v) => set('trapperRetryWaitSeconds', v)}
+            />
+          </div>
+        )}
+
+        {draft && saved && section === 'camtrapdp' && (
+          <div className="space-y-4">
+            <p className={hintClass}>
+              Defaults for any Camtrap DP, whether it comes from Trapper, a local directory or a public URL.
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <TextField label="Dataset slug" value={draft.trapperDatasetSlug} onChange={(v) => set('trapperDatasetSlug', v)} hint="Short internal identifier — used to derive the dataset name below if left blank." />
-              <TextField label="Dataset name" value={draft.trapperDatasetName} onChange={(v) => set('trapperDatasetName', v)} />
+              <TextField label="Dataset slug" value={draft.camtrapdpDatasetSlug} onChange={(v) => set('camtrapdpDatasetSlug', v)} hint="Short internal identifier — used to derive the dataset name below if left blank." />
+              <TextField label="Dataset name" value={draft.camtrapdpDatasetName} onChange={(v) => set('camtrapdpDatasetName', v)} hint="Title a Trapper download starts with; editable in the wizard's metadata step." />
             </div>
-            <TextField label="Description" value={draft.trapperDescription} onChange={(v) => set('trapperDescription', v)} />
+            <TextField label="Description" value={draft.camtrapdpDescription} onChange={(v) => set('camtrapdpDescription', v)} hint="Description a Trapper download starts with; editable in the wizard's metadata step." />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <TextField label="License id" value={draft.trapperLicenseId} onChange={(v) => set('trapperLicenseId', v)} />
-              <TextField label="License name" value={draft.trapperLicenseName} onChange={(v) => set('trapperLicenseName', v)} />
-              <TextField label="License URL" value={draft.trapperLicenseUrl} onChange={(v) => set('trapperLicenseUrl', v)} mono />
+              <TextField label="License id" value={draft.camtrapdpLicenseId} onChange={(v) => set('camtrapdpLicenseId', v)} />
+              <TextField label="License name" value={draft.camtrapdpLicenseName} onChange={(v) => set('camtrapdpLicenseName', v)} />
+              <TextField label="License URL" value={draft.camtrapdpLicenseUrl} onChange={(v) => set('camtrapdpLicenseUrl', v)} mono />
+            </div>
+            <p className={hintClass}>
+              The license replaces the &ldquo;private&rdquo; placeholder Trapper leaves in datapackage.json; a real license already in the package is kept.
+            </p>
+          </div>
+        )}
+
+        {draft && saved && section === 'general' && (
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Field label="Log level" hint={LOG_LEVELS.find((l) => l.value === draft.logLevel)?.hint}>
+                <select className={inputClass} value={draft.logLevel} aria-label="Log level" onChange={(e) => set('logLevel', e.target.value as LogLevel)}>
+                  {LOG_LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+                </select>
+              </Field>
+              <p className={hintClass}>How much the app writes to its log — raise it to Debug to track a problem down, then lower it again. Applied as soon as it&rsquo;s saved.</p>
+              {saved.GENERAL.log_level_override && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  The environment variable <span className="font-mono">WILDINTEL_PUBLISHER_LOG_LEVEL</span> sets it
+                  to <strong>{saved.GENERAL.log_level_override}</strong> for now — it wins over this setting.
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Field label="Log file" hint="Rotated at 5 MB, keeping the last 5. Attach it to a bug report.">
+                <span className="block font-mono text-sm break-all py-0.5" aria-label="Log file location">{saved.GENERAL.log_file}</span>
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <a href="/api/settings/log" download className={`${btnOutline} inline-block`}>Download log</a>
+                {clearLog.kind !== 'confirming' && (
+                  <button
+                    type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} disabled={clearLog.kind === 'clearing'}
+                    onClick={() => setClearLog({ kind: 'confirming' })}
+                  >
+                    {clearLog.kind === 'clearing' ? 'Clearing…' : 'Clear log'}
+                  </button>
+                )}
+              </div>
+              {clearLog.kind === 'confirming' && (
+                <div className="rounded border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-zinc-700 dark:text-zinc-300">
+                  <p>Delete the log file and its older copies? This can&rsquo;t be undone — download it first if you need it.</p>
+                  <div className="flex gap-2 mt-2">
+                    <button type="button" onClick={handleClearLog} className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 transition-colors">Yes, clear it</button>
+                    <button type="button" className={btnOutline} onClick={() => setClearLog({ kind: 'idle' })}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {clearLog.kind === 'cleared' && <p className="text-xs text-emerald-700 dark:text-emerald-400">Log cleared — a new one starts now.</p>}
+              {clearLog.kind === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{clearLog.message}</p>}
             </div>
           </div>
         )}
@@ -414,6 +581,47 @@ export default function SettingsPage({ onClose }: Props) {
               <p className={`${hintClass} mb-2`}>Offered as GBIFPublishForm&rsquo;s own &ldquo;Installation UUID&rdquo; quick-fill dropdown.</p>
               <InstallationsEditor items={draft.gbifInstallations} onChange={(v) => set('gbifInstallations', v)} />
             </div>
+          </div>
+        )}
+
+        {draft && saved && section === 's3' && (
+          <div className="space-y-4">
+            <p className={hintClass}>
+              Optional S3-compatible bucket (AWS S3, MinIO, or any other provider speaking the same API) the wizard
+              offers to upload a Camtrap DP&rsquo;s own images to, right after its metadata step and before you choose where
+              to publish — once done, media.csv&rsquo;s own filePath points at these public URLs instead of local files.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField label="Bucket" value={draft.s3Bucket} onChange={(v) => set('s3Bucket', v)} mono />
+              <TextField label="Region" value={draft.s3Region} onChange={(v) => set('s3Region', v)} hint="Defaults to us-east-1 if left blank." mono />
+            </div>
+            <TextField
+              label="Endpoint URL" value={draft.s3EndpointUrl} onChange={(v) => set('s3EndpointUrl', v)} mono
+              hint="Only needed for a self-hosted/non-AWS provider, e.g. MinIO — leave blank for AWS S3."
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField label="Access key" type="password" value={draft.s3AccessKey} onChange={(v) => set('s3AccessKey', v)} hint={passwordHint(saved.S3.has_access_key, 'access key')} />
+              <TextField label="Secret key" type="password" value={draft.s3SecretKey} onChange={(v) => set('s3SecretKey', v)} hint={passwordHint(saved.S3.has_secret_key, 'secret key')} />
+            </div>
+            <TextField label="Key prefix" value={draft.s3Prefix} onChange={(v) => set('s3Prefix', v)} mono hint="Prepended to every uploaded object's key, e.g. camtrapdp/." />
+            <TextField
+              label="Public base URL" value={draft.s3PublicBaseUrl} onChange={(v) => set('s3PublicBaseUrl', v)} mono
+              hint="Custom domain/CDN in front of the bucket, if any — otherwise built from the endpoint or AWS's own bucket URL."
+            />
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox" className="mt-0.5" checked={!draft.s3VerifySsl}
+                onChange={(e) => set('s3VerifySsl', !e.target.checked)}
+              />
+              <span>
+                <strong>Don't validate the SSL certificate</strong> — only for a trusted endpoint with a
+                self-signed certificate; it disables protection against man-in-the-middle attacks.
+              </span>
+            </label>
+            <RetryFields
+              attempts={draft.s3RetryAttempts} wait={draft.s3RetryWaitSeconds}
+              onAttemptsChange={(v) => set('s3RetryAttempts', v)} onWaitChange={(v) => set('s3RetryWaitSeconds', v)}
+            />
           </div>
         )}
 

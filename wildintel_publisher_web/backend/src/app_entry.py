@@ -34,4 +34,6 @@ if __name__ == "__main__":
     print(f"Directorio de trabajo: {Path.cwd()}", flush=True)
     print(f"Servidor en http://127.0.0.1:{port}", flush=True)
     threading.Thread(target=_open_browser, args=(port,), daemon=True).start()
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    # log_config=None: uvicorn's loggers go through the app's own handlers
+    # (console + log file, see wildintel_publisher.logging_setup), at its level.
+    uvicorn.run(app, host="127.0.0.1", port=port, log_config=None, log_level=None)

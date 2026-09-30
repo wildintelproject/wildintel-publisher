@@ -3,6 +3,7 @@ from pathlib import Path
 
 from wildintel_publisher.config import (
     B2ShareSettings,
+    CamtrapDPSettings,
     Organization,
     GBIFInstallation,
     HFHSettings,
@@ -23,13 +24,13 @@ def test_slug_to_dataset_name_title_cases_and_replaces_separators():
     assert _slug_to_dataset_name("some_slug_name") == "Some Slug Name"
 
 
-def test_trapper_settings_derives_dataset_name_from_slug_when_unset():
-    settings = TrapperSettings(dataset_slug="my-dataset")
+def test_camtrapdp_settings_derives_dataset_name_from_slug_when_unset():
+    settings = CamtrapDPSettings(dataset_slug="my-dataset")
     assert settings.dataset_name == "My Dataset"
 
 
-def test_trapper_settings_keeps_explicit_dataset_name():
-    settings = TrapperSettings(dataset_slug="my-dataset", dataset_name="Custom Title")
+def test_camtrapdp_settings_keeps_explicit_dataset_name():
+    settings = CamtrapDPSettings(dataset_slug="my-dataset", dataset_name="Custom Title")
     assert settings.dataset_name == "Custom Title"
 
 
@@ -78,7 +79,7 @@ def test_load_settings_creates_file_with_defaults_if_missing(tmp_path: Path):
     settings = load_settings(config_file)
 
     assert config_file.is_file()
-    assert settings.TRAPPER.license_id == "CC-BY-NC-4.0"
+    assert settings.CAMTRAPDP.license_id == "CC-BY-NC-4.0"
 
 
 def test_load_settings_round_trips_a_saved_value(tmp_path: Path):
@@ -250,3 +251,31 @@ def test_product_organizations_win_over_a_leftover_legacy_section(tmp_path: Path
     settings = load_settings(config_file)
 
     assert [o.title for o in settings.PRODUCT.organizations] == ["Current Partner"]
+
+
+def test_settings_migrates_the_fields_that_used_to_live_under_trapper():
+    settings = Settings.model_validate({
+        "TRAPPER": {"base_url": "https://trapper.example.org", "license_id": "CC-BY-4.0", "dataset_slug": "old-slug"},
+    })
+
+    assert settings.TRAPPER.base_url == "https://trapper.example.org"
+    assert settings.CAMTRAPDP.license_id == "CC-BY-4.0"
+    assert settings.CAMTRAPDP.dataset_name == "Old Slug"
+    assert not hasattr(settings.TRAPPER, "license_id")
+
+
+def test_settings_camtrapdp_section_wins_over_the_legacy_trapper_fields():
+    settings = Settings.model_validate({
+        "TRAPPER": {"license_id": "CC-BY-4.0"}, "CAMTRAPDP": {"license_id": "CC0-1.0"},
+    })
+
+    assert settings.CAMTRAPDP.license_id == "CC0-1.0"
+
+
+def test_settings_keeps_reading_organizations_from_the_oldest_camtrapdp_layout():
+    settings = Settings.model_validate({
+        "CAMTRAPDP": {"organizations": [{"title": "Mine", "path": "https://mine.example.org/"}], "license_id": "MIT"},
+    })
+
+    assert settings.PRODUCT.organizations[0].title == "Mine"
+    assert settings.CAMTRAPDP.license_id == "MIT"

@@ -49,6 +49,10 @@ vi.mock('../api', () => ({
     gbifSyncDoi: vi.fn(),
     gbifInstallations: vi.fn(),
     gbifOrganizationDatasets: vi.fn(),
+    s3GetConfig: vi.fn(),
+    s3TestConnection: vi.fn(),
+    s3UploadStart: vi.fn(),
+    s3UploadStatus: vi.fn(),
     publishAllStart: vi.fn(),
     publishAllStatus: vi.fn(),
     listPublishSessions: vi.fn(),
@@ -61,8 +65,14 @@ const mockedApi = vi.mocked(api)
 
 // Every run now starts the metadata step by asking whether this is a new
 // dataset or a new version (see PublicationKindPicker) — the editor below
-// it only shows up once answered.
+// it only shows up once answered. Camtrap DP's metadata step also asks
+// (right above PublicationKindPicker) whether to upload images to a
+// S3-compatible bucket first (see S3ImageUploadPicker) — absent for
+// YOLO/software, so answering it here is a no-op there. Most tests don't
+// care about it, so default to "No" wherever it's offered.
 async function answerNewDataset() {
+  const noS3Radio = screen.queryByRole('radio', { name: /^no —/i })
+  if (noS3Radio) await userEvent.click(noS3Radio)
   await userEvent.click(await screen.findByRole('radio', { name: /a new dataset/i }))
 }
 
@@ -1667,6 +1677,58 @@ describe('WizardPage publish order', () => {
       ],
     }))
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
+  })
+
+  it('uploads the images from Continue with the S3 connection config, showing its progress', async () => {
+    mockedApi.s3GetConfig.mockResolvedValue({
+      endpoint_url: null, region: null, bucket: null, prefix: null, public_base_url: null, verify_ssl: true,
+      has_access_key: false, has_secret_key: false,
+    })
+    mockedApi.s3TestConnection.mockResolvedValue({ ok: true })
+    mockedApi.generateProductMetadata.mockResolvedValue({
+      title: 'My Camtrap DP', description: 'A local package.', version: '1.0',
+      license: { id: 'CC-BY-4.0', name: 'CC BY 4.0', url: '' },
+      authors: [{ name: 'Alice', affiliation: '' }],
+    })
+
+    render(<WizardPage />)
+    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
+    await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    // Continue stays disabled until the S3 question itself is answered,
+    // even once the publication kind is chosen — same gate as the missing-
+    // metadata/version checks right alongside it.
+    await userEvent.click(await screen.findByRole('radio', { name: /a new dataset/i }))
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('radio', { name: /^yes —/i }))
+    await waitFor(() => expect(mockedApi.s3GetConfig).toHaveBeenCalled())
+    await userEvent.type(screen.getByLabelText('Bucket'), 'my-bucket')
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
+    await waitFor(() => expect(screen.getByText(/connection successful/i)).toBeInTheDocument())
+
+    mockedApi.s3UploadStart.mockResolvedValue({ task_id: 's3-task' })
+    mockedApi.s3UploadStatus
+      .mockResolvedValueOnce({
+        status: 'running', stage: 'uploading', error: null, downloaded_images: 3, uploaded: 1, total: 3, rewritten: null, dry_run: false, log: [],
+      })
+      .mockResolvedValue({
+        status: 'done', stage: 'done', error: null, downloaded_images: 3, uploaded: 3, total: 3, rewritten: 3,
+      })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+    expect(await screen.findByText(/\(1\/3\)/, {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(mockedApi.s3UploadStart).toHaveBeenCalledWith(
+      '/data/camtrapdp', expect.objectContaining({ bucket: 'my-bucket' }), expect.anything(),
+    )
+
+    // Once the upload is done, the wizard moves on to choosing where to publish.
+    expect(await screen.findByRole('button', { name: /^next$/i }, { timeout: 4000 })).toBeInTheDocument()
   })
 
   it('shows the GBIF Sync DOI section only when this run\'s registration actually returned a DOI', async () => {

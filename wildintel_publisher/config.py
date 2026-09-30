@@ -83,6 +83,22 @@ def _slug_to_dataset_name(slug: str) -> str:
     return slug.replace("-", " ").replace("_", " ").title()
 
 
+LogLevel = Literal["ERROR", "WARNING", "INFO", "DEBUG"]
+
+
+def get_logs_dir() -> Path:
+    """Dónde va el log de la aplicación — junto a settings.toml (ver
+    logging_setup)."""
+    return DEFAULT_SETTINGS_DIR / "logs"
+
+
+class GeneralSettings(BaseModel):
+    log_level: LogLevel = Field(
+        default="INFO",
+        description="How much the app logs, to the console and its log file. (GENERAL.log_level)",
+    )
+
+
 class TrapperSettings(BaseModel):
     """Valores por defecto reutilizados entre ejecuciones de 'prepare'.
 
@@ -91,11 +107,8 @@ class TrapperSettings(BaseModel):
     WILDINTEL_USER_PASSWORD, si están definidas, tienen prioridad sobre estos
     valores — ver commands/camtrapdp.py, donde son el envvar= de cada flag.
 
-    dataset_slug/dataset_name/description viven aquí (no en HFH) porque son
-    la "semilla" que 'trapper download' pasa a Trapper (--title/--description)
-    para que datapackage.json nazca ya con esos valores — 'hfh prepare' los
-    lee de datapackage.json y NO tiene su propio fallback: si el camtrapdp no
-    los trae, falla en vez de sustituirlos en silencio (ver services/hfh.py)."""
+    Los valores por defecto del propio Camtrap DP (título, descripción,
+    licencia) viven en CamtrapDPSettings."""
     base_url: Optional[str] = Field(
         default=None,
         description=(
@@ -128,6 +141,34 @@ class TrapperSettings(BaseModel):
             "from — can be overridden with --project-id. (TRAPPER.project_id)"
         ),
     )
+    retry_attempts: int = Field(
+        default=3,
+        description=(
+            "How many times a Trapper network call (test connection, generate/download the Camtrap DP "
+            "package) is attempted in total before giving up — 1 means no retry. (TRAPPER.retry_attempts)"
+        ),
+    )
+    retry_wait_seconds: float = Field(
+        default=2.0,
+        description=(
+            "Base wait, in seconds, between retries of a failed Trapper network call — grows "
+            "exponentially (2x) on each further attempt. (TRAPPER.retry_wait_seconds)"
+        ),
+    )
+
+
+
+class CamtrapDPSettings(BaseModel):
+    """Valores por defecto de cualquier Camtrap DP, venga de Trapper, de un
+    directorio local o de una URL pública.
+
+    dataset_slug/dataset_name/description son la "semilla" que 'trapper
+    download' pasa a Trapper (--title/--description) para que datapackage.json
+    nazca ya con esos valores — 'hfh prepare' los lee de datapackage.json y NO
+    tiene su propio fallback: si el camtrapdp no los trae, falla en vez de
+    sustituirlos en silencio (ver services/hfh.py). license_* parchea la
+    licencia "private" de cualquier Camtrap DP (ver
+    camtrapdp_source._fix_license_from_trapper_settings)."""
     # WildINTEL project policy: every dataset is published under CC-BY-NC-4.0
     # (Attribution-NonCommercial), never plain CC-BY — deliberately fixed,
     # not something to vary per project/dataset. Used to patch any scope
@@ -143,23 +184,23 @@ class TrapperSettings(BaseModel):
             "License identifier, e.g. CC-BY-NC-4.0 — used by 'trapper download' to patch "
             "any scope (data/media) that Trapper has left as \"private\" in "
             "datapackage.json (known bug in Trapper's web license selector). "
-            "(TRAPPER.license_id)"
+            "(CAMTRAPDP.license_id)"
         ),
     )
     license_name: Optional[str] = Field(
         default="Creative Commons Attribution-NonCommercial 4.0 International",
-        description="Full license name, for the same patch. (TRAPPER.license_name)",
+        description="Full license name, for the same patch. (CAMTRAPDP.license_name)",
     )
     license_url: Optional[str] = Field(
         default="https://creativecommons.org/licenses/by-nc/4.0/",
-        description="License URL, for the same patch. (TRAPPER.license_url)",
+        description="License URL, for the same patch. (CAMTRAPDP.license_url)",
     )
     dataset_slug: Optional[str] = Field(
         default="wildintel-camtrapdp",
         description=(
             "Short internal identifier (lowercase, no spaces) used to derive dataset_name "
             "if not set by hand — unrelated to the HuggingFace Hub repo, that's "
-            "HFH.repo_id. (TRAPPER.dataset_slug)"
+            "HFH.repo_id. (CAMTRAPDP.dataset_slug)"
         ),
     )
     dataset_name: Optional[str] = Field(
@@ -167,7 +208,7 @@ class TrapperSettings(BaseModel):
         description=(
             "Default value of --title in 'trapper download' (title written into "
             "datapackage.json). If not set, it's derived automatically from dataset_slug. "
-            "(TRAPPER.dataset_name)"
+            "(CAMTRAPDP.dataset_name)"
         ),
     )
     description: Optional[str] = Field(
@@ -176,12 +217,12 @@ class TrapperSettings(BaseModel):
             "Default value of --description in 'trapper download'. Left unset by default — "
             "CamtrapDPAdapter.extract_metadata always appends its own WildINTEL attribution "
             "paragraph to whatever description ends up in datapackage.json, regardless of this "
-            "setting. (TRAPPER.description)"
+            "setting. (CAMTRAPDP.description)"
         ),
     )
 
     @model_validator(mode="after")
-    def _derive_dataset_name(self) -> "TrapperSettings":
+    def _derive_dataset_name(self) -> "CamtrapDPSettings":
         if not self.dataset_name and self.dataset_slug:
             self.dataset_name = _slug_to_dataset_name(self.dataset_slug)
         return self
@@ -379,6 +420,85 @@ class GBIFSettings(BaseModel):
     )
 
 
+class S3Settings(BaseModel):
+    """Valores por defecto reutilizados entre subidas de imágenes a un
+    repositorio S3-compatible (AWS S3, MinIO, cualquier otro que hable el
+    mismo API) — el paso opcional del wizard "¿Subir las imágenes a un
+    repositorio público?" (ver services.s3_service). Independiente de a qué
+    repositorio(s) de metadatos se publique después (HFH/Zenodo/B2SHARE/
+    GBIF): al terminar la subida, media.csv's filePath queda apuntando a la
+    URL pública de cada imagen en el bucket, así que cada repo posterior la
+    trata como ya-públicamente-alojada (modo Link) igual que si HFH la
+    hubiera alojado (ver common.rewrite_media_filepaths_to_hfh)."""
+    endpoint_url: Optional[str] = Field(
+        default="https://s3.wildintel.uhu.es:9443",
+        description=(
+            "S3-compatible endpoint URL (leave empty for AWS S3 itself, e.g. "
+            "https://s3.eu-west-1.amazonaws.com; set for MinIO or any other "
+            "self-hosted/alternative provider). (S3.endpoint_url)"
+        ),
+    )
+    region: Optional[str] = Field(
+        default="garage",
+        description="S3 region (e.g. eu-west-1) — required by AWS S3, optional for most other providers. (S3.region)",
+    )
+    bucket: Optional[str] = Field(
+        default="public",
+        description="Bucket the images are uploaded to. Cannot be guessed — must already exist and be public-readable. (S3.bucket)",
+    )
+    prefix: Optional[str] = Field(
+        default=None,
+        description="Key prefix every uploaded image is stored under inside the bucket (e.g. wildintel/images) — optional. (S3.prefix)",
+    )
+    public_base_url: Optional[str] = Field(
+        default="https://media.wildintel.uhu.es",
+        description=(
+            "Base URL images are publicly reachable at once uploaded (e.g. a CDN/custom domain fronting the "
+            "bucket) — each file's own public URL is this plus its key. Left unset (the default), the "
+            "endpoint's own path-style URL is used instead ({endpoint_url}/{bucket}/{key}), or "
+            "https://{bucket}.s3.{region}.amazonaws.com/{key} for AWS S3 itself (no endpoint_url). (S3.public_base_url)"
+        ),
+    )
+    access_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Access key ID for the bucket above. The S3_ACCESS_KEY environment variable, if set, takes "
+            "priority over this value. (S3.access_key)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+    secret_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Secret access key matching access_key above. The S3_SECRET_KEY environment variable, if set, "
+            "takes priority over this value. (S3.secret_key)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description=(
+            "Whether to validate the endpoint's TLS certificate. Turn off ONLY for a trusted endpoint with a "
+            "self-signed certificate (e.g. a self-hosted MinIO/Garage) — it disables protection against "
+            "man-in-the-middle attacks. (S3.verify_ssl)"
+        ),
+    )
+    retry_attempts: int = Field(
+        default=3,
+        description=(
+            "How many times a network call of the image download/upload step (see services.s3_service) is "
+            "attempted in total before giving up — 1 means no retry. (S3.retry_attempts)"
+        ),
+    )
+    retry_wait_seconds: float = Field(
+        default=2.0,
+        description=(
+            "Base wait, in seconds, between retries of a failed download/upload call — grows "
+            "exponentially (2x) on each further attempt. (S3.retry_wait_seconds)"
+        ),
+    )
+
+
 class Organization(BaseModel):
     """One selectable entry of PRODUCT.organizations below — the web
     wizard's metadata-editing step (WizardPage.tsx) offers these as the
@@ -457,27 +577,50 @@ class ProductSettings(BaseModel):
     )
 
 
+# Campos que antes vivían en TRAPPER y ahora en CAMTRAPDP (ver CamtrapDPSettings).
+_MOVED_TO_CAMTRAPDP = (
+    "dataset_slug", "dataset_name", "description", "license_id", "license_name", "license_url",
+)
+
+
 class Settings(BaseModel):
+    GENERAL: GeneralSettings = Field(default_factory=GeneralSettings)
     TRAPPER: TrapperSettings = Field(default_factory=TrapperSettings)
+    CAMTRAPDP: CamtrapDPSettings = Field(default_factory=CamtrapDPSettings)
     HFH: HFHSettings = Field(default_factory=HFHSettings)
     ZENODO: ZenodoSettings = Field(default_factory=ZenodoSettings)
     B2SHARE: B2ShareSettings = Field(default_factory=B2ShareSettings)
     GBIF: GBIFSettings = Field(default_factory=GBIFSettings)
+    S3: S3Settings = Field(default_factory=S3Settings)
     PRODUCT: ProductSettings = Field(default_factory=ProductSettings)
 
     @model_validator(mode="before")
     @classmethod
-    def _migrate_camtrapdp_organizations(cls, data: Any) -> Any:
-        """A settings.toml written before organizations became shared by
-        every product type still has them under [[CAMTRAPDP.organizations]]
-        — read from there (keeping any hand-edits) unless PRODUCT already
-        has its own."""
-        if not isinstance(data, dict) or "CAMTRAPDP" not in data:
+    def _migrate_legacy_layout(cls, data: Any) -> Any:
+        """A settings.toml written by an older version:
+        - organizations used to live under [[CAMTRAPDP.organizations]], before
+          they became shared by every product type — read from there
+          (keeping any hand-edits) unless PRODUCT already has its own;
+        - dataset_slug/dataset_name/description/license_* used to live under
+          [TRAPPER], before they got their own [CAMTRAPDP] section — moved
+          over unless CAMTRAPDP already sets them."""
+        if not isinstance(data, dict):
             return data
         data = dict(data)
-        legacy = data.pop("CAMTRAPDP") or {}
-        if "PRODUCT" not in data and isinstance(legacy, dict) and "organizations" in legacy:
-            data["PRODUCT"] = {"organizations": legacy["organizations"]}
+        camtrapdp = dict(data.get("CAMTRAPDP") or {})
+        if "organizations" in camtrapdp:
+            legacy_organizations = camtrapdp.pop("organizations")
+            if "PRODUCT" not in data:
+                data["PRODUCT"] = {"organizations": legacy_organizations}
+        trapper = data.get("TRAPPER")
+        if isinstance(trapper, dict) and any(field in trapper for field in _MOVED_TO_CAMTRAPDP):
+            trapper = dict(trapper)
+            for field in _MOVED_TO_CAMTRAPDP:
+                if field in trapper:
+                    camtrapdp.setdefault(field, trapper.pop(field))
+            data["TRAPPER"] = trapper
+        if camtrapdp or "CAMTRAPDP" in data:
+            data["CAMTRAPDP"] = camtrapdp
         return data
 
 

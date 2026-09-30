@@ -19,7 +19,8 @@ def test_defaults_never_show_a_secret_value():
     assert data["GBIF"]["has_username"] is False and "username" not in data["GBIF"]
     assert data["GBIF"]["has_password"] is False and "password" not in data["GBIF"]
     # Non-secret fields keep their real value.
-    assert data["TRAPPER"]["license_id"] == "CC-BY-NC-4.0"
+    assert data["CAMTRAPDP"]["license_id"] == "CC-BY-NC-4.0"
+    assert data["GENERAL"]["log_level"] == "INFO"
     assert len(data["PRODUCT"]["organizations"]) > 0
     assert len(data["GBIF"]["installations"]) > 0
 

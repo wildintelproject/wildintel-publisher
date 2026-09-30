@@ -223,6 +223,44 @@ class ZenodoPublishRequest(BaseModel):
     output_mode: OutputMode = "prepared"
 
 
+class S3TestConnectionRequest(BaseModel):
+    # Blank means "use what's already saved in settings.toml" — see
+    # services.s3_service.resolve_credentials.
+    endpoint_url: Optional[str] = None
+    region: Optional[str] = None
+    bucket: Optional[str] = None
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    verify_ssl: Optional[bool] = None
+
+
+class S3UploadRequest(BaseModel):
+    """Starts the image download+upload step (see
+    services.s3_service.start_upload_task) against input_dir — the wizard
+    sends it right after the metadata step has been applied, before the user
+    chooses where to publish. Blank/omitted connection fields mean "use
+    what's already saved in settings.toml" — same convention as
+    S3TestConnectionRequest. Retries follow S3Settings.retry_attempts/
+    retry_wait_seconds."""
+    input_dir: str
+    # Where media.csv's locally-referenced (non-URL) filePath entries live,
+    # when that isn't input_dir itself — a local Camtrap DP source, where
+    # input_dir is only a working copy of the core files (same meaning as
+    # PublishAllRequest.media_dir). None for every other source type.
+    media_dir: Optional[str] = None
+    # Downloads/hashes/rewrites for real, but uploads nothing — the status's
+    # "log" lists each file and the object key it would get.
+    dry_run: bool = False
+    endpoint_url: Optional[str] = None
+    region: Optional[str] = None
+    bucket: Optional[str] = None
+    prefix: Optional[str] = None
+    public_base_url: Optional[str] = None
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    verify_ssl: Optional[bool] = None
+
+
 class ZenodoSyncDoiRequest(BaseModel):
     zenodo_output_dir: str
     hfh_output_dir: str

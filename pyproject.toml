@@ -23,6 +23,7 @@ dependencies = [
   "pydantic>=2.9",
   "pyyaml>=6.0",
   "rich>=13.0",
+  "tenacity>=8.2",
   "wildintel-trapper-sdk",
   "typer>=0.15",
 ]

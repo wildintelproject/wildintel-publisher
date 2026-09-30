@@ -44,26 +44,26 @@ def _slug_from_url(url: str) -> str:
 def _fix_license_from_trapper_settings(output_dir: Path) -> None:
     """Same patch trapper.fetch_camtrapdp_package applies to Trapper's own
     "private" license placeholder, using the exact same configured defaults
-    (settings.TRAPPER.license_id/license_name/license_url — 'trapper config
+    (settings.CAMTRAPDP.license_id/license_name/license_url — 'camtrapdp config
     set license_id=...' to change them) — a Camtrap DP that reaches this
     project via Local Directory or Public URL is very often itself a
     Trapper export that just didn't go through 'trapper download' directly
     (e.g. downloaded as a zip and extracted by hand), so it can carry that
     same placeholder Trapper's own get_package_metadata() writes when no
-    real license was set at generation time. A no-op if TRAPPER.license_id
+    real license was set at generation time. A no-op if CAMTRAPDP.license_id
     isn't configured, or if every scope already has a real license — see
     common.fix_datapackage_license."""
-    if settings.TRAPPER.license_id:
+    if settings.CAMTRAPDP.license_id:
         # WildINTEL project policy: every dataset is published under
-        # CC-BY-NC-4.0 (see TrapperSettings.license_id's own comment in
+        # CC-BY-NC-4.0 (see CamtrapDPSettings.license_id's own comment in
         # config.py) — this is the actual value edited into the camtrapdp's
         # datapackage.json below, deliberately fixed rather than something
         # meant to vary per project/dataset.
         common.fix_datapackage_license(
             output_dir,
-            license_id=settings.TRAPPER.license_id,
-            license_name=settings.TRAPPER.license_name,
-            license_url=settings.TRAPPER.license_url,
+            license_id=settings.CAMTRAPDP.license_id,
+            license_name=settings.CAMTRAPDP.license_name,
+            license_url=settings.CAMTRAPDP.license_url,
         )
 
 

@@ -13,8 +13,8 @@ from fastapi.staticfiles import StaticFiles
 
 from settings import configure_logging, settings
 from api.routers import (
-    app_settings, b2share, camtrapdp, camtrapdp_source, fs, gbif, health, hfh, product, publish, software, trapper,
-    yolo, zenodo,
+    app_settings, b2share, camtrapdp, camtrapdp_source, fs, gbif, health, hfh, product, publish, s3, software,
+    trapper, yolo, zenodo,
 )
 
 configure_logging()
@@ -49,6 +49,7 @@ for _router in [
     publish.router,
     software.router,
     yolo.router,
+    s3.router,
 ]:
     app.include_router(_router)
 

@@ -14,10 +14,11 @@ import shutil
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from zipfile import ZipFile
 
 import httpx
+import tenacity
 import yaml
 from frictionless import validate as frictionless_validate
 from jinja2 import Environment, FileSystemLoader
@@ -72,6 +73,38 @@ def _image_bucket(file_name: str) -> str:
     """Deterministic 2-hex-char shard for `file_name`, used to spread
     images/ across subfolders — see IMAGE_SHARD_HEX_CHARS."""
     return hashlib.sha1(file_name.encode("utf-8")).hexdigest()[:IMAGE_SHARD_HEX_CHARS]
+
+
+def retrying(
+    attempts: int, wait_seconds: float, retry_on: type[BaseException] | tuple[type[BaseException], ...] = Exception,
+) -> tenacity.Retrying:
+    """Shared tenacity.Retrying builder for every network call this project
+    retries — Trapper's own API (see services.trapper) and the S3 image
+    download/upload step (see services.s3_service in the web backend), each
+    configured from its own TrapperSettings/S3Settings.retry_attempts/
+    retry_wait_seconds. `attempts` <= 1 means "no retry, try once"; the wait
+    between attempts grows exponentially (x2), starting at `wait_seconds`.
+    `reraise=True` so the caller sees the SAME exception the wrapped call
+    itself raised once every attempt is exhausted, not tenacity's own
+    RetryError wrapper.
+
+    retry_on: only exception type(s) considered transient/worth retrying
+    (e.g. httpx.HTTPError, botocore's ClientError/EndpointConnectionError)
+    — anything else (auth failures, validation errors, ...) propagates on
+    the FIRST attempt, unretried, since retrying those would only waste
+    time before failing the same way anyway.
+
+    Usage:
+        for attempt in common.retrying(attempts, wait_seconds, retry_on=httpx.HTTPError):
+            with attempt:
+                ... the network call ...
+    """
+    return tenacity.Retrying(
+        stop=tenacity.stop_after_attempt(max(1, attempts)),
+        wait=tenacity.wait_exponential(multiplier=max(0.0, wait_seconds), min=max(0.0, wait_seconds)),
+        retry=tenacity.retry_if_exception_type(retry_on),
+        reraise=True,
+    )
 
 # Los 4 ficheros que de verdad componen un camtrapdp (datapackage.json + sus
 # 3 tablas) — usado por servicios que copian de un input_dir que puede traer
@@ -228,6 +261,20 @@ def render_text_template(template_path: Path, **context: Any) -> str:
 
 def sha256_file(path: Path, chunk_size_bytes: int = 8 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size_bytes), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha1_file(path: Path, chunk_size_bytes: int = 8 * 1024 * 1024) -> str:
+    """SHA-1 hex digest of `path`'s own content (not its name, unlike
+    _image_bucket) — used by services.s3_service to name each uploaded
+    object content-addressably: first 2 hex chars as the top folder,
+    next 2 as a subfolder inside it, the full 40-char digest (no
+    extension) as the object's own name — same scheme Git itself uses for
+    its loose objects."""
+    digest = hashlib.sha1()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(chunk_size_bytes), b""):
             digest.update(chunk)
@@ -496,7 +543,7 @@ def fix_datapackage_license(
     no se tocan.
 
     Llamada desde las tres fuentes de un Camtrap DP con estos mismos valores
-    por defecto (settings.TRAPPER.license_id/license_name/license_url, ver
+    por defecto (settings.CAMTRAPDP.license_id/license_name/license_url, ver
     config.py) — Trapper (trapper.fetch_camtrapdp_package, con
     --license-id/--license-name/--license-url configurables por si el
     usuario quiere otra cosa), Local Directory
@@ -1128,6 +1175,59 @@ def rewrite_media_filepaths_to_hfh(output_dir: Path, repo_id: str, *, images_dir
     return rewritten
 
 
+def rewrite_media_filepaths_to_s3(
+    output_dir: Path, content_hashes: dict[str, str], url_for_file: Callable[[str], str],
+) -> int:
+    """Rewrites filePath in media.csv to the public URL each file was just
+    uploaded to on a S3-compatible bucket — same "only rewrite what's
+    actually there" behavior as rewrite_media_filepaths_to_hfh, but keyed by
+    the file's own CONTENT hash (see services.s3_service), not its name:
+    only rows whose fileName has an entry in `content_hashes` are rewritten
+    (the rest keep their original filePath, with a warning).
+
+    content_hashes: {fileName: sha1 hex digest of its own content} — built
+    by the caller (services.s3_service) while it uploads each file (see
+    common.sha1_file), so this function never has to touch the filesystem
+    or read a file's bytes itself.
+
+    url_for_file: callable(content_hash: str) -> str — the caller's own
+    public URL builder (see services.s3_service._public_url_builder), so
+    this function stays provider-agnostic (AWS S3, MinIO, a CDN in front of
+    either, ...).
+
+    Returns:
+        Number of rewritten rows.
+    """
+    media_csv = output_dir / MEDIA_CSV_FILENAME
+    fieldnames, rows = read_csv(media_csv)
+    if FILE_PATH_COLUMN not in fieldnames or FILE_NAME_COLUMN not in fieldnames:
+        return 0
+
+    rewritten = 0
+    missing = []
+    for row in rows:
+        file_name = row.get(FILE_NAME_COLUMN)
+        if not file_name:
+            continue
+        content_hash = content_hashes.get(file_name)
+        if content_hash is None:
+            missing.append(file_name)
+            continue
+        row[FILE_PATH_COLUMN] = url_for_file(content_hash)
+        rewritten += 1
+
+    write_csv(media_csv, fieldnames, rows)
+
+    if missing:
+        console.print(
+            f"  [yellow]{len(missing)} row(s) of media.csv keep their original filePath "
+            f"(the file was not uploaded to the bucket): {', '.join(missing[:5])}"
+            + (", ..." if len(missing) > 5 else "") + "[/yellow]"
+        )
+
+    return rewritten
+
+
 def _link_or_copy(source: Path, destination: Path) -> None:
     """Hard links `destination` to `source` when possible — same directory
     entry count as a real copy would give in disk usage terms (near-zero:
@@ -1147,8 +1247,9 @@ def _link_or_copy(source: Path, destination: Path) -> None:
 
 def download_public_images(
     output_dir: Path, *, input_dir: Path, images_dirname: str = IMAGES_DIRNAME, timeout: int = DEFAULT_IMAGE_TIMEOUT,
-    cache_dir: Path | None = None,
-) -> None:
+    cache_dir: Path | None = None, retry_attempts: int = 3, retry_wait_seconds: float = 2.0,
+    only_public: bool = False,
+) -> dict[str, Any]:
     """Trae a `output_dir`/<images_dirname>/ cada fichero referenciado en
     media.csv (ya filtrado a solo público) — su columna filePath admite las
     dos formas que reconoce el propio estándar Camtrap DP: una URL absoluta
@@ -1180,19 +1281,34 @@ def download_public_images(
     publicación multi-repo, para que cada mediaID solo se descargue/copie de
     su origen real UNA vez por sesión, sin importar a cuántos repos se
     publique — y sin duplicar el espacio en disco entre `cache_dir` y el
-    images/ propio de cada repo."""
+    images/ propio de cada repo.
+
+    retry_attempts/retry_wait_seconds: reintentos (ver common.retrying) de
+    cada descarga por red individual que falle con un httpx.HTTPError
+    (timeout, conexión, o respuesta de error) — un fallo de un fichero
+    concreto sigue sin abortar el resto tras agotar los reintentos.
+
+    only_public: salta las filas cuyo filePublic no sea verdadero (cuando
+    media.csv aún no se ha filtrado a solo público — ver
+    keep_only_public_media), sin modificar media.csv.
+
+    Devuelve {"failures": [(fileName, motivo), ...]} — los ficheros que no se
+    pudieron traer, para que el llamador los muestre además del log de consola."""
     media_csv = output_dir / MEDIA_CSV_FILENAME
     fieldnames, rows = read_csv(media_csv)
+    failures: list[tuple[str, str]] = []
     if FILE_PATH_COLUMN not in fieldnames:
         console.print(f"  [yellow]{media_csv} does not have the '{FILE_PATH_COLUMN}' column — no image will be downloaded.[/yellow]")
-        return
+        return {"failures": failures}
+    if only_public and FILE_PUBLIC_COLUMN in fieldnames:
+        rows = [row for row in rows if row.get(FILE_PUBLIC_COLUMN, "").strip().lower() in TRUTHY_VALUES]
 
     images_dir = output_dir / images_dirname
     images_dir.mkdir(parents=True, exist_ok=True)
 
     if not rows:
         console.print("  No public images to download.")
-        return
+        return {"failures": failures}
 
     console.print(f"Fetching {len(rows)} public image(s) into {images_dir} ...")
     downloaded = copied = cached = skipped = failed = 0
@@ -1201,6 +1317,7 @@ def download_public_images(
             file_path = row.get(FILE_PATH_COLUMN)
             file_name = row.get(FILE_NAME_COLUMN) or row.get(MEDIA_ID_COLUMN)
             if not file_path or not file_name:
+                failures.append((file_name or row.get(MEDIA_ID_COLUMN) or "?", "media.csv row has no filePath/fileName"))
                 failed += 1
                 continue
 
@@ -1230,10 +1347,13 @@ def download_public_images(
 
             if file_path.startswith("http://") or file_path.startswith("https://"):
                 try:
-                    response = client.get(file_path)
-                    response.raise_for_status()
+                    for attempt in retrying(retry_attempts, retry_wait_seconds, retry_on=httpx.HTTPError):
+                        with attempt:
+                            response = client.get(file_path)
+                            response.raise_for_status()
                 except httpx.HTTPError as exc:
                     console.print(f"  [red]✘  Could not download {file_name}: {exc}[/red]")
+                    failures.append((file_name, f"could not download {file_path}: {exc}"))
                     failed += 1
                     continue
                 fetch_destination.write_bytes(response.content)
@@ -1242,6 +1362,7 @@ def download_public_images(
                 source = input_dir / file_path
                 if not source.is_file():
                     console.print(f"  [red]✘  {file_name}: local file not found at {source}[/red]")
+                    failures.append((file_name, f"local file not found at {source}"))
                     failed += 1
                     continue
                 shutil.copy2(source, fetch_destination)
@@ -1255,6 +1376,7 @@ def download_public_images(
         f"[green]✔  Images: {downloaded} downloaded, {copied} copied locally, {cache_note}"
         f"{skipped} already existed, {failed} failed.[/green]"
     )
+    return {"failures": failures}
 
 
 _FIT_SIZE_NOOP_THRESHOLD = 0.9   # skip resizing entirely if already under this fraction of target_bytes

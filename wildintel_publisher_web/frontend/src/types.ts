@@ -135,12 +135,25 @@ export interface GBIFInstallation {
  * api.routers.app_settings. A secret field (config.py's
  * json_schema_extra={"secret": True}) never comes back as a value, only as
  * a has_<field> boolean. */
+export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG'
+
 export interface AppSettings {
+  GENERAL: {
+    log_level: LogLevel
+    /** Where the log goes (read-only). */
+    log_file: string
+    /** The level WILDINTEL_PUBLISHER_LOG_LEVEL sets instead, if any (read-only). */
+    log_level_override: LogLevel | null
+  }
   TRAPPER: {
     base_url: string | null
     has_user_name: boolean
     has_user_password: boolean
     project_id: number | null
+    retry_attempts: number
+    retry_wait_seconds: number
+  }
+  CAMTRAPDP: {
     license_id: string | null
     license_name: string | null
     license_url: string | null
@@ -174,6 +187,18 @@ export interface AppSettings {
     has_password: boolean
     installations: GBIFInstallation[]
   }
+  S3: {
+    endpoint_url: string | null
+    region: string | null
+    bucket: string | null
+    prefix: string | null
+    public_base_url: string | null
+    verify_ssl: boolean
+    has_access_key: boolean
+    has_secret_key: boolean
+    retry_attempts: number
+    retry_wait_seconds: number
+  }
   PRODUCT: {
     organizations: Organization[]
   }
@@ -184,6 +209,8 @@ export interface AppSettings {
  * blank keeps the one already saved, same rule as everywhere else in this
  * app (see TrapperConnectionForm). */
 export interface AppSettingsUpdate {
+  GENERAL: { log_level: LogLevel }
+  CAMTRAPDP: AppSettings['CAMTRAPDP']
   TRAPPER: Omit<AppSettings['TRAPPER'], 'has_user_name' | 'has_user_password'> & {
     user_name: string | null
     user_password: string | null
@@ -194,6 +221,10 @@ export interface AppSettingsUpdate {
   GBIF: Omit<AppSettings['GBIF'], 'has_username' | 'has_password'> & {
     username: string | null
     password: string | null
+  }
+  S3: Omit<AppSettings['S3'], 'has_access_key' | 'has_secret_key'> & {
+    access_key: string | null
+    secret_key: string | null
   }
   PRODUCT: AppSettings['PRODUCT']
 }

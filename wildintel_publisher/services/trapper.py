@@ -61,6 +61,8 @@ def fetch_camtrapdp_package(
     license_name: Optional[str] = None,
     license_url: Optional[str] = None,
     include_events: bool = True,
+    retry_attempts: int = 3,
+    retry_wait_seconds: float = 2.0,
 ) -> Path:
     """Genera (o reutiliza) el paquete Camtrap DP del proyecto de clasificación
     `project_id` en el servidor Trapper `trapper_url`, lo descarga y lo
@@ -94,6 +96,10 @@ def fetch_camtrapdp_package(
             parámetro `include_events` de la API. A diferencia de esta,
             aquí el valor por defecto es True (la API por su cuenta usa
             False), así que siempre se envía explícito, nunca se omite.
+        retry_attempts, retry_wait_seconds: reintentos (ver common.retrying)
+            de cada llamada de red a Trapper (generar el paquete y
+            descargarlo) que falle con un httpx.TimeoutException/ConnectError
+            — pensados para TrapperSettings.retry_attempts/retry_wait_seconds.
 
     Returns:
         `output_dir/<slug>` (slug derivado de project_id/deployment_id/
@@ -139,11 +145,15 @@ def fetch_camtrapdp_package(
 
     console.print(f"Generating (or reusing) the Camtrap DP package for project {project_id}...")
     try:
-        response = client.classification_package.get_project_package(
-            project_pk=project_id, clear_cache=clear_cache,
-            all_deployments=False, filter_deployments=deployment_id,
-            **package_kwargs,
-        )
+        for attempt in common.retrying(
+            retry_attempts, retry_wait_seconds, retry_on=(httpx.TimeoutException, httpx.ConnectError),
+        ):
+            with attempt:
+                response = client.classification_package.get_project_package(
+                    project_pk=project_id, clear_cache=clear_cache,
+                    all_deployments=False, filter_deployments=deployment_id,
+                    **package_kwargs,
+                )
     except httpx.TimeoutException as exc:
         raise RuntimeError(
             f"Timed out ({timeout}s) generating the Camtrap DP package for project "
@@ -160,7 +170,9 @@ def fetch_camtrapdp_package(
     console.print(response.data.message)
     console.print(f"Downloading from {response.data.package} ...")
     try:
-        file_response = client.make_request(endpoint=response.data.package, method="GET")
+        for attempt in common.retrying(retry_attempts, retry_wait_seconds, retry_on=httpx.TimeoutException):
+            with attempt:
+                file_response = client.make_request(endpoint=response.data.package, method="GET")
     except httpx.TimeoutException as exc:
         raise RuntimeError(
             f"Timed out ({timeout}s) downloading the Camtrap DP package. "
@@ -178,7 +190,7 @@ def fetch_camtrapdp_package(
     common.decompress_gzipped_tables(destination)
     if license_id:
         # WildINTEL project policy: every dataset is published under
-        # CC-BY-NC-4.0 (see TrapperSettings.license_id's own comment in
+        # CC-BY-NC-4.0 (see CamtrapDPSettings.license_id's own comment in
         # config.py, the default `license_id` above resolves to unless the
         # caller passed something else) — deliberately fixed, not meant to
         # vary per project/dataset.

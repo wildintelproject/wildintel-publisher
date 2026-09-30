@@ -1,5 +1,5 @@
 """Integration tests for '<section> config show/get/set/wizard' across the
-TRAPPER, HFH, ZENODO and B2SHARE sections (commands/config_commands.py's
+TRAPPER, CAMTRAPDP, HFH, ZENODO, B2SHARE and GENERAL sections (commands/config_commands.py's
 generic engine, shared by all four)."""
 import pytest
 from typer.testing import CliRunner
@@ -10,7 +10,9 @@ from wildintel_publisher.main import app
 runner = CliRunner()
 
 # Field counts (in model declaration order) — see config.py.
-TRAPPER_FIELD_COUNT = 10
+TRAPPER_FIELD_COUNT = 6
+CAMTRAPDP_FIELD_COUNT = 6
+GENERAL_FIELD_COUNT = 1
 HFH_FIELD_COUNT = 5
 ZENODO_FIELD_COUNT = 3
 B2SHARE_FIELD_COUNT = 3
@@ -29,7 +31,7 @@ def _restore_config_file():
 
 # ── show/get/set — parametrized across the 4 sections ────────────────────────
 
-@pytest.mark.parametrize("group", ["trapper", "hfh", "zenodo", "b2share"])
+@pytest.mark.parametrize("group", ["trapper", "camtrapdp", "hfh", "zenodo", "b2share", "general"])
 def test_config_show_prints_file_path_and_section_header(group):
     result = runner.invoke(app, [group, "config", "show"])
     assert result.exit_code == 0
@@ -42,7 +44,7 @@ def test_config_show_prints_file_path_and_section_header(group):
 
 
 def test_trapper_config_get_returns_scalar_value():
-    result = runner.invoke(app, ["trapper", "config", "get", "license_id"])
+    result = runner.invoke(app, ["camtrapdp", "config", "get", "license_id"])
     assert result.exit_code == 0
     assert result.output.strip() == "CC-BY-NC-4.0"
 
@@ -54,10 +56,10 @@ def test_config_get_unknown_field_errors():
 
 
 def test_trapper_config_set_scalar_value_persists():
-    set_result = runner.invoke(app, ["trapper", "config", "set", "dataset_slug=my-new-slug"])
+    set_result = runner.invoke(app, ["camtrapdp", "config", "set", "dataset_slug=my-new-slug"])
     assert set_result.exit_code == 0
 
-    get_result = runner.invoke(app, ["trapper", "config", "get", "dataset_slug"])
+    get_result = runner.invoke(app, ["camtrapdp", "config", "get", "dataset_slug"])
     assert get_result.output.strip() == "my-new-slug"
 
 
@@ -79,7 +81,7 @@ def test_config_set_invalid_value_rejected_and_not_persisted():
 
 
 def test_config_set_missing_equals_sign_errors_for_non_secret_field():
-    result = runner.invoke(app, ["trapper", "config", "set", "dataset_slug"])
+    result = runner.invoke(app, ["camtrapdp", "config", "set", "dataset_slug"])
     assert result.exit_code != 0
     assert "Expected format: FIELD=VALUE" in result.output
 
@@ -101,7 +103,7 @@ def test_config_set_secret_field_prompts_with_hidden_input():
 
 
 def test_config_get_does_not_leak_a_different_sections_field():
-    result = runner.invoke(app, ["hfh", "config", "get", "license_id"])  # license_id belongs to TRAPPER, not HFH
+    result = runner.invoke(app, ["hfh", "config", "get", "license_id"])  # license_id belongs to CAMTRAPDP, not HFH
     assert result.exit_code != 0
     assert "Unknown field" in result.output
 
@@ -113,8 +115,8 @@ def _blank_wizard_input(field_count: int) -> str:
 
 
 @pytest.mark.parametrize("group,field_count", [
-    ("trapper", TRAPPER_FIELD_COUNT), ("hfh", HFH_FIELD_COUNT),
-    ("zenodo", ZENODO_FIELD_COUNT), ("b2share", B2SHARE_FIELD_COUNT),
+    ("trapper", TRAPPER_FIELD_COUNT), ("camtrapdp", CAMTRAPDP_FIELD_COUNT), ("hfh", HFH_FIELD_COUNT),
+    ("zenodo", ZENODO_FIELD_COUNT), ("b2share", B2SHARE_FIELD_COUNT), ("general", GENERAL_FIELD_COUNT),
 ])
 def test_config_wizard_keeps_defaults_when_all_answers_blank(group, field_count):
     result = runner.invoke(app, [group, "config", "wizard"], input=_blank_wizard_input(field_count))
@@ -129,22 +131,22 @@ def test_config_wizard_cancelled_at_initial_prompt_changes_nothing():
 
 
 def test_trapper_config_wizard_saves_a_changed_value():
-    # blank through the first 8 fields (base_url..license_url), change dataset_slug (9th), blank
-    # the last (description), then confirm save.
-    answers = "y\n" + "\n" * 7 + "my-wizard-slug\n" + "\n" * 2 + "y\n"
+    # blank through the first 4 fields (license_id..license_url is 3, dataset_slug is the 4th),
+    # change dataset_slug, blank the last 2 (dataset_name, description), then confirm save.
+    answers = "y\n" + "\n" * 3 + "my-wizard-slug\n" + "\n" * 2 + "y\n"
 
-    result = runner.invoke(app, ["trapper", "config", "wizard"], input=answers)
+    result = runner.invoke(app, ["camtrapdp", "config", "wizard"], input=answers)
 
     assert result.exit_code == 0, result.output
     assert "dataset_slug" in result.output
 
-    get_result = runner.invoke(app, ["trapper", "config", "get", "dataset_slug"])
+    get_result = runner.invoke(app, ["camtrapdp", "config", "get", "dataset_slug"])
     assert get_result.output.strip() == "my-wizard-slug"
 
 
 def test_config_wizard_retries_after_invalid_value_and_cancel_does_not_persist():
     # project_id is TRAPPER's 4th field (index 3): base_url, user_name, user_password, project_id.
-    answers = "y\n" + "\n" * 3 + "not-a-number\n" + "42\n" + "\n" * 6 + "n\n"
+    answers = "y\n" + "\n" * 3 + "not-a-number\n" + "42\n" + "\n" * 2 + "n\n"
 
     result = runner.invoke(app, ["trapper", "config", "wizard"], input=answers)
 

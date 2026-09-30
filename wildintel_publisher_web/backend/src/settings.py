@@ -14,7 +14,6 @@ WILDINTEL_PUBLISHER_WEB_PORT=8767
 WILDINTEL_PUBLISHER_WEB_LOG_LEVEL=INFO
 WILDINTEL_PUBLISHER_WEB_CORS_ORIGINS=["http://localhost:5174","http://localhost:8767"]
 """
-import logging
 from pathlib import Path
 
 from platformdirs import user_config_dir
@@ -70,9 +69,9 @@ settings = Settings()
 
 
 def configure_logging() -> None:
-    """Apply settings.log_level to the root Python logger."""
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level),
-        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    """Console + log file, at the settings page's level (see
+    wildintel_publisher.logging_setup). `log_level` here is only uvicorn's
+    own, in development (webcli)."""
+    from wildintel_publisher import logging_setup
+
+    logging_setup.configure()

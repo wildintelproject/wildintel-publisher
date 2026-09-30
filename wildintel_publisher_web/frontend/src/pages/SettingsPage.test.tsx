@@ -5,16 +5,20 @@ import { api } from '../api'
 import SettingsPage from './SettingsPage'
 import type { AppSettings } from '../types'
 
-vi.mock('../api', () => ({ api: { getSettings: vi.fn(), saveSettings: vi.fn() } }))
+vi.mock('../api', () => ({ api: { getSettings: vi.fn(), saveSettings: vi.fn(), clearLog: vi.fn() } }))
 
 const mockedApi = vi.mocked(api)
 
 const APP_SETTINGS: AppSettings = {
-  TRAPPER: {
-    base_url: 'https://trapper.example.org', has_user_name: true, has_user_password: true, project_id: 12,
+  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', log_level_override: null },
+  CAMTRAPDP: {
     license_id: 'CC-BY-NC-4.0', license_name: 'Creative Commons Attribution-NonCommercial 4.0 International',
     license_url: 'https://creativecommons.org/licenses/by-nc/4.0/', dataset_slug: 'wildintel-camtrapdp',
     dataset_name: 'Wildintel Camtrapdp', description: null,
+  },
+  TRAPPER: {
+    base_url: 'https://trapper.example.org', has_user_name: true, has_user_password: true, project_id: 12,
+    retry_attempts: 3, retry_wait_seconds: 2,
   },
   HFH: {
     message: 'If you use this dataset, please cite it as below.',
@@ -28,6 +32,11 @@ const APP_SETTINGS: AppSettings = {
     has_username: false, has_password: false,
     installations: [{ title: 'WildINTEL', sandbox_installation_key: 'abc-123', production_installation_key: null }],
   },
+  S3: {
+    endpoint_url: null, region: null, bucket: null, prefix: null, public_base_url: null,
+    verify_ssl: true, has_access_key: false, has_secret_key: false,
+    retry_attempts: 3, retry_wait_seconds: 2,
+  },
   PRODUCT: {
     organizations: [{ title: 'University of Huelva', path: 'https://www.uhu.es/', email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: null }],
   },
@@ -37,11 +46,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockedApi.getSettings.mockResolvedValue(APP_SETTINGS)
   mockedApi.saveSettings.mockImplementation(async (update) => ({
+    GENERAL: { ...APP_SETTINGS.GENERAL, ...update.GENERAL },
+    CAMTRAPDP: { ...APP_SETTINGS.CAMTRAPDP, ...update.CAMTRAPDP },
     TRAPPER: { ...APP_SETTINGS.TRAPPER, ...update.TRAPPER, has_user_name: !!update.TRAPPER.user_name, has_user_password: !!update.TRAPPER.user_password },
     HFH: { ...APP_SETTINGS.HFH, ...update.HFH, has_token: !!update.HFH.token },
     ZENODO: { ...APP_SETTINGS.ZENODO, ...update.ZENODO, has_token: !!update.ZENODO.token },
     B2SHARE: { ...APP_SETTINGS.B2SHARE, ...update.B2SHARE, has_token: !!update.B2SHARE.token },
     GBIF: { ...APP_SETTINGS.GBIF, ...update.GBIF, has_username: !!update.GBIF.username, has_password: !!update.GBIF.password },
+    S3: { ...APP_SETTINGS.S3, ...update.S3, has_access_key: !!update.S3.access_key, has_secret_key: !!update.S3.secret_key },
     PRODUCT: update.PRODUCT,
   }))
 })
@@ -51,8 +63,11 @@ const section = (name: string) => userEvent.click(screen.getByRole('button', { n
 describe('SettingsPage', () => {
   it('shows one section at a time, from the sidebar', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
-    expect(await screen.findByLabelText('Trapper URL')).toHaveValue('https://trapper.example.org')
-    expect(screen.getByRole('button', { name: /Trapper/ })).toHaveAttribute('aria-current', 'page')
+    expect(await screen.findByLabelText('Log level')).toHaveValue('INFO')
+    expect(screen.getByRole('button', { name: /General/ })).toHaveAttribute('aria-current', 'page')
+
+    await section('Trapper')
+    expect(screen.getByLabelText('Trapper URL')).toHaveValue('https://trapper.example.org')
     expect(screen.getByText(/a username is saved — leave it blank to keep it/i)).toBeInTheDocument()
     expect(screen.getByText(/a password is saved — leave it blank to keep it/i)).toBeInTheDocument()
 
@@ -64,24 +79,28 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('University of Huelva')
   })
 
-  it('saves the Trapper section, a blank password keeping the saved one', async () => {
+  it('saves the Trapper and Camtrap DP sections, a blank password keeping the saved one', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
-    await screen.findByLabelText('Trapper URL')
-    const desc = screen.getByLabelText('Description')
-    await userEvent.type(desc, 'New description')
+    await screen.findByLabelText('Log level')
+    await section('Camtrap DP')
+    await userEvent.type(screen.getByLabelText('Description'), 'New description')
+    await section('Trapper')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(mockedApi.saveSettings).toHaveBeenCalledOnce()
     const body = mockedApi.saveSettings.mock.calls[0][0]
     expect(body.TRAPPER).toMatchObject({
-      base_url: 'https://trapper.example.org', user_name: null, user_password: null, description: 'New description',
+      base_url: 'https://trapper.example.org', user_name: null, user_password: null,
     })
+    expect(body.CAMTRAPDP).toMatchObject({ license_id: 'CC-BY-NC-4.0', description: 'New description' })
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
   })
 
   it('rejects a non-numeric project id and cannot save', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
-    const projectId = await screen.findByLabelText('Default classification project id')
+    await screen.findByLabelText('Log level')
+    await section('Trapper')
+    const projectId = screen.getByLabelText('Default classification project id')
     await userEvent.clear(projectId)
     await userEvent.type(projectId, 'abc')
     expect(screen.getByText('A whole number, or blank.')).toBeInTheDocument()
@@ -117,10 +136,50 @@ describe('SettingsPage', () => {
     expect(product.organizations.map((o) => o.title)).toEqual(['University of Huelva', 'New Org'])
   })
 
+  it('saves the log level, showing where the log is', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    expect(await screen.findByLabelText('Log file location')).toHaveTextContent('wildintel-publisher.log')
+
+    await userEvent.selectOptions(screen.getByLabelText('Log level'), 'DEBUG')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(mockedApi.saveSettings.mock.calls[0][0].GENERAL).toEqual({ log_level: 'DEBUG' })
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
+  })
+
+  it('asks before clearing the log', async () => {
+    mockedApi.clearLog.mockResolvedValue({ deleted: 2 })
+    render(<SettingsPage onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Clear log' }))
+    expect(mockedApi.clearLog).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Yes, clear it' }))
+    expect(mockedApi.clearLog).toHaveBeenCalledOnce()
+    expect(await screen.findByText(/log cleared/i)).toBeInTheDocument()
+  })
+
   it('goes back', async () => {
     const onClose = vi.fn()
     render(<SettingsPage onClose={onClose} />)
     await userEvent.click(screen.getByRole('button', { name: '← Back' }))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('saves the S3 section, sending an empty prefix/public base URL as a real clear', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('S3 image hosting')
+    expect(screen.getByText(/no access key saved yet/i)).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Bucket'), 'my-camtrapdp-images')
+    await userEvent.type(screen.getByLabelText('Access key'), 'AKIAEXAMPLE')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(mockedApi.saveSettings).toHaveBeenCalledOnce()
+    const body = mockedApi.saveSettings.mock.calls[0][0]
+    expect(body.S3).toMatchObject({
+      bucket: 'my-camtrapdp-images', prefix: null, public_base_url: null,
+      access_key: 'AKIAEXAMPLE', secret_key: null,
+    })
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
   })
 })
