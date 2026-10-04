@@ -1,12 +1,130 @@
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { api } from '../api'
 import type { AppSettings, AppSettingsUpdate, ConfigInfo, VersionCheck, GBIFInstallation, LogLevel, Organization, ProductAuthor, S3Remote } from '../types'
 
-const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500'
-const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
+// Same look as wildintel-zooniverse's settings page: filled, rounded boxes with the
+// label inside, base-size text and stroke icons.
+const inputClass = 'block w-full bg-transparent text-base text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none py-0.5'
+const labelClass = 'block text-base text-zinc-800 dark:text-zinc-200'
 const hintClass = 'text-xs text-zinc-500 dark:text-zinc-400 mt-1'
-const btnPrimary = 'px-6 py-2.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
-const btnOutline = 'px-3 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors'
+const btnPrimary = 'px-6 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+const btnOutline = 'inline-flex items-center justify-center px-4 py-2 text-sm rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50'
+// A destructive action: the same red as wildintel-zooniverse's Clear log. Not btnOutline plus
+// a red text class — btnOutline's own text colour would compete with it.
+const btnDanger = 'inline-flex items-center justify-center px-4 py-2 text-sm rounded-xl bg-zinc-100 dark:bg-zinc-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors disabled:opacity-50'
+
+// ── Icons (24×24, stroke — lucide's shapes) ─────────────────────────────
+
+function Icon({ children }: { children: ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  )
+}
+
+const SlidersIcon = () => (
+  <Icon>
+    <path d="M4 21v-7" /><path d="M4 10V3" /><path d="M12 21v-9" /><path d="M12 8V3" />
+    <path d="M20 21v-5" /><path d="M20 12V3" /><path d="M2 14h4" /><path d="M10 8h4" /><path d="M18 16h4" />
+  </Icon>
+)
+const CameraIcon = () => (
+  <Icon>
+    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+    <circle cx="12" cy="13" r="3" />
+  </Icon>
+)
+const PackageIcon = () => (
+  <Icon>
+    <path d="m7.5 4.27 9 5.15" />
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+    <path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" />
+  </Icon>
+)
+const LayersIcon = () => (
+  <Icon>
+    <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+    <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" />
+    <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
+  </Icon>
+)
+const CloudIcon = () => (
+  <Icon>
+    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+  </Icon>
+)
+const BuildingIcon = () => (
+  <Icon>
+    <rect x="4" y="2" width="16" height="20" rx="2" />
+    <path d="M9 22v-4h6v4" />
+    <path d="M8 6h.01" /><path d="M16 6h.01" /><path d="M12 6h.01" />
+    <path d="M12 10h.01" /><path d="M12 14h.01" /><path d="M16 10h.01" /><path d="M16 14h.01" /><path d="M8 10h.01" /><path d="M8 14h.01" />
+  </Icon>
+)
+const UserIcon = () => (
+  <Icon>
+    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </Icon>
+)
+const FileIcon = () => (
+  <Icon>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M16 13H8" /><path d="M16 17H8" />
+  </Icon>
+)
+const GlobeIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M2 12h20" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+  </Icon>
+)
+const BookIcon = () => (
+  <Icon>
+    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" />
+  </Icon>
+)
+const DatabaseIcon = () => (
+  <Icon>
+    <ellipse cx="12" cy="5" rx="9" ry="3" />
+    <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+    <path d="M3 12a9 3 0 0 0 18 0" />
+  </Icon>
+)
+const BoxesIcon = () => (
+  <Icon>
+    <path d="M12 3 3 8l9 5 9-5-9-5z" />
+    <path d="M3 8v8l9 5 9-5V8" />
+    <path d="M12 13v8" />
+  </Icon>
+)
+const GearIcon = () => (
+  <Icon>
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <circle cx="12" cy="12" r="3" />
+  </Icon>
+)
+const FolderIcon = () => (
+  <Icon>
+    <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+  </Icon>
+)
+const DownloadIcon = () => (
+  <Icon>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="m7 10 5 5 5-5" /><path d="M12 15V3" />
+  </Icon>
+)
+const BackIcon = () => (
+  <Icon>
+    <path d="M19 12H5" />
+    <path d="m12 19-7-7 7-7" />
+  </Icon>
+)
 
 // ── The form's own state ────────────────────────────────────────────────
 
@@ -259,30 +377,49 @@ const LOG_LEVELS: { value: LogLevel; label: string; hint: string }[] = [
 type SectionId = 'config' | 'general' | 'trapper' | 'products' | 'repositories' | 's3' | 'product' | 'authors'
 type RepoId = 'hfh' | 'zenodo' | 'b2share' | 'gbif'
 
-const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
-  { id: 'general', label: 'General', icon: '⚙️' },
-  { id: 'trapper', label: 'Trapper', icon: '📷' },
-  { id: 'products', label: 'Products', icon: '📦' },
-  { id: 'repositories', label: 'Repositories', icon: '🗂️' },
-  { id: 's3', label: 'S3 image hosting', icon: '☁️' },
-  { id: 'product', label: 'Organizations', icon: '🏢' },
-  { id: 'authors', label: 'Authors', icon: '👤' },
-  { id: 'config', label: 'Config', icon: '🧾' },
+const SECTIONS: { id: SectionId; label: string; icon: () => ReactNode }[] = [
+  { id: 'general', label: 'General', icon: SlidersIcon },
+  { id: 'trapper', label: 'Trapper', icon: CameraIcon },
+  { id: 'products', label: 'Products', icon: PackageIcon },
+  { id: 'repositories', label: 'Repositories', icon: LayersIcon },
+  { id: 's3', label: 'S3 image hosting', icon: CloudIcon },
+  { id: 'product', label: 'Organizations', icon: BuildingIcon },
+  { id: 'authors', label: 'Authors', icon: UserIcon },
+  { id: 'config', label: 'Config', icon: FileIcon },
 ]
 
-const REPOS: { id: RepoId; label: string; icon: string }[] = [
-  { id: 'hfh', label: 'HuggingFace Hub', icon: '🤗' },
-  { id: 'zenodo', label: 'Zenodo', icon: '📚' },
-  { id: 'b2share', label: 'B2SHARE', icon: '🗄️' },
-  { id: 'gbif', label: 'GBIF', icon: '🌍' },
+const REPOS: { id: RepoId; label: string; icon: () => ReactNode }[] = [
+  { id: 'hfh', label: 'HuggingFace Hub', icon: BoxesIcon },
+  { id: 'zenodo', label: 'Zenodo', icon: BookIcon },
+  { id: 'b2share', label: 'B2SHARE', icon: DatabaseIcon },
+  { id: 'gbif', label: 'GBIF', icon: GlobeIcon },
 ]
 
 function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | null; children: React.ReactNode }) {
   return (
     <div>
-      <label className={labelClass}>{label}</label>
-      {children}
-      {error ? <p className="text-xs text-red-600 dark:text-red-400 mt-1">{error}</p> : hint ? <p className={hintClass}>{hint}</p> : null}
+      <label className={[
+        'block rounded-xl px-4 py-2 bg-zinc-100 dark:bg-zinc-800 border transition-colors focus-within:border-blue-500',
+        error ? 'border-red-500' : 'border-transparent',
+      ].join(' ')}>
+        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+        {children}
+      </label>
+      {error ? <p className="text-xs text-red-600 dark:text-red-400 mt-1 px-1">{error}</p> : hint ? <p className={`${hintClass} px-1`}>{hint}</p> : null}
+    </div>
+  )
+}
+
+/** One setting: its name and what it does on the left, its controls on the
+ * right — stacked on narrow screens. */
+function Row({ label, description, children }: { label: string; description?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[13rem_1fr] gap-x-10 gap-y-3 py-5">
+      <div className="md:text-right">
+        <div className="text-base text-zinc-800 dark:text-zinc-200">{label}</div>
+        {description && <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{description}</p>}
+      </div>
+      <div className="space-y-3 min-w-0">{children}</div>
     </div>
   )
 }
@@ -343,7 +480,7 @@ function RetryFields({ attempts, wait, onAttemptsChange, onWaitChange }: {
 
 // ── S3 remotes: a list of cards, each edited in a dialog ──────────────────
 
-const iconBtn = 'w-10 h-10 flex items-center justify-center rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors'
+const iconBtn = 'w-10 h-10 shrink-0 flex items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors'
 
 /** The modal every card's gear opens. */
 function DialogShell({ label, title, onClose, children }: { label: string; title: string; onClose: () => void; children: React.ReactNode }) {
@@ -351,7 +488,7 @@ function DialogShell({ label, title, onClose, children }: { label: string; title
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         role="dialog" aria-modal="true" aria-label={label}
-        className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-6 space-y-4"
+        className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-6 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <h5 className="text-lg font-semibold">{title}</h5>
@@ -363,21 +500,21 @@ function DialogShell({ label, title, onClose, children }: { label: string; title
 
 /** One entry of a card list: icon tile, name + subtitle, an optional badge, and the gear that edits it. */
 function ItemCard({ icon, title, subtitle, badge, badgeOk, editLabel, onEdit }: {
-  icon: string; title: string; subtitle: string; badge?: string; badgeOk?: boolean; editLabel: string; onEdit: () => void
+  icon: ReactNode; title: string; subtitle: string; badge?: string; badgeOk?: boolean; editLabel: string; onEdit: () => void
 }) {
   return (
-    <div className="flex items-center gap-4 px-4 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60">
-      <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/40 text-xl" aria-hidden="true">{icon}</span>
+    <div className="flex items-center gap-4 px-4 py-3 rounded-xl bg-zinc-100 dark:bg-zinc-800">
+      <span className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300" aria-hidden="true">{icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{title}</p>
+        <p className="text-base truncate">{title}</p>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">{subtitle}</p>
       </div>
       {badge && (
-        <span className={`text-xs px-2 py-1 rounded ${badgeOk ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${badgeOk ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
           {badge}
         </span>
       )}
-      <button type="button" className={iconBtn} aria-label={editLabel} title="Edit" onClick={onEdit}>⚙️</button>
+      <button type="button" className={iconBtn} aria-label={editLabel} title="Edit" onClick={onEdit}><GearIcon /></button>
     </div>
   )
 }
@@ -442,7 +579,7 @@ function S3RemoteDialog({ remote, onChange, onRemove, onClose }: {
           {test.status === 'error' && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{test.message}</p>}
         </div>
         <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
-          <button type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} onClick={onRemove}>Remove remote</button>
+          <button type="button" className={btnDanger} onClick={onRemove}>Remove remote</button>
           <button type="button" className={btnPrimary} disabled={!remote.name.trim()} onClick={onClose}>Done</button>
         </div>
     </DialogShell>
@@ -472,7 +609,7 @@ function S3RemotesEditor({ items, onChange }: { items: S3RemoteDraft[]; onChange
         {items.length === 0 && <p className={hintClass}>No remote yet — the wizard can&rsquo;t upload images until you add one.</p>}
         {items.map((r) => (
           <ItemCard
-            key={r.id} icon="☁️" title={r.name} subtitle={remoteSubtitle(r)} editLabel={`Edit ${r.name}`}
+            key={r.id} icon={<CloudIcon />} title={r.name} subtitle={remoteSubtitle(r)} editLabel={`Edit ${r.name}`}
             badge={(r.hasAccessKey || r.accessKey) && (r.hasSecretKey || r.secretKey) ? 'Credentials saved' : 'No credentials'}
             badgeOk={!!((r.hasAccessKey || r.accessKey) && (r.hasSecretKey || r.secretKey))}
             onEdit={() => setEditingId(r.id)}
@@ -545,7 +682,7 @@ function OrganizationDialog({ item, onChange, onRemove, onClose }: {
         />
       </div>
       <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
-        <button type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} onClick={onRemove}>Remove organization</button>
+        <button type="button" className={btnDanger} onClick={onRemove}>Remove organization</button>
         <button type="button" className={btnPrimary} disabled={!item.title.trim()} onClick={onClose}>Done</button>
       </div>
     </DialogShell>
@@ -573,7 +710,7 @@ function OrganizationsEditor({ items, onChange }: { items: Organization[]; onCha
           const linked = !!(o.gbif_sandbox_organization_key || o.gbif_production_organization_key)
           return (
             <ItemCard
-              key={i} icon="🏛️" title={o.title} subtitle={o.path || 'No website'} editLabel={`Edit ${o.title}`}
+              key={i} icon={<BuildingIcon />} title={o.title} subtitle={o.path || 'No website'} editLabel={`Edit ${o.title}`}
               badge={linked ? 'GBIF linked' : undefined} badgeOk onEdit={() => setEditingIndex(i)}
             />
           )
@@ -605,7 +742,7 @@ function AuthorDialog({ item, onChange, onRemove, onClose }: {
         value={item.affiliation ?? ''} onChange={(v) => onChange({ affiliation: v || null })}
       />
       <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
-        <button type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} onClick={onRemove}>Remove author</button>
+        <button type="button" className={btnDanger} onClick={onRemove}>Remove author</button>
         <button type="button" className={btnPrimary} disabled={!name} onClick={onClose}>Done</button>
       </div>
     </DialogShell>
@@ -631,7 +768,7 @@ function AuthorsEditor({ items, onChange }: { items: ProductAuthor[]; onChange: 
         {items.length === 0 && <p className={hintClass}>No author yet — the wizard&rsquo;s metadata step will have none to quick-add.</p>}
         {items.map((a, i) => (
           <ItemCard
-            key={i} icon="👤" title={a.name ?? ''} subtitle={a.affiliation || 'No affiliation'} editLabel={`Edit ${a.name}`}
+            key={i} icon={<UserIcon />} title={a.name ?? ''} subtitle={a.affiliation || 'No affiliation'} editLabel={`Edit ${a.name}`}
             onEdit={() => setEditingIndex(i)}
           />
         ))}
@@ -666,13 +803,13 @@ function UpdateCheck() {
     }
   }
 
-  const buttonClass = `${btnOutline} w-full max-w-sm text-center`
+  const buttonClass = `${btnOutline} w-full`
   const check_ = state.kind === 'result' ? state.check : null
   return (
-    <Field label="Update">
+    <>
       <div className="space-y-1.5">
         {check_?.update_available ? (
-          <a href={check_.download_url ?? check_.release_url ?? '#'} target="_blank" rel="noreferrer" className={`${buttonClass} block no-underline`}>
+          <a href={check_.download_url ?? check_.release_url ?? '#'} target="_blank" rel="noreferrer" className={`${buttonClass} no-underline`}>
             Tap to download {check_.latest}
           </a>
         ) : (
@@ -690,7 +827,7 @@ function UpdateCheck() {
           <p className={hintClass} role="status">Version {check_.latest} is available — you have {check_.current}.</p>
         )}
       </div>
-    </Field>
+    </>
   )
 }
 
@@ -737,13 +874,13 @@ function ConfigsEditor({ onSwitched, onError }: { onSwitched: () => void; onErro
         {configs?.map((c, i) => (
           <div
             key={c.id}
-            className={`flex items-center gap-4 px-4 py-3 rounded-xl border bg-zinc-50 dark:bg-zinc-800/60 ${c.active ? 'border-sky-500' : 'border-zinc-200 dark:border-zinc-700'}`}
+            className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border ${c.active ? 'border-blue-500' : 'border-transparent'}`}
           >
-            <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-200 dark:bg-zinc-700 text-sm font-semibold shrink-0" aria-hidden="true">#{i + 1}</span>
+            <span className="w-10 h-10 flex items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-sm font-semibold shrink-0" aria-hidden="true">#{i + 1}</span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-medium truncate">{c.name}</p>
-                {c.active && <span className="text-xs px-2 py-0.5 rounded bg-sky-600 text-white">ACTIVE</span>}
+                <p className="text-base truncate">{c.name}</p>
+                {c.active && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-600 text-white">ACTIVE</span>}
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono break-all" aria-label={`${c.name} file location`}>{c.path}</p>
             </div>
@@ -752,13 +889,13 @@ function ConfigsEditor({ onSwitched, onError }: { onSwitched: () => void; onErro
               type="button" className={iconBtn} aria-label={`Open ${c.name} folder`} title="Open the folder containing the config file"
               onClick={() => api.openConfigFolder(c.id).catch((e) => fail(e, 'Could not open the folder.'))}
             >
-              📂
+              <FolderIcon />
             </button>
             <a
               href={`/api/settings/configs/${encodeURIComponent(c.id)}/download`} download
-              aria-label={`Download ${c.name}`} title="Download the config file" className={`${iconBtn} no-underline`}
+              aria-label={`Download ${c.name}`} title="Download the config file" className={iconBtn}
             >
-              ⬇️
+              <DownloadIcon />
             </a>
           </div>
         ))}
@@ -894,21 +1031,21 @@ export default function SettingsPage({ onClose }: Props) {
           type="button" onClick={onClose}
           className="flex items-center gap-2 px-3 py-2 mb-3 text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
         >
-          ← Back
+          <BackIcon />Back
         </button>
         <ul className="flex md:flex-col gap-2 overflow-x-auto">
-          {SECTIONS.map(({ id, label, icon }) => {
+          {SECTIONS.map(({ id, label, icon: SectionIcon }) => {
             const active = id === section
             return (
               <li key={id} className="shrink-0">
                 <button
                   type="button" onClick={() => setSection(id)} aria-current={active ? 'page' : undefined}
                   className={[
-                    'w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-colors',
+                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-base transition-colors',
                     active ? 'bg-blue-600 text-white' : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800',
                   ].join(' ')}
                 >
-                  <span aria-hidden="true">{icon}</span>
+                  <SectionIcon />
                   <span>{label}</span>
                 </button>
               </li>
@@ -919,7 +1056,7 @@ export default function SettingsPage({ onClose }: Props) {
 
       {/* Section */}
       <div className="flex-1 min-w-0">
-        <h4 className="text-xl font-semibold mb-4">{current.label}</h4>
+        <h4 className="text-2xl font-semibold mb-2">{current.label}</h4>
 
         {!draft && status.kind !== 'error' && <p className="text-sm text-zinc-500 dark:text-zinc-400 py-5">Loading…</p>}
 
@@ -947,7 +1084,7 @@ export default function SettingsPage({ onClose }: Props) {
           <div className="space-y-3">
             <p className={hintClass}>Defaults for each kind of product the wizard publishes.</p>
             <ItemCard
-              icon="🦌" title="Camtrap DP" editLabel="Edit Camtrap DP"
+              icon={<CameraIcon />} title="Camtrap DP" editLabel="Edit Camtrap DP"
               subtitle={[draft.camtrapdpDatasetName, draft.camtrapdpLicenseId].filter(Boolean).join(' · ') || 'No defaults set'}
               onEdit={() => setProductDialog('camtrapdp')}
             />
@@ -980,31 +1117,36 @@ export default function SettingsPage({ onClose }: Props) {
         )}
 
         {draft && saved && section === 'general' && (
-          <div className="space-y-6">
-            <UpdateCheck />
-            <div className="space-y-2">
-              <Field label="Log level" hint={LOG_LEVELS.find((l) => l.value === draft.logLevel)?.hint}>
+          <div className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
+            <Row label="Update" description="Looks for a newer version of the app.">
+              <UpdateCheck />
+            </Row>
+            <Row
+              label="Log level"
+              description="How much the app writes to its log — raise it to Debug to track a problem down, then lower it again. Applied as soon as it's saved."
+            >
+              <Field label="Level">
                 <select className={inputClass} value={draft.logLevel} aria-label="Log level" onChange={(e) => set('logLevel', e.target.value as LogLevel)}>
                   {LOG_LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
                 </select>
               </Field>
-              <p className={hintClass}>How much the app writes to its log — raise it to Debug to track a problem down, then lower it again. Applied as soon as it&rsquo;s saved.</p>
+              <p className={`${hintClass} px-1`}>{LOG_LEVELS.find((l) => l.value === draft.logLevel)?.hint}</p>
               {saved.GENERAL.log_level_override && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">
+                <p className="text-xs text-amber-700 dark:text-amber-400 px-1">
                   The environment variable <span className="font-mono">WILDINTEL_PUBLISHER_LOG_LEVEL</span> sets it
                   to <strong>{saved.GENERAL.log_level_override}</strong> for now — it wins over this setting.
                 </p>
               )}
-            </div>
-            <div className="space-y-2">
-              <Field label="Log file" hint="Rotated at 5 MB, keeping the last 5. Attach it to a bug report.">
-                <span className="block font-mono text-sm break-all py-0.5" aria-label="Log file location">{saved.GENERAL.log_file}</span>
+            </Row>
+            <Row label="Log file" description="Rotated at 5 MB, keeping the last 5. Attach it to a bug report.">
+              <Field label="Location">
+                <span className="block font-mono text-sm text-zinc-900 dark:text-zinc-100 break-all py-0.5" aria-label="Log file location">{saved.GENERAL.log_file}</span>
               </Field>
               <div className="flex flex-wrap gap-2">
-                <a href="/api/settings/log" download className={`${btnOutline} inline-block`}>Download log</a>
+                <a href="/api/settings/log" download className={btnOutline}>Download log</a>
                 {clearLog.kind !== 'confirming' && (
                   <button
-                    type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} disabled={clearLog.kind === 'clearing'}
+                    type="button" className={btnDanger} disabled={clearLog.kind === 'clearing'}
                     onClick={() => setClearLog({ kind: 'confirming' })}
                   >
                     {clearLog.kind === 'clearing' ? 'Clearing…' : 'Clear log'}
@@ -1012,28 +1154,28 @@ export default function SettingsPage({ onClose }: Props) {
                 )}
               </div>
               {clearLog.kind === 'confirming' && (
-                <div className="rounded border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-zinc-700 dark:text-zinc-300">
+                <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-zinc-700 dark:text-zinc-300">
                   <p>Delete the log file and its older copies? This can&rsquo;t be undone — download it first if you need it.</p>
                   <div className="flex gap-2 mt-2">
-                    <button type="button" onClick={handleClearLog} className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 transition-colors">Yes, clear it</button>
+                    <button type="button" onClick={handleClearLog} className="px-4 py-1.5 text-sm rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors">Yes, clear it</button>
                     <button type="button" className={btnOutline} onClick={() => setClearLog({ kind: 'idle' })}>Cancel</button>
                   </div>
                 </div>
               )}
-              {clearLog.kind === 'cleared' && <p className="text-xs text-emerald-700 dark:text-emerald-400">Log cleared — a new one starts now.</p>}
-              {clearLog.kind === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{clearLog.message}</p>}
-            </div>
+              {clearLog.kind === 'cleared' && <p className="text-xs text-emerald-700 dark:text-emerald-400 px-1">Log cleared — a new one starts now.</p>}
+              {clearLog.kind === 'error' && <p className="text-xs text-red-600 dark:text-red-400 px-1">{clearLog.message}</p>}
+            </Row>
           </div>
         )}
 
         {draft && saved && section === 'repositories' && (
           <div className="space-y-3">
             <p className={hintClass}>Credentials and defaults of the repositories the wizard publishes to.</p>
-            {REPOS.map(({ id, label, icon }) => {
+            {REPOS.map(({ id, label, icon: RepoIcon }) => {
               const summary = repoSummary(id, draft, saved)
               return (
                 <ItemCard
-                  key={id} icon={icon} title={label} subtitle={summary.subtitle} editLabel={`Edit ${label}`}
+                  key={id} icon={<RepoIcon />} title={label} subtitle={summary.subtitle} editLabel={`Edit ${label}`}
                   badge={summary.badge} badgeOk={summary.ok} onEdit={() => setRepoDialog(id)}
                 />
               )

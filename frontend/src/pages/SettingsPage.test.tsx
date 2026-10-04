@@ -305,7 +305,7 @@ describe('SettingsPage', () => {
   it('goes back', async () => {
     const onClose = vi.fn()
     render(<SettingsPage onClose={onClose} />)
-    await userEvent.click(screen.getByRole('button', { name: '← Back' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onClose).toHaveBeenCalled()
   })
 
