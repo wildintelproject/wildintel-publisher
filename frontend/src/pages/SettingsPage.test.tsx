@@ -85,12 +85,12 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: /General/ })).toHaveAttribute('aria-current', 'page')
 
     await section('Trapper')
-    expect(screen.getByLabelText('Trapper URL')).toHaveValue('https://trapper.example.org')
+    expect(screen.getByLabelText('URL')).toHaveValue('https://trapper.example.org')
     expect(screen.getByText(/a username is saved — leave it blank to keep it/i)).toBeInTheDocument()
     expect(screen.getByText(/a password is saved — leave it blank to keep it/i)).toBeInTheDocument()
 
     await section('Repositories')
-    expect(screen.queryByLabelText('Trapper URL')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
     for (const name of ['HuggingFace Hub', 'Zenodo', 'B2SHARE', 'GBIF']) expect(screen.getByText(name)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Edit HuggingFace Hub' }))
     expect(screen.getByText(/no token saved yet/i)).toBeInTheDocument()

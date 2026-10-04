@@ -450,31 +450,32 @@ function EnvironmentField({ label, value, onChange }: { label: string; value: En
 
 const passwordHint = (has: boolean, what = 'value') => (has ? `A ${what} is saved — leave it blank to keep it.` : `No ${what} saved yet.`)
 
-/** The two tenacity knobs shared by TRAPPER and S3 (see common.retrying). */
-function RetryFields({ attempts, wait, onAttemptsChange, onWaitChange }: {
-  attempts: string; wait: string; onAttemptsChange: (v: string) => void; onWaitChange: (v: string) => void
+/** The two tenacity knobs shared by TRAPPER and S3 (see common.retrying): filled
+ * boxes stacked, each with its unit beside the value — like wildintel-zooniverse's. */
+function RetryFields({ attempts, wait, onAttemptsChange, onWaitChange, attemptsLabel = 'Retry attempts' }: {
+  attempts: string; wait: string; onAttemptsChange: (v: string) => void; onWaitChange: (v: string) => void; attemptsLabel?: string
 }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <Field
-        label="Retry attempts" hint="Total tries per network call before giving up — 1 means no retry."
-        error={retryAttemptsValid(attempts) ? null : 'A whole number, 1 or more.'}
-      >
-        <input
-          className={inputClass} inputMode="numeric" value={attempts} aria-label="Retry attempts"
-          aria-invalid={!retryAttemptsValid(attempts)} onChange={(e) => onAttemptsChange(e.target.value)}
-        />
+    <>
+      <Field label={attemptsLabel} error={retryAttemptsValid(attempts) ? null : 'A whole number, 1 or more.'}>
+        <span className="flex items-baseline gap-2">
+          <input
+            className={inputClass} inputMode="numeric" value={attempts} aria-label={attemptsLabel}
+            aria-invalid={!retryAttemptsValid(attempts)} onChange={(e) => onAttemptsChange(e.target.value)}
+          />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">including the first</span>
+        </span>
       </Field>
-      <Field
-        label="Seconds between retries" hint="Wait before the first retry; it doubles on each further attempt."
-        error={retryWaitValid(wait) ? null : 'A number of seconds, 0 or more.'}
-      >
-        <input
-          className={inputClass} inputMode="decimal" value={wait} aria-label="Seconds between retries"
-          aria-invalid={!retryWaitValid(wait)} onChange={(e) => onWaitChange(e.target.value)}
-        />
+      <Field label="Seconds between retries" error={retryWaitValid(wait) ? null : 'A number of seconds, 0 or more.'}>
+        <span className="flex items-baseline gap-2">
+          <input
+            className={inputClass} inputMode="decimal" value={wait} aria-label="Seconds between retries"
+            aria-invalid={!retryWaitValid(wait)} onChange={(e) => onWaitChange(e.target.value)}
+          />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">before the first retry</span>
+        </span>
       </Field>
-    </div>
+    </>
   )
 }
 
@@ -1061,22 +1062,31 @@ export default function SettingsPage({ onClose }: Props) {
         {!draft && status.kind !== 'error' && <p className="text-sm text-zinc-500 dark:text-zinc-400 py-5">Loading…</p>}
 
         {draft && saved && section === 'trapper' && (
-          <div className="space-y-4">
-            <TextField label="Trapper URL" value={draft.trapperUrl} onChange={(v) => set('trapperUrl', v)} mono />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <TextField label="Username" value={draft.trapperUserName} onChange={(v) => set('trapperUserName', v)} hint={passwordHint(saved.TRAPPER.has_user_name, 'username')} />
-              <TextField label="Password" type="password" value={draft.trapperUserPassword} onChange={(v) => set('trapperUserPassword', v)} hint={passwordHint(saved.TRAPPER.has_user_password, 'password')} />
-            </div>
-            <Field label="Default classification project id" error={projectIdValid(draft.trapperProjectId) ? null : 'A whole number, or blank.'}>
-              <input
-                className={inputClass} inputMode="numeric" value={draft.trapperProjectId} aria-label="Default classification project id"
-                onChange={(e) => set('trapperProjectId', e.target.value)}
+          <div className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
+            <Row label="Server" description="The Trapper instance the datasets are fetched from.">
+              <TextField label="URL" value={draft.trapperUrl} onChange={(v) => set('trapperUrl', v)} mono />
+            </Row>
+            <Row
+              label="Account"
+              description={`${passwordHint(saved.TRAPPER.has_user_name, 'username')} ${passwordHint(saved.TRAPPER.has_user_password, 'password')} Leave a field blank to keep it.`}
+            >
+              <TextField label="Username" value={draft.trapperUserName} onChange={(v) => set('trapperUserName', v)} />
+              <TextField label="Password" type="password" value={draft.trapperUserPassword} onChange={(v) => set('trapperUserPassword', v)} />
+            </Row>
+            <Row label="Classification project" description="The project a Camtrap DP is fetched from when none is given.">
+              <Field label="Default classification project id" error={projectIdValid(draft.trapperProjectId) ? null : 'A whole number, or blank.'}>
+                <input
+                  className={inputClass} inputMode="numeric" value={draft.trapperProjectId} aria-label="Default classification project id"
+                  onChange={(e) => set('trapperProjectId', e.target.value)}
+                />
+              </Field>
+            </Row>
+            <Row label="Downloads" description="How a call to Trapper is retried. Each retry waits twice as long as the one before.">
+              <RetryFields
+                attempts={draft.trapperRetryAttempts} wait={draft.trapperRetryWaitSeconds} attemptsLabel="Attempts per call"
+                onAttemptsChange={(v) => set('trapperRetryAttempts', v)} onWaitChange={(v) => set('trapperRetryWaitSeconds', v)}
               />
-            </Field>
-            <RetryFields
-              attempts={draft.trapperRetryAttempts} wait={draft.trapperRetryWaitSeconds}
-              onAttemptsChange={(v) => set('trapperRetryAttempts', v)} onWaitChange={(v) => set('trapperRetryWaitSeconds', v)}
-            />
+            </Row>
           </div>
         )}
 
