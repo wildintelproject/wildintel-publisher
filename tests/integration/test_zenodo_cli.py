@@ -14,8 +14,8 @@ import yaml
 from PIL import Image
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
-from wildintel_publisher.services.common import _image_bucket
+from wildintel_publisher.cli.app import app
+from wildintel_publisher.core.services.common import _image_bucket
 
 runner = CliRunner()
 
@@ -28,7 +28,7 @@ def _no_real_default_preview_call(request):
     if "real_default_preview" in request.keywords:
         yield None
         return
-    with patch("wildintel_publisher.services.zenodo.set_default_preview") as mock_set:
+    with patch("wildintel_publisher.core.services.zenodo.set_default_preview") as mock_set:
         yield mock_set
 
 _M1_BUCKET = _image_bucket("m1.jpg")
@@ -362,7 +362,7 @@ def test_zenodo_upload_sets_readme_as_the_default_preview(camtrapdp_dir, tmp_pat
 def test_set_default_preview_round_trips_the_draft_through_the_inveniordm_api():
     """A full GET -> PUT of /records/{id}/draft (that PUT replaces the whole
     draft), keeping metadata/access and only setting files.default_preview."""
-    from wildintel_publisher.services.zenodo import set_default_preview
+    from wildintel_publisher.core.services.zenodo import set_default_preview
 
     draft = {"metadata": {"title": "T"}, "access": {"record": "public"}, "files": {"enabled": True, "entries": {}}}
     put_calls = []
@@ -663,7 +663,7 @@ def test_zenodo_search_my_depositions_lists_published_ones_scoped_to_the_token()
     Registry search (by organization), Zenodo's deposit API is always
     scoped to the caller's own token, so there's no separate 'by
     organization' parameter here."""
-    from wildintel_publisher.services.zenodo import search_my_depositions
+    from wildintel_publisher.core.services.zenodo import search_my_depositions
 
     def fake_get(url, **kwargs):
         if url.endswith("/records/222/files/CITATION.cff/content"):
@@ -749,7 +749,7 @@ def test_zenodo_prepare_software_self_contained_mode_zips_the_original_repo_file
 
 
 def test_zenodo_search_my_depositions_walks_every_page(monkeypatch):
-    from wildintel_publisher.services import zenodo
+    from wildintel_publisher.core.services import zenodo
 
     monkeypatch.setattr(zenodo, "SEARCH_PAGE_SIZE", 2)
     pages = {1: [{"id": 1, "metadata": {"version": "1"}}, {"id": 2, "metadata": {"version": "1"}}],

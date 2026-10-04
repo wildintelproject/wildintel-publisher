@@ -2,7 +2,7 @@
 data/
 build/
 dist/
-*.spec
+# (the PyInstaller spec is versioned)
 
 # Python
 __pycache__/

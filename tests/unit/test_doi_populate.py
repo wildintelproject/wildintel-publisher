@@ -7,8 +7,8 @@ import json
 
 import yaml
 
-from wildintel_publisher.services.common import sha256_file
-from wildintel_publisher.services.doi_populate import collect_identifiers, populate
+from wildintel_publisher.core.services.common import sha256_file
+from wildintel_publisher.core.services.doi_populate import collect_identifiers, populate
 
 
 def _write_citation(output_dir, data):

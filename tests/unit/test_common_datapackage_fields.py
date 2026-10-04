@@ -6,7 +6,7 @@ metadata.json, the app's own publish-pipeline wrapper)."""
 import json
 from pathlib import Path
 
-from wildintel_publisher.services.common import read_datapackage_metadata, update_datapackage_fields
+from wildintel_publisher.core.services.common import read_datapackage_metadata, update_datapackage_fields
 
 
 def _write_datapackage(path: Path, data: dict) -> Path:
@@ -70,7 +70,7 @@ def test_patching_datapackage_before_generate_metadata_json_syncs_metadata_json_
     so patching datapackage.json BEFORE that call is enough for
     metadata.json (and everything generated from it) to pick up the new
     value, with no separate sync step."""
-    from wildintel_publisher.services import product
+    from wildintel_publisher.core.services import product
 
     input_dir = camtrapdp_dir()  # already has a metadata.json with title "Test Dataset"
     assert product.read_metadata_json(input_dir)["title"] == "Test Dataset"

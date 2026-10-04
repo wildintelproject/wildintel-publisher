@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
+from wildintel_publisher.cli.app import app
 
 runner = CliRunner()
 
@@ -170,7 +170,7 @@ def test_hfh_readme_has_no_hugging_face_repository_section(tmp_path):
 
 
 def test_hfh_prepare_shards_a_split_over_the_per_folder_limit(tmp_path, monkeypatch):
-    from wildintel_publisher.services import yolo_adapter
+    from wildintel_publisher.core.services import yolo_adapter
 
     monkeypatch.setattr(yolo_adapter, "HFH_MAX_FILES_PER_DIRECTORY", 1)
     shard = yolo_adapter.shard_large_splits

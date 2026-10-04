@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from wildintel_publisher.services.git_source import checkout_matching_tag
+from wildintel_publisher.core.services.git_source import checkout_matching_tag
 
 
 def _run(args: list[str], cwd: Path) -> None:

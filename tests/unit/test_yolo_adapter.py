@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from wildintel_publisher.services import product
-from wildintel_publisher.services.yolo_adapter import YoloAdapter
+from wildintel_publisher.core.services import product
+from wildintel_publisher.core.services.yolo_adapter import YoloAdapter
 
 
 def _write_yolo_dataset(root: Path, *, data_yaml_extra: dict | None = None, with_test_split: bool = True) -> Path:
@@ -336,7 +336,7 @@ def test_generate_metadata_json_writes_product_type_and_history(tmp_path):
 # ── web-wizard working copy (data.yaml + pointer to the original dataset) ──
 
 def test_create_working_copy_copies_only_data_yaml_and_points_back_to_the_source(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import create_working_copy, dataset_root
+    from wildintel_publisher.core.services.yolo_adapter import create_working_copy, dataset_root
 
     source = _write_yolo_dataset(tmp_path / "source")
     working = create_working_copy(source, tmp_path / "working")
@@ -347,7 +347,7 @@ def test_create_working_copy_copies_only_data_yaml_and_points_back_to_the_source
 
 
 def test_create_working_copy_fails_without_data_yaml(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import create_working_copy
+    from wildintel_publisher.core.services.yolo_adapter import create_working_copy
 
     source = tmp_path / "source"
     source.mkdir()
@@ -356,7 +356,7 @@ def test_create_working_copy_fails_without_data_yaml(tmp_path):
 
 
 def test_dataset_root_rejects_a_pointer_to_a_missing_directory(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import dataset_root
+    from wildintel_publisher.core.services.yolo_adapter import dataset_root
 
     working = tmp_path / "working"
     working.mkdir()
@@ -366,7 +366,7 @@ def test_dataset_root_rejects_a_pointer_to_a_missing_directory(tmp_path):
 
 
 def test_prepare_from_a_working_copy_takes_images_from_the_source_and_never_ships_the_pointer(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import create_working_copy
+    from wildintel_publisher.core.services.yolo_adapter import create_working_copy
 
     source = _write_yolo_dataset(tmp_path / "source")
     _write_label(source, "train", "img0", "0 0.5 0.5 0.2 0.2\n")
@@ -382,7 +382,7 @@ def test_prepare_from_a_working_copy_takes_images_from_the_source_and_never_ship
 
 
 def test_check_dataset_returns_its_warnings(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import check_dataset
+    from wildintel_publisher.core.services.yolo_adapter import check_dataset
 
     root = _write_yolo_dataset(tmp_path / "yolo", with_test_split=False)
     warnings = check_dataset(root)
@@ -390,7 +390,7 @@ def test_check_dataset_returns_its_warnings(tmp_path):
 
 
 def test_update_editable_fields_rewrites_only_the_metadata_keys(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import (
+    from wildintel_publisher.core.services.yolo_adapter import (
         YoloEditableMetadata, read_editable_fields, update_editable_fields,
     )
 
@@ -418,7 +418,7 @@ def test_update_editable_fields_rewrites_only_the_metadata_keys(tmp_path):
 def test_editable_metadata_rejects_an_author_without_a_name():
     from pydantic import ValidationError
 
-    from wildintel_publisher.services.yolo_adapter import YoloEditableMetadata
+    from wildintel_publisher.core.services.yolo_adapter import YoloEditableMetadata
 
     with pytest.raises(ValidationError):
         YoloEditableMetadata(authors=[{"name": "  ", "affiliation": "X"}])
@@ -440,7 +440,7 @@ def test_extract_metadata_ignores_a_publisher_without_a_name(tmp_path):
 
 
 def test_update_editable_fields_writes_and_clears_publisher_and_copyright_holders(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import YoloEditableMetadata, update_editable_fields
+    from wildintel_publisher.core.services.yolo_adapter import YoloEditableMetadata, update_editable_fields
 
     root = _write_yolo_dataset(tmp_path / "yolo")
     update_editable_fields(root, YoloEditableMetadata(
@@ -494,8 +494,8 @@ def _big_split(root: Path, count: int) -> None:
 
 
 def test_shard_large_splits_only_touches_splits_over_the_limit(tmp_path):
-    from wildintel_publisher.services.common import _image_bucket
-    from wildintel_publisher.services.yolo_adapter import shard_large_splits
+    from wildintel_publisher.core.services.common import _image_bucket
+    from wildintel_publisher.core.services.yolo_adapter import shard_large_splits
 
     root = _write_yolo_dataset(tmp_path / "yolo")
     _big_split(root, 20)  # train now holds 22 images, val just 1
@@ -511,7 +511,7 @@ def test_shard_large_splits_only_touches_splits_over_the_limit(tmp_path):
 
 
 def test_unshard_splits_restores_the_original_layout_but_keeps_the_users_own_subfolders(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import shard_large_splits, unshard_splits
+    from wildintel_publisher.core.services.yolo_adapter import shard_large_splits, unshard_splits
 
     root = _write_yolo_dataset(tmp_path / "yolo")
     _big_split(root, 20)
@@ -528,7 +528,7 @@ def test_unshard_splits_restores_the_original_layout_but_keeps_the_users_own_sub
 
 
 def test_extract_core_files_hands_downstream_the_unsharded_layout(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import shard_large_splits
+    from wildintel_publisher.core.services.yolo_adapter import shard_large_splits
 
     build = _write_yolo_dataset(tmp_path / "hfh-build")
     _big_split(build, 20)
@@ -541,7 +541,7 @@ def test_extract_core_files_hands_downstream_the_unsharded_layout(tmp_path):
 
 
 def test_readme_context_reports_sharded_splits_and_still_counts_everything(tmp_path):
-    from wildintel_publisher.services.yolo_adapter import shard_large_splits
+    from wildintel_publisher.core.services.yolo_adapter import shard_large_splits
 
     root = _write_yolo_dataset(tmp_path / "yolo")
     _big_split(root, 20)

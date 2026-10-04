@@ -4,7 +4,7 @@ there before (a repo's own default URL, an already cross-referenced DOI, or
 nothing meaningful yet). Used by services.doi_populate (same-run
 cross-referencing into HFH's README) and by zenodo.py/b2share.py/gbif.py's
 own sync_doi_to_hfh/sync_pid_to_hfh (an out-of-band, later sync)."""
-from wildintel_publisher.services.common import patch_readme_citation_url
+from wildintel_publisher.core.services.common import patch_readme_citation_url
 
 README_TEMPLATE = """# My Dataset
 

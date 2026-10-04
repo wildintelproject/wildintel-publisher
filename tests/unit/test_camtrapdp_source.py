@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wildintel_publisher.services.camtrapdp_source import fetch_camtrap_dp_archive, resolve_local_camtrapdp_source
+from wildintel_publisher.core.services.camtrapdp_source import fetch_camtrap_dp_archive, resolve_local_camtrapdp_source
 
 
 def _fake_stream_response(status_code: int, body: bytes) -> MagicMock:
@@ -153,7 +153,7 @@ def test_resolve_local_source_patches_trappers_private_license_placeholder(camtr
     the wizard had to ask for one by hand, even though downloading the very
     same package with 'trapper download' directly would never have hit
     that."""
-    from wildintel_publisher.services import camtrapdp_source
+    from wildintel_publisher.core.services import camtrapdp_source
 
     monkeypatch.setattr(camtrapdp_source.settings.CAMTRAPDP, "license_id", "MIT")
     monkeypatch.setattr(camtrapdp_source.settings.CAMTRAPDP, "license_name", "MIT License")
@@ -214,7 +214,7 @@ def test_resolve_local_source_never_mutates_the_original_directory(tmp_path):
     validate/anonymize/randomize steps, run against the returned working
     copy, must never touch source_dir — regression test for the bug this
     refactor fixes (a local Camtrap DP source used to be mutated in place)."""
-    from wildintel_publisher.services import product
+    from wildintel_publisher.core.services import product
 
     source_dir = tmp_path / "original"
     source_dir.mkdir()

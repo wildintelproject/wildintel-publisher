@@ -1,0 +1,469 @@
+"""Registro (o actualización) de un dataset en el Registry de GBIF, apuntando
+a un camtrapdp ya alojado en cualquier otra parte (HuggingFace Hub, Zenodo,
+B2SHARE, un servidor propio...).
+
+A diferencia de hfh.py/zenodo.py/b2share.py, este módulo no prepara ni sube
+ningún fichero — GBIF no aloja nada por sí mismo. Solo habla con la Registry
+API (https://www.gbif.org/developer/registry) usando Basic Auth (no un
+token), creando o actualizando un dataset de tipo OCCURRENCE y su endpoint
+de tipo CAMTRAP_DP, que es lo que hace que el crawler de GBIF vaya a buscar
+el paquete a esa URL y lo indexe. Requiere una organización e instalación ya
+registradas y endosadas a mano en gbif.org (o su sandbox, gbif-test.org) —
+ver commands/gbif.py para el mensaje que explica cómo conseguirlas.
+"""
+import json
+import tempfile
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
+
+import httpx
+from rich.console import Console
+
+from wildintel_publisher.core.services import common
+
+console = Console()
+
+GBIF_ENDPOINT_TYPE = "CAMTRAP_DP"
+
+GBIF_REGISTRY_BASE_URLS = {
+    "sandbox": "https://api.gbif-test.org",
+    "production": "https://api.gbif.org",
+}
+CITATION_FILENAME = "CITATION.cff"
+README_FILENAME = "README.md"
+
+GBIF_DATASET_PAGE_URL_TEMPLATES = {
+    "sandbox": "https://registry.gbif-test.org/dataset/{key}",
+    "production": "https://www.gbif.org/dataset/{key}",
+}
+
+RECORD_FILENAME = "gbif_linked_dataset_record.json"
+
+
+def _check_response(response: httpx.Response, expected: tuple, context: str) -> None:
+    if response.status_code in expected:
+        return
+    try:
+        body = response.json()
+    except Exception:
+        body = response.text
+    raise RuntimeError(f"{context} failed. HTTP status={response.status_code}. Response={body}")
+
+
+def _read_record(output_dir: Path) -> Optional[dict]:
+    record_path = output_dir / RECORD_FILENAME
+    if not record_path.is_file():
+        return None
+    return json.loads(record_path.read_text(encoding="utf-8"))
+
+
+def _write_record(output_dir: Path, record: dict) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / RECORD_FILENAME).write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def build_dataset_payload(
+    *, publishing_organization_key: str, installation_key: str, title: str, description: str,
+    license_url: str, registry_language: str, homepage: Optional[str] = None,
+) -> dict:
+    payload = {
+        "publishingOrganizationKey": publishing_organization_key,
+        "installationKey": installation_key,
+        "type": "OCCURRENCE",
+        "title": title,
+        "description": description,
+        "language": registry_language,
+        "license": license_url,
+    }
+    # Omitted entirely rather than sent as "" — homepage is a URI-typed
+    # field on GBIF's side, and an empty string is not a valid URI.
+    if homepage:
+        payload["homepage"] = homepage
+    return payload
+
+
+def search_organization_datasets(organization_key: str, environment: str) -> list[dict]:
+    """Lista los datasets ya publicados por `organization_key` en ese
+    entorno de GBIF — GET /organization/{key}/publishedDataset, un endpoint
+    de LECTURA público (sin autenticación, confirmado contra la API real).
+    Pensado para el buscador del wizard web: el usuario elige uno de la
+    lista para reutilizar su dataset_key (ver register_gbif_dataset) en vez
+    de fiarse del fichero local (gbif_linked_dataset_record.json), que solo
+    recuerda el último dataset publicado desde ESTA MISMA `output_dir`.
+
+    Returns:
+        Una lista de {"key", "title"} — solo lo que el buscador necesita
+        mostrar, no el objeto Dataset completo que devuelve GBIF.
+
+    Raises:
+        RuntimeError: si `environment` no es 'sandbox'/'production' o falla
+        la llamada a la Registry API.
+    """
+    if environment not in GBIF_REGISTRY_BASE_URLS:
+        raise RuntimeError(f"GBIF.environment must be 'sandbox' or 'production', got: {environment!r}")
+    base_url = GBIF_REGISTRY_BASE_URLS[environment]
+
+    datasets: list[dict] = []
+    offset = 0
+    limit = 100
+    while True:
+        response = httpx.get(
+            f"{base_url}/v1/organization/{organization_key}/publishedDataset",
+            params={"limit": limit, "offset": offset}, timeout=60,
+        )
+        _check_response(response, (200,), "List organization's published datasets")
+        page = response.json()
+        datasets.extend(
+            {
+                "key": d["key"], "title": d.get("title") or "(untitled)",
+                "published": (d.get("pubDate") or d.get("modified") or d.get("created") or "")[:10] or None,
+            }
+            for d in page["results"]
+        )
+        if page.get("endOfRecords", True):
+            break
+        offset += limit
+    return datasets
+
+
+def register_gbif_dataset(
+    archive_url: str,
+    output_dir: Path,
+    *,
+    environment: str,
+    publishing_organization_key: Optional[str],
+    installation_key: Optional[str],
+    username: Optional[str],
+    password: Optional[str],
+    title: str,
+    description: str,
+    license_url: str,
+    registry_language: str,
+    homepage: Optional[str] = None,
+    dataset_key: Optional[str] = None,
+    dry_run: bool = False,
+) -> dict:
+    """Registra (primera vez) o actualiza (siguientes) el dataset en el
+    Registry de GBIF, y reemplaza su endpoint CAMTRAP_DP por `archive_url` —
+    nunca sube ningún fichero, solo le dice a GBIF dónde rastrearlo.
+
+    Qué dataset_key se actualiza (o si se crea uno nuevo) se decide así, en
+    este orden:
+
+    1. `dataset_key`, si se da explícitamente — la elección del caller (ver
+       el wizard web, donde el usuario lo escribe a mano o lo elige con el
+       buscador — ver search_organization_datasets) tiene siempre prioridad.
+    2. Si no, el que ya estuviera registrado de una ejecución ANTERIOR de
+       esta misma función contra el mismo `output_dir` — se lee de
+       `output_dir`/gbif_linked_dataset_record.json. Este mecanismo local
+       solo es fiable mientras `output_dir` sea exclusivo de ESTE dataset —
+       ver el aviso de más abajo.
+    3. Si tampoco hay eso, se crea un dataset nuevo (POST) y GBIF le asigna
+       un dataset_key nuevo.
+
+    Importante: `output_dir`/gbif_linked_dataset_record.json es UN solo
+    fichero de nombre fijo — si reutilizas el mismo `output_dir` para dos
+    datasets DISTINTOS, el segundo sobreescribe la referencia local del
+    primero (el dataset del primero sigue existiendo en GBIF, intacto, pero
+    esta función ya no sabe cuál es su dataset_key salvo que se lo des tú
+    explícitamente por (1)). Pasar dataset_key a mano es la forma robusta de
+    evitar esto.
+
+    Returns:
+        El registro local {"dataset_key", "environment", "archive_url",
+        "dataset_page_url", "doi" (None salvo que la organización tenga su
+        propio acuerdo con DataCite — ver el fetch más abajo),
+        "registered_at_utc"} — ya guardado en
+        `output_dir`/gbif_linked_dataset_record.json.
+
+    Raises:
+        RuntimeError: si `archive_url` no es http(s), `environment` no es
+        'sandbox'/'production', faltan las claves de organización/
+        instalación o las credenciales, o falla cualquier llamada a la
+        Registry API.
+    """
+    if not (archive_url.startswith("http://") or archive_url.startswith("https://")):
+        raise RuntimeError(f"--archive-url must be a public http(s) URL, got: {archive_url}")
+    if environment not in GBIF_REGISTRY_BASE_URLS:
+        raise RuntimeError(f"GBIF.environment must be 'sandbox' or 'production', got: {environment!r}")
+    if not publishing_organization_key or not installation_key:
+        raise RuntimeError(
+            "GBIF.publishing_organization_key and GBIF.installation_key must both be set — "
+            "they can't be guessed. Register an organization/installation on gbif.org (or its "
+            "sandbox at gbif-test.org) and set them with 'wildintel-publisher gbif config set "
+            "publishing_organization_key=...' / 'installation_key=...'."
+        )
+    if not username or not password:
+        raise RuntimeError(
+            "No GBIF Registry API credentials found. Set the GBIF_USERNAME/GBIF_PASSWORD "
+            "environment variables, or store them with 'wildintel-publisher gbif config set "
+            "username' / 'set password'."
+        )
+
+    base_url = GBIF_REGISTRY_BASE_URLS[environment]
+    auth = (username, password)
+
+    existing_record = _read_record(output_dir) or {}
+    dataset_key = dataset_key or existing_record.get("dataset_key")
+
+    dataset_payload = build_dataset_payload(
+        publishing_organization_key=publishing_organization_key,
+        installation_key=installation_key,
+        title=title,
+        description=description,
+        license_url=license_url,
+        registry_language=registry_language,
+        homepage=homepage,
+    )
+
+    if dry_run:
+        console.print(
+            f"[yellow]Dry run.[/yellow] Would {'update' if dataset_key else 'create'} the GBIF "
+            f"dataset at {base_url} with: {dataset_payload}"
+        )
+        console.print(f"[yellow]Dry run.[/yellow] Would then point its {GBIF_ENDPOINT_TYPE} endpoint at: {archive_url}")
+        return {
+            "dataset_key": dataset_key,
+            "environment": environment,
+            "archive_url": archive_url,
+            "dataset_page_url": None,
+            "doi": None,
+            "registered_at_utc": None,
+        }
+
+    if dataset_key:
+        console.print(f"Updating existing GBIF dataset: {dataset_key}")
+        response = httpx.put(
+            f"{base_url}/v1/dataset/{dataset_key}", json={**dataset_payload, "key": dataset_key}, auth=auth, timeout=60,
+        )
+        _check_response(response, (200, 204), "Update GBIF dataset")
+    else:
+        console.print(f"Registering new GBIF dataset ({environment})...")
+        response = httpx.post(f"{base_url}/v1/dataset", json=dataset_payload, auth=auth, timeout=60)
+        _check_response(response, (200, 201), "Register GBIF dataset")
+        dataset_key = response.json()
+        console.print(f"Created GBIF dataset: {dataset_key}")
+
+    # Elimina cualquier endpoint de nuestro tipo que quedara de una ejecución
+    # anterior antes de añadir el actual, para que volver a registrar nunca
+    # deje endpoints duplicados apuntando a URLs viejas/renombradas.
+    endpoints_response = httpx.get(f"{base_url}/v1/dataset/{dataset_key}/endpoint", auth=auth, timeout=60)
+    _check_response(endpoints_response, (200,), "Fetch GBIF dataset endpoints")
+    for endpoint in endpoints_response.json():
+        if endpoint.get("type") == GBIF_ENDPOINT_TYPE:
+            delete_response = httpx.delete(
+                f"{base_url}/v1/dataset/{dataset_key}/endpoint/{endpoint['key']}", auth=auth, timeout=60,
+            )
+            _check_response(delete_response, (200, 204), "Delete stale GBIF dataset endpoint")
+
+    console.print(f"Adding {GBIF_ENDPOINT_TYPE} endpoint: {archive_url}")
+    endpoint_response = httpx.post(
+        f"{base_url}/v1/dataset/{dataset_key}/endpoint",
+        json={"type": GBIF_ENDPOINT_TYPE, "url": archive_url},
+        auth=auth, timeout=60,
+    )
+    _check_response(endpoint_response, (200, 201), "Add GBIF dataset endpoint")
+
+    # Some organizations have their own DataCite arrangement configured
+    # with GBIF, which makes it auto-mint a DOI for every dataset registered
+    # under them — entirely GBIF/organization-side, never something this
+    # tool requests. Fetched here (a plain GET, the POST/PUT responses above
+    # don't reliably include it) so sync_doi_to_hfh can reflect it into
+    # HFH's own CITATION.cff later, same as Zenodo/B2SHARE's own DOI/PID.
+    dataset_response = httpx.get(f"{base_url}/v1/dataset/{dataset_key}", auth=auth, timeout=60)
+    _check_response(dataset_response, (200,), "Fetch GBIF dataset")
+    doi = dataset_response.json().get("doi") or None
+
+    dataset_page_url = GBIF_DATASET_PAGE_URL_TEMPLATES[environment].format(key=dataset_key)
+    record = {
+        "dataset_key": dataset_key,
+        "environment": environment,
+        "archive_url": archive_url,
+        "dataset_page_url": dataset_page_url,
+        "doi": doi,
+        "registered_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    _write_record(output_dir, record)
+
+    console.print(f"[green]✔  GBIF dataset registered: {dataset_page_url}[/green]")
+    console.print("   GBIF crawls new/updated endpoints within a few hours — check back at the link above.")
+    return record
+
+
+def _validate_media_filepaths_are_urls(root_dir: Path) -> None:
+    """GBIF never hosts the media itself — it only crawls/decompresses the
+    archive once and, from then on, treats media.csv's own filePath as the
+    permanent, independently resolvable location of each file (turned into
+    a Darwin Core Multimedia extension entry pointing at filePath as-is).
+
+    A relative path (e.g. 'images/m1.jpg', valid inside a self-contained
+    Camtrap DP package on its own) or a local filesystem path never
+    resolves to anything once GBIF's crawler has moved past the archive —
+    even if the file actually sits right next to it, inside that very same
+    zip. Same failure shape as every other check in this module: nothing
+    errors visibly anywhere (this project, the GBIF Registry API, or the
+    dataset's own page) — GBIF just ends up with occurrence records that
+    have no working media link.
+
+    Raises:
+        RuntimeError: if media.csv has any filePath value that isn't an
+        absolute http(s) URL.
+    """
+    media_csv_path = root_dir / common.MEDIA_CSV_FILENAME
+    if not media_csv_path.is_file():
+        return
+    fieldnames, rows = common.read_csv(media_csv_path)
+    if common.FILE_PATH_COLUMN not in fieldnames:
+        return
+
+    invalid = []
+    for row in rows:
+        file_path = row.get(common.FILE_PATH_COLUMN) or ""
+        parsed = urlparse(file_path)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            invalid.append(file_path)
+
+    if invalid:
+        shown = ", ".join(repr(path) for path in invalid[:5])
+        remaining = f" (+{len(invalid) - 5} more)" if len(invalid) > 5 else ""
+        raise RuntimeError(
+            f"media.csv has {len(invalid)} filePath value(s) that aren't a public http(s) URL: "
+            f"{shown}{remaining}. GBIF never hosts the media itself, so every filePath must "
+            "already be an absolute URL that resolves on its own — a relative path (e.g. "
+            "'images/m1.jpg') or a local filesystem path never does, once GBIF's crawler has "
+            "decompressed and discarded the archive, even if the file is right there inside it."
+        )
+
+
+def validate_camtrap_dp_archive(url: str, *, timeout: int = 60) -> None:
+    """Downloads `url` (expected to be a zip archive containing a whole
+    Camtrap DP package — what GBIF's own CAMTRAP_DP crawler actually
+    expects as --archive-url, NOT a bare datapackage.json, see this
+    module's own docstring and docs/publishing-gbif.md) and validates it
+    the same way common.validate_camtrap_dp already does before any repo
+    publishes — catches upfront the exact failure mode GBIF's crawler hits
+    silently otherwise (a crawl that finishes with finishReason=ABORT and
+    nothing ever indexed, with no error visible anywhere in this project).
+
+    Calls common.validate_camtrap_dp with patch_missing_profile=False —
+    `url` is hosted externally, in a throwaway extraction this function
+    discards once done, so silently patching a missing "profile" here (the
+    default elsewhere) would only fix a copy nobody ever sees, while
+    reporting a false "valid" for the real, unpatched file GBIF will
+    actually crawl.
+
+    Raises:
+        RuntimeError: if `url` isn't http(s), can't be downloaded, isn't a
+        real zip archive, the extracted content doesn't pass Camtrap DP
+        validation (frictionless, including a missing "profile"), or
+        media.csv has any filePath that isn't an absolute http(s) URL (see
+        _validate_media_filepaths_are_urls) — the message identifies which.
+    """
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise RuntimeError(f"Archive URL must be a public http(s) URL, got: {url}")
+
+    with tempfile.TemporaryDirectory(prefix="gbif-archive-validate-") as tmp:
+        tmp_dir = Path(tmp)
+        zip_path = tmp_dir / "archive.zip"
+        try:
+            with httpx.stream("GET", url, follow_redirects=True, timeout=timeout) as response:
+                if response.status_code != 200:
+                    raise RuntimeError(f"Could not download {url}: HTTP {response.status_code}.")
+                with zip_path.open("wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Could not download {url}: {exc}") from exc
+
+        if not zipfile.is_zipfile(zip_path):
+            raise RuntimeError(
+                f"{url} is not a valid zip archive. GBIF's CAMTRAP_DP crawler downloads this URL "
+                "and tries to decompress it, so it must be a zip containing the whole Camtrap DP "
+                "package (e.g. camtrapdp-remote.zip) — not a bare datapackage.json, which downloads "
+                "fine but then fails to decompress, silently, with nothing ever crawled."
+            )
+
+        extract_dir = tmp_dir / "extracted"
+        extract_dir.mkdir()
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(extract_dir)
+
+        camtrap_dp_root = common.find_camtrap_dp_root(extract_dir)
+        common.validate_camtrap_dp(camtrap_dp_root, patch_missing_profile=False)
+        _validate_media_filepaths_are_urls(camtrap_dp_root)
+
+
+def sync_doi_to_hfh(*, gbif_output_dir: Path, hfh_output_dir: Path, checksums_path: Optional[Path] = None) -> str:
+    """Lee el DOI que GBIF asignó al dataset (si lo hay — solo lo tienen
+    organizaciones con su propio acuerdo de DataCite configurado con GBIF,
+    ver register_gbif_dataset) desde `gbif_output_dir`/
+    gbif_linked_dataset_record.json, y lo refleja en el CITATION.cff (y la
+    sección "## Citation" de su README.md — ver
+    common.patch_readme_citation_url) de `hfh_output_dir` (el export ya
+    preparado para HuggingFace Hub) — actualizando también sus checksums. El
+    paso recomendado después es volver a subir con 'hfh upload'.
+
+    `checksums_path` — opcional, por defecto `hfh_output_dir`/
+    checksums-sha256.txt — solo hace falta indicarlo cuando ese fichero no
+    vive ahí (p.ej. una caché aparte — ver publish_orchestrator's own
+    docstring sobre por qué `hfh_output_dir` podría no tener ya el resto
+    del export presente localmente).
+
+    A diferencia de Zenodo (que en sandbox emite un DOI de pega para
+    pruebas), el DOI de GBIF, cuando existe, viene de la cuenta DataCite
+    real de la organización — se trata siempre como definitivo, sin la
+    distinción sandbox/producción que sí hace falta en zenodo.py.
+
+    Returns:
+        El DOI sincronizado.
+
+    Raises:
+        RuntimeError: si el dataset de GBIF no tiene DOI asignado (lo
+        normal — no es un fallo, solo no hay nada que sincronizar), o si
+        `hfh_output_dir`/CITATION.cff no existe.
+    """
+    record = _read_record(gbif_output_dir) or {}
+    doi = record.get("doi")
+    if not doi:
+        raise RuntimeError(
+            f"The GBIF dataset in {gbif_output_dir} has no DOI — most organizations don't get one "
+            "automatically (only those with their own DataCite arrangement configured with GBIF). "
+            "There's nothing to sync."
+        )
+
+    hfh_citation_path = hfh_output_dir / CITATION_FILENAME
+    if not hfh_citation_path.is_file():
+        raise RuntimeError(f"{hfh_citation_path} not found — run 'hfh prepare' first.")
+
+    # The DOI resolver URL, not GBIF's own dataset_page_url — same
+    # convention doi_populate.py's own RepoIdentifier uses for Zenodo/
+    # B2SHARE's DOI, so a citation always resolves through doi.org
+    # regardless of which repo it came from.
+    doi_url = f"https://doi.org/{doi}"
+    citation_changed = common.patch_citation_with_identifier(
+        hfh_citation_path, value=doi, kind="doi", url=doi_url, description="GBIF DOI",
+    )
+    readme_path = hfh_output_dir / README_FILENAME
+    readme_changed = common.patch_readme_citation_url(readme_path, doi_url)
+
+    # Only the (up to 2) files that actually changed get re-hashed — same
+    # reasoning as services.doi_populate.populate's own
+    # update_checksums_entries call: `hfh_output_dir` might not have the
+    # rest of the export's own files physically present anymore by the
+    # time this runs (see publish_orchestrator's own docstring), so
+    # write_checksums (which needs every one of them locally to re-hash)
+    # would leave checksums-sha256.txt silently incomplete instead.
+    changed_files: dict[str, Path] = {}
+    if citation_changed:
+        changed_files[CITATION_FILENAME] = hfh_citation_path
+    if readme_changed:
+        changed_files[README_FILENAME] = readme_path
+    if changed_files:
+        common.update_checksums_entries(checksums_path or (hfh_output_dir / common.CHECKSUM_FILENAME), changed_files)
+
+    console.print(f"[green]✔  DOI {doi} reflected in {hfh_citation_path}.[/green]")
+    console.print("   Re-upload with [bold]hfh upload[/bold] to publish the change.")
+    return doi

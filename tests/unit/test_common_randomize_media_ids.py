@@ -7,7 +7,7 @@ import csv
 import uuid
 from pathlib import Path
 
-from wildintel_publisher.services.common import randomize_media_ids
+from wildintel_publisher.core.services.common import randomize_media_ids
 
 
 def _write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:

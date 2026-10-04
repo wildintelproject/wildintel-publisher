@@ -8,8 +8,8 @@ function signature so what CITATION.cff can eventually contain is visible
 without having to know about those patch functions."""
 import yaml
 
-from wildintel_publisher.config import REPO_ROOT
-from wildintel_publisher.services import common
+from wildintel_publisher.core.config import REPO_ROOT
+from wildintel_publisher.core.services import common
 
 CITATION_TEMPLATE_FILE = REPO_ROOT / "templates" / "common" / "CITATION.cff.j2"
 

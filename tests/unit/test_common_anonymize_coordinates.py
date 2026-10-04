@@ -7,7 +7,7 @@ the same deployment, however many of them (or in what order) prepare it."""
 import csv
 from pathlib import Path
 
-from wildintel_publisher.services.common import anonymize_deployment_coordinates
+from wildintel_publisher.core.services.common import anonymize_deployment_coordinates
 
 
 def _write_deployments_csv(output_dir: Path, rows: list[dict]) -> None:

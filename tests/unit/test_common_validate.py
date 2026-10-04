@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wildintel_publisher.services.common import CAMTRAP_DP_PROFILE_URL, validate_camtrap_dp
+from wildintel_publisher.core.services.common import CAMTRAP_DP_PROFILE_URL, validate_camtrap_dp
 
 
 def _fake_report(*, valid: bool, errors: list | None = None):
@@ -28,7 +28,7 @@ def test_validate_camtrap_dp_injects_missing_profile(tmp_path):
     datapackage_path = tmp_path / "datapackage.json"
     datapackage_path.write_text(json.dumps({"title": "T"}), encoding="utf-8")
 
-    with patch("wildintel_publisher.services.common.frictionless_validate", return_value=_fake_report(valid=True)):
+    with patch("wildintel_publisher.core.services.common.frictionless_validate", return_value=_fake_report(valid=True)):
         validate_camtrap_dp(tmp_path)
 
     data = json.loads(datapackage_path.read_text(encoding="utf-8"))
@@ -39,7 +39,7 @@ def test_validate_camtrap_dp_leaves_existing_profile_untouched(tmp_path):
     datapackage_path = tmp_path / "datapackage.json"
     datapackage_path.write_text(json.dumps({"title": "T", "profile": "https://example.org/custom-profile.json"}), encoding="utf-8")
 
-    with patch("wildintel_publisher.services.common.frictionless_validate", return_value=_fake_report(valid=True)):
+    with patch("wildintel_publisher.core.services.common.frictionless_validate", return_value=_fake_report(valid=True)):
         validate_camtrap_dp(tmp_path)
 
     data = json.loads(datapackage_path.read_text(encoding="utf-8"))
@@ -51,7 +51,7 @@ def test_validate_camtrap_dp_raises_on_invalid_report(tmp_path):
     datapackage_path.write_text(json.dumps({"title": "T", "profile": CAMTRAP_DP_PROFILE_URL}), encoding="utf-8")
 
     with patch(
-        "wildintel_publisher.services.common.frictionless_validate",
+        "wildintel_publisher.core.services.common.frictionless_validate",
         return_value=_fake_report(valid=False, errors=["'project' is a required property"]),
     ):
         with pytest.raises(RuntimeError, match="does not pass Camtrap DP validation"):
@@ -69,7 +69,7 @@ def test_validate_camtrap_dp_embeds_the_actual_errors_in_the_exception_message(t
     datapackage_path.write_text(json.dumps({"title": "T", "profile": CAMTRAP_DP_PROFILE_URL}), encoding="utf-8")
 
     with patch(
-        "wildintel_publisher.services.common.frictionless_validate",
+        "wildintel_publisher.core.services.common.frictionless_validate",
         return_value=_fake_report(valid=False, errors=["'project' is a required property"]),
     ):
         with pytest.raises(RuntimeError, match="'project' is a required property"):

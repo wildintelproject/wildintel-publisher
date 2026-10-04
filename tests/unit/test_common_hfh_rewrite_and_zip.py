@@ -4,7 +4,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from wildintel_publisher.services.common import (
+from wildintel_publisher.core.services.common import (
     _image_bucket,
     rewrite_media_filepaths_to_hfh,
     sha256_file,

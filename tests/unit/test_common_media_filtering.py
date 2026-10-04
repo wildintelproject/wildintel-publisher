@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wildintel_publisher.services.common import (
+from wildintel_publisher.core.services.common import (
     drop_observations_of_removed_media,
     keep_only_public_media,
     read_csv,

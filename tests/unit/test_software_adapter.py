@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from wildintel_publisher.services import product
-from wildintel_publisher.services.software_adapter import SoftwareAdapter
+from wildintel_publisher.core.services import product
+from wildintel_publisher.core.services.software_adapter import SoftwareAdapter
 
 DEFAULT_CITATION_CFF = {
     "cff-version": "1.2.0", "title": "my-app", "version": "2.1.0",
@@ -151,7 +151,7 @@ def test_checkout_release_delegates_to_git_source(tmp_path, monkeypatch):
     root = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
     calls = []
     monkeypatch.setattr(
-        "wildintel_publisher.services.software_adapter.git_source.checkout_matching_tag",
+        "wildintel_publisher.core.services.software_adapter.git_source.checkout_matching_tag",
         lambda repo_dir, version, **kwargs: calls.append((repo_dir, version)) or "v1.0.0",
     )
 
@@ -164,7 +164,7 @@ def test_checkout_release_delegates_to_git_source(tmp_path, monkeypatch):
 def test_checkout_release_does_not_raise_when_no_tag_matches(tmp_path, monkeypatch):
     root = _write_repo(tmp_path / "repo", citation_cff=DEFAULT_CITATION_CFF)
     monkeypatch.setattr(
-        "wildintel_publisher.services.software_adapter.git_source.checkout_matching_tag",
+        "wildintel_publisher.core.services.software_adapter.git_source.checkout_matching_tag",
         lambda repo_dir, version, **kwargs: None,
     )
 

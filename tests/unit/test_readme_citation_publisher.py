@@ -8,8 +8,8 @@ import csv
 
 import pytest
 
-from wildintel_publisher.config import B2ShareSettings, HFHSettings, ZenodoSettings
-from wildintel_publisher.services import b2share, common, hfh, product, zenodo
+from wildintel_publisher.core.config import B2ShareSettings, HFHSettings, ZenodoSettings
+from wildintel_publisher.core.services import b2share, common, hfh, product, zenodo
 
 AUTHORS = [{"name": "Jane Doe"}]
 PUBLISHER = {"name": "WildINTEL", "website": "https://wildintel.eu/", "email": "wildintelproject@gmail.com"}

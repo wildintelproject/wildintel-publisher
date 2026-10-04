@@ -21,8 +21,8 @@ import yaml
 from PIL import Image
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
-from wildintel_publisher.services.common import _image_bucket
+from wildintel_publisher.cli.app import app
+from wildintel_publisher.core.services.common import _image_bucket
 
 runner = CliRunner()
 
@@ -565,7 +565,7 @@ def test_b2share_search_my_records_lists_published_ones_scoped_to_the_token():
     always scoped to the caller's own token, filtered to is_published:true
     via InvenioRDM's own Elasticsearch query-string syntax (no dedicated
     'status' parameter for this endpoint)."""
-    from wildintel_publisher.services.b2share import search_my_records
+    from wildintel_publisher.core.services.b2share import search_my_records
 
     def fake_get(url, **kwargs):
         if url.endswith("/records/rec-2/files/CITATION.cff/content"):
@@ -614,7 +614,7 @@ def test_b2share_prepare_software_reference_mode_copies_no_source_and_cites_the_
 
 
 def test_b2share_search_my_records_walks_every_page(monkeypatch):
-    from wildintel_publisher.services import b2share
+    from wildintel_publisher.core.services import b2share
 
     monkeypatch.setattr(b2share, "SEARCH_PAGE_SIZE", 2)
     pages = {

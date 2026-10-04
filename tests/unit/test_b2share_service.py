@@ -3,7 +3,7 @@
 building (InvenioRDM record body), and CITATION.cff PID-patching."""
 import yaml
 
-from wildintel_publisher.services.b2share import (
+from wildintel_publisher.core.services.b2share import (
     B2SHARE_PID_DESCRIPTION,
     _patch_citation_with_pid,
     build_b2share_metadata,

@@ -9,7 +9,7 @@ import gzip
 import json
 from pathlib import Path
 
-from wildintel_publisher.services.common import (
+from wildintel_publisher.core.services.common import (
     _clear_datapackage_resource_compression,
     decompress_gzipped_tables,
 )

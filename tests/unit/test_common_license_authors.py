@@ -2,7 +2,7 @@
 resolve_contact/format_apa_*."""
 import pytest
 
-from wildintel_publisher.services.common import (
+from wildintel_publisher.core.services.common import (
     format_apa_author,
     format_apa_citation,
     resolve_authors,

@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 import yaml
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
-from wildintel_publisher.services.gbif import RECORD_FILENAME
+from wildintel_publisher.cli.app import app
+from wildintel_publisher.core.services.gbif import RECORD_FILENAME
 
 runner = CliRunner()
 
@@ -66,7 +66,7 @@ def test_gbif_register_rejects_non_camtrapdp_product(tmp_path, monkeypatch):
     monkeypatch.setenv("GBIF_USERNAME", "user")
     monkeypatch.setenv("GBIF_PASSWORD", "pass")
 
-    from wildintel_publisher.services import product
+    from wildintel_publisher.core.services import product
     input_dir = tmp_path / "yolo_dataset"
     input_dir.mkdir()
     product.write_metadata_json(input_dir, {

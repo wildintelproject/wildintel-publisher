@@ -56,28 +56,37 @@ step afterwards.
 ## Project layout
 
 ```
-wildintel_publisher/                  ← the CLI package
-├── commands/                         ← Typer command groups (trapper, product, hfh, zenodo, b2share)
-└── services/
-    ├── product.py                    ← ProductAdapter protocol + metadata.json envelope
-    ├── camtrapdp_adapter.py           ← ProductAdapter for Camtrap DP
-    ├── yolo_adapter.py                ← ProductAdapter for YOLO
-    ├── common.py                     ← shared helpers (README/CITATION.cff rendering, checksums, zip bundling...)
-    ├── doi_populate.py               ← cross-repository DOI reflection (web app only)
-    ├── hfh.py / zenodo.py / b2share.py  ← one module per repository integration
-    └── trapper.py                    ← Trapper API client (Camtrap DP fetching only)
+src/wildintel_publisher/
+├── core/                             ← all the logic, shared by the CLI and the web app
+│   ├── config.py / logging_setup.py  ← settings.toml (Dynaconf + Pydantic) and the app log
+│   └── services/
+│       ├── product.py                ← ProductAdapter protocol + metadata.json envelope
+│       ├── camtrapdp_adapter.py      ← ProductAdapter for Camtrap DP
+│       ├── yolo_adapter.py           ← ProductAdapter for YOLO
+│       ├── common.py                 ← shared helpers (README/CITATION.cff rendering, checksums, zip bundling...)
+│       ├── doi_populate.py           ← cross-repository DOI reflection (web app only)
+│       ├── hfh.py / zenodo.py / b2share.py  ← one module per repository integration
+│       └── trapper.py                ← Trapper API client (Camtrap DP fetching only)
+├── cli/                              ← the command-line app (Typer)
+│   ├── app.py                        ← entry point (`wildintel-publisher`)
+│   └── commands/                     ← command groups (trapper, product, hfh, zenodo, b2share, gbif)
+├── web/                              ← the web app's FastAPI backend
+│   ├── main.py / app_entry.py        ← the app / the bundled executable's entry point
+│   ├── api/routers/                  ← one router per feature
+│   ├── schemas/                      ← request models
+│   └── services/                     ← thin wrappers around core.services.*
+│       └── publish_orchestrator.py   ← multi-repo upload-all → populate → lock-all sequencing
+└── wpcli.py                          ← project management (`wpcli`): dev, tests, docs, packages
 
-wildintel_publisher_web/              ← the web app (FastAPI backend + React frontend)
-├── backend/src/services/             ← thin wrappers around wildintel_publisher.services.*
-│   └── publish_orchestrator.py       ← multi-repo upload-all → populate → lock-all sequencing
-└── frontend/src/                     ← the wizard UI
+frontend/src/                         ← the web app's wizard UI (React + Vite)
+templates/                            ← Jinja templates for the READMEs / CITATION.cff / LICENSE
+tests/                                ← unit/ (core), integration/ (CLI), web/ (backend)
 ```
 
-The web backend does not reimplement any publishing logic — it depends on
-`wildintel_publisher` as an editable path dependency and calls straight into
-`wildintel_publisher.services.*`, wrapping each blocking call in `asyncio.to_thread` so
+The web backend does not reimplement any publishing logic — it calls straight into
+`wildintel_publisher.core.services.*`, wrapping each blocking call in `asyncio.to_thread` so
 the CLI's own synchronous functions can run from FastAPI's async routes. A new product
-type or repository integration written in `wildintel_publisher/services/` is
+type or repository integration written in `core/services/` is
 automatically available to both the CLI and the web app — there is nothing to
 duplicate on the web side beyond a router/schema/UI form for it.
 
@@ -85,11 +94,11 @@ duplicate on the web side beyond a router/schema/UI form for it.
 
 ## Running the web app locally
 
-From `wildintel_publisher_web/` (requires Node.js v18+ for the frontend):
+From the repository's root (requires Node.js v18+ for the frontend):
 
 ```bash
-uv sync
-uv run wildintel-publisher-web dev
+uv sync --group dev
+uv run wpcli dev
 ```
 
 This starts the FastAPI backend (`--reload`, default port `8767` or
@@ -97,18 +106,20 @@ This starts the FastAPI backend (`--reload`, default port `8767` or
 streaming both logs interleaved — Ctrl+C stops both. Override ports with
 `--backend-port`/`--frontend-port`.
 
-`wildintel_publisher_web/webcli.py` (installed as the `wildintel-publisher-web` entry
-point) also exposes each piece individually, useful when you only need one side running:
+`wpcli` (`src/wildintel_publisher/wpcli.py`) manages the whole project, and also exposes
+each piece individually, useful when you only need one side running:
 
 | Command | Does |
 |---|---|
-| `uv run wildintel-publisher-web backend serve [dev\|prod]` | Backend only — `dev` reloads on change, `prod` runs multi-worker without reload. |
-| `uv run wildintel-publisher-web backend test` | Backend pytest suite (`-v`/`-k` passthrough). |
-| `uv run wildintel-publisher-web frontend dev` | Frontend dev server only (hot-reload). |
-| `uv run wildintel-publisher-web frontend build` | Production build → `frontend/dist/`. |
-| `uv run wildintel-publisher-web frontend preview` | Serves the production build locally. |
-| `uv run wildintel-publisher-web frontend lint` | oxlint over the frontend source. |
-| `uv run wildintel-publisher-web frontend test` | Frontend Vitest suite. |
+| `uv run wpcli backend serve [dev\|prod\|debug]` | Backend only — `dev` reloads on change, `prod` runs multi-worker without reload, `debug` waits for a debugger on port 5678. |
+| `uv run wpcli test [unit\|integration\|web\|all]` | Python test suites (`-v`/`-k` passthrough). `backend test` runs them all. |
+| `uv run wpcli frontend dev` | Frontend dev server only (hot-reload). |
+| `uv run wpcli frontend build` | Production build → `frontend/dist/`. |
+| `uv run wpcli frontend preview` | Serves the production build locally. |
+| `uv run wpcli frontend lint` | oxlint over the frontend source. |
+| `uv run wpcli frontend test` | Frontend Vitest suite. |
+| `uv run wpcli docs serve\|build\|pdf\|screenshots` | These docs: serve them, build the site or a single PDF, regenerate the web manual's screenshots. |
+| `uv run wpcli package build` | The executable for this system (AppImage / `.exe` / `.dmg`) in `dist/` — one binary: no arguments starts the web app, any runs the CLI. |
 
 This `dev` command is for local development only — end users run the app from the
 prebuilt release binary instead (see the
@@ -121,7 +132,7 @@ prebuilt release binary instead (see the
 A **product type** (`camtrapdp`, `yolo`, ...) is anything `wildintel-publisher` can turn
 into a publishable export. Every repository integration (`hfh.py`/`zenodo.py`/
 `b2share.py`) is written against the generic `metadata.json` envelope described in
-`wildintel_publisher/services/product.py` — it never inspects the raw product's own
+`src/wildintel_publisher/core/services/product.py` — it never inspects the raw product's own
 format directly. This is what lets `hfh prepare --product-type yolo` and
 `hfh prepare --product-type camtrapdp` share the exact same command implementation.
 
@@ -241,13 +252,13 @@ as primary (`primary_doi_source` — Zenodo's, else B2SHARE's, by default; see
 
 ### Wiring it into the CLI and web app
 
-- **CLI**: add `wildintel_publisher/commands/<repo>.py`, following `hfh.py`/`zenodo.py`/
+- **CLI**: add `src/wildintel_publisher/cli/commands/<repo>.py`, following `hfh.py`/`zenodo.py`/
   `b2share.py` for the `prepare`/`upload`/`release` (and `sync-doi`-equivalent, if your
-  repository provides a DOI) command shape, and register the Typer app in `main.py`.
-- **Web app**: add `wildintel_publisher_web/backend/src/services/<repo>_service.py`
-  (thin `asyncio.to_thread` wrappers) and `api/routers/<repo>.py`, then add the
+  repository provides a DOI) command shape, and register the Typer app in `cli/app.py`.
+- **Web app**: add `src/wildintel_publisher/web/services/<repo>_service.py`
+  (thin `asyncio.to_thread` wrappers) and `web/api/routers/<repo>.py`, then add the
   repository to `publish_orchestrator.py`'s upload/populate/lock phases and
-  `schemas/requests.py`'s `RepoPublishConfig`, and add a config form on the frontend
+  `web/schemas/requests.py`'s `RepoPublishConfig`, and add a config form on the frontend
   (see `HFHPublishForm.tsx`/`ZenodoPublishForm.tsx`/`B2SharePublishForm.tsx`).
 
 ### Write the docs and tests

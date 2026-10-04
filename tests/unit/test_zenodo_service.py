@@ -3,7 +3,7 @@ DOI extraction/priority, publication-state detection, and CITATION.cff
 DOI-patching (production vs sandbox)."""
 import yaml
 
-from wildintel_publisher.services.zenodo import (
+from wildintel_publisher.core.services.zenodo import (
     SANDBOX_DOI_DESCRIPTION,
     _patch_citation_with_doi,
     build_zenodo_metadata,

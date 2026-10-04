@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from wildintel_publisher.services.common import fit_images_to_size
+from wildintel_publisher.core.services.common import fit_images_to_size
 
 
 def _write_random_jpeg(path: Path, *, width: int, height: int, quality: int = 95) -> None:

@@ -39,7 +39,9 @@ jobs:
 
       - name: Build executable
         run: |
-          uv run pyinstaller wildintel_publisher/main.py \
+          uv run pyinstaller src/wildintel_publisher/cli/app.py \
+            --paths src \
+            --collect-submodules wildintel_publisher \
             --onefile \
             --name wildintel-publisher \
             --add-data "templates:templates" \
@@ -96,7 +98,9 @@ jobs:
       - name: Build executable
         shell: bash
         run: |
-          uv run pyinstaller wildintel_publisher/main.py \
+          uv run pyinstaller src/wildintel_publisher/cli/app.py \
+            --paths src \
+            --collect-submodules wildintel_publisher \
             --onefile \
             --name wildintel-publisher \
             --add-data "templates;templates" \
@@ -152,7 +156,9 @@ jobs:
 
       - name: Build executable
         run: |
-          uv run pyinstaller wildintel_publisher/main.py \
+          uv run pyinstaller src/wildintel_publisher/cli/app.py \
+            --paths src \
+            --collect-submodules wildintel_publisher \
             --onefile \
             --name wildintel-publisher \
             --add-data "templates:templates" \

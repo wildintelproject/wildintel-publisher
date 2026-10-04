@@ -8,8 +8,8 @@ import csv
 
 import yaml
 
-from wildintel_publisher.config import HFHSettings
-from wildintel_publisher.services import common, hfh, product
+from wildintel_publisher.core.config import HFHSettings
+from wildintel_publisher.core.services import common, hfh, product
 
 
 def _extract_frontmatter(readme_text: str) -> dict:

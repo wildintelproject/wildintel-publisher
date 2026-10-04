@@ -4,7 +4,7 @@ services.doi_populate (cross-referencing one repo's DOI into another's
 CITATION.cff)."""
 import yaml
 
-from wildintel_publisher.services.common import patch_citation_with_identifier
+from wildintel_publisher.core.services.common import patch_citation_with_identifier
 
 
 def _write(tmp_path, data):

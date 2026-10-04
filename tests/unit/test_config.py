@@ -1,7 +1,7 @@
-"""Unit tests for wildintel_publisher.config (Settings/TrapperSettings/etc)."""
+"""Unit tests for wildintel_publisher.core.config (Settings/TrapperSettings/etc)."""
 from pathlib import Path
 
-from wildintel_publisher.config import (
+from wildintel_publisher.core.config import (
     B2ShareSettings,
     CamtrapDPSettings,
     Organization,

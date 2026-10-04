@@ -9,8 +9,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from wildintel_publisher.services import common
-from wildintel_publisher.services.camtrapdp_adapter import CAMTRAPDP_DESCRIPTION_FOOTER, CamtrapDPAdapter
+from wildintel_publisher.core.services import common
+from wildintel_publisher.core.services.camtrapdp_adapter import CAMTRAPDP_DESCRIPTION_FOOTER, CamtrapDPAdapter
 
 
 def test_readme_context_reports_hf_discovery_fields_sized_from_media_csv(tmp_path):
@@ -172,8 +172,8 @@ def test_prepare_appends_the_footer_to_the_published_datapackage_json(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
-    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
-         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images"):
+    with patch("wildintel_publisher.core.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.core.services.camtrapdp_adapter.common.download_public_images"):
         CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
 
     output_data = json.loads((output_dir / "datapackage.json").read_text(encoding="utf-8"))
@@ -193,8 +193,8 @@ def test_prepare_mirrors_from_media_dir_when_given(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
-    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
-         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
+    with patch("wildintel_publisher.core.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.core.services.camtrapdp_adapter.common.download_public_images") as mock_download:
         CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60, media_dir=media_dir)
 
     mock_download.assert_called_once_with(output_dir, input_dir=media_dir, timeout=60, cache_dir=None)
@@ -207,8 +207,8 @@ def test_prepare_mirrors_from_input_dir_when_media_dir_not_given(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
-    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
-         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
+    with patch("wildintel_publisher.core.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.core.services.camtrapdp_adapter.common.download_public_images") as mock_download:
         CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
 
     mock_download.assert_called_once_with(output_dir, input_dir=input_dir, timeout=60, cache_dir=None)
@@ -223,8 +223,8 @@ def test_prepare_passes_media_cache_dir_through_to_download_public_images(tmp_pa
     output_dir.mkdir()
     cache_dir = tmp_path / "media-cache"
 
-    with patch("wildintel_publisher.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
-         patch("wildintel_publisher.services.camtrapdp_adapter.common.download_public_images") as mock_download:
+    with patch("wildintel_publisher.core.services.camtrapdp_adapter.common.validate_camtrap_dp"), \
+         patch("wildintel_publisher.core.services.camtrapdp_adapter.common.download_public_images") as mock_download:
         CamtrapDPAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60, media_cache_dir=cache_dir)
 
     mock_download.assert_called_once_with(output_dir, input_dir=input_dir, timeout=60, cache_dir=cache_dir)

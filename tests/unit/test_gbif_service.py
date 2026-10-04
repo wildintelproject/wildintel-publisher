@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wildintel_publisher.services.gbif import (
+from wildintel_publisher.core.services.gbif import (
     RECORD_FILENAME,
     build_dataset_payload,
     register_gbif_dataset,
@@ -308,7 +308,7 @@ def test_validate_camtrap_dp_archive_disables_profile_patching(camtrapdp_dir, tm
             zf.write(input_dir / filename, filename)
 
     fake_validate = MagicMock()
-    monkeypatch.setattr("wildintel_publisher.services.gbif.common.validate_camtrap_dp", fake_validate)
+    monkeypatch.setattr("wildintel_publisher.core.services.gbif.common.validate_camtrap_dp", fake_validate)
     with patch("httpx.stream", return_value=_fake_stream_response(200, zip_path.read_bytes())):
         validate_camtrap_dp_archive("https://example.org/camtrapdp-local.zip")
 
@@ -330,7 +330,7 @@ def test_validate_camtrap_dp_archive_propagates_a_schema_validation_failure(camt
             zf.write(input_dir / filename, filename)
 
     monkeypatch.setattr(
-        "wildintel_publisher.services.gbif.common.validate_camtrap_dp",
+        "wildintel_publisher.core.services.gbif.common.validate_camtrap_dp",
         MagicMock(side_effect=RuntimeError("does not pass Camtrap DP validation")),
     )
     with patch("httpx.stream", return_value=_fake_stream_response(200, zip_path.read_bytes())):

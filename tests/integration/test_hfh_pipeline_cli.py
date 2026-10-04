@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
+from wildintel_publisher.cli.app import app
 
 runner = CliRunner()
 
@@ -24,11 +24,11 @@ def _mocked_hfh_apis():
     fake_api.dataset_info.return_value = MagicMock(private=True)
     fake_public_response = MagicMock(status_code=200)
     return [
-        patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}),
-        patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api),
-        patch("wildintel_publisher.services.hfh.create_repo"),
-        patch("wildintel_publisher.services.hfh.upload_folder"),
-        patch("wildintel_publisher.services.hfh._repo_exists", return_value=False),
+        patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}),
+        patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api),
+        patch("wildintel_publisher.core.services.hfh.create_repo"),
+        patch("wildintel_publisher.core.services.hfh.upload_folder"),
+        patch("wildintel_publisher.core.services.hfh._repo_exists", return_value=False),
         patch("httpx.head", return_value=fake_public_response),
         patch("httpx.get", return_value=fake_public_response),
     ]

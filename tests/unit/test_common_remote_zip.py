@@ -15,7 +15,7 @@ import zipfile
 
 import pytest
 
-from wildintel_publisher.services.common import find_camtrap_dp_root, write_remote_zip
+from wildintel_publisher.core.services.common import find_camtrap_dp_root, write_remote_zip
 
 
 def _set_observation_level(output_dir, level):

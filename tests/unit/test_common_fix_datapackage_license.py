@@ -7,7 +7,7 @@ downloaded and extracted by hand instead of through 'trapper download')."""
 import json
 from pathlib import Path
 
-from wildintel_publisher.services.common import fix_datapackage_license
+from wildintel_publisher.core.services.common import fix_datapackage_license
 
 
 def _write_datapackage(tmp_path: Path, data: dict) -> Path:

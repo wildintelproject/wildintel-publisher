@@ -12,7 +12,7 @@ import yaml
 from huggingface_hub.utils import RepositoryNotFoundError
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
+from wildintel_publisher.cli.app import app
 
 runner = CliRunner()
 
@@ -91,10 +91,10 @@ def test_yolo_dataset_prepared_and_uploaded_to_hfh(tmp_path):
     fake_api = MagicMock()
     fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)
 
-    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
-         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
-         patch("wildintel_publisher.services.hfh.create_repo") as mock_create_repo, \
-         patch("wildintel_publisher.services.hfh.upload_folder") as mock_upload_folder:
+    with patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.core.services.hfh.create_repo") as mock_create_repo, \
+         patch("wildintel_publisher.core.services.hfh.upload_folder") as mock_upload_folder:
         upload_result = runner.invoke(app, [
             "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "alice/yolo-dataset",
         ], env={"HF_TOKEN": "hf_faketoken"})

@@ -1,0 +1,236 @@
+"""Conexión a Trapper y descarga del paquete Camtrap DP de un proyecto de clasificación.
+
+Usa `wildintel-trapper-sdk` (repo hermano, ver [tool.uv.sources] en pyproject.toml):
+``/media_classification/api/package/{project_pk}/`` genera (o reutiliza un
+paquete ya cacheado) y devuelve una URL de descarga absoluta en
+``data.package`` — esa URL ya lleva su propio token de un solo uso
+(``?rt=...``), así que se descarga tal cual con ``client.make_request()``,
+sin pasar por la cabecera Authorization del cliente.
+"""
+import re
+import shutil
+from pathlib import Path
+from typing import Optional
+from zipfile import ZipFile
+
+import httpx
+from rich.console import Console
+from trapper_client import TrapperClient, err
+from trapper_client.schemas import ClassificationProject
+
+from wildintel_publisher.core.services import common
+
+console = Console()
+
+CAMTRAPDP_ZIP_FILENAME = "camtrapdp.zip"
+
+# TrapperClient por defecto usa timeout=30s (pensado para llamadas normales de
+# la API) — generar un paquete Camtrap DP nuevo (sin caché) puede tardar bastante
+# más en proyectos grandes, así que aquí el default es mucho más generoso.
+# Configurable con --timeout si aun así no basta.
+DEFAULT_TIMEOUT = 300
+
+
+def _slug(project_id: int, deployment_id: str, include_events: bool) -> str:
+    """Deriva un nombre de subcarpeta único por (project_id, deployment_id,
+    include_events) — los únicos parámetros que el wizard web hace variar
+    para un mismo project_id (title/description/version/license_id se
+    quedan siempre en su valor por defecto ahí, así que no participan en el
+    slug: si alguien desde el CLI los cambia a mano para el mismo proyecto/
+    deployment sin pasar --clear-cache, se sirve la copia ya cacheada con
+    los metadatos antiguos — limitación aceptada, igual de estrecha que el
+    resto de este slug)."""
+    dep = re.sub(r"[^\w.-]", "-", deployment_id).strip("-") or "all"
+    return f"project-{project_id}-{dep}-events{int(include_events)}"
+
+
+def fetch_camtrapdp_package(
+    *,
+    trapper_url: str,
+    trapper_user: str,
+    trapper_password: str,
+    project_id: int,
+    deployment_id: str,
+    output_dir: Path,
+    clear_cache: bool = False,
+    timeout: int = DEFAULT_TIMEOUT,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    version: Optional[str] = None,
+    license_id: Optional[str] = None,
+    license_name: Optional[str] = None,
+    license_url: Optional[str] = None,
+    include_events: bool = True,
+    retry_attempts: int = 3,
+    retry_wait_seconds: float = 2.0,
+) -> Path:
+    """Genera (o reutiliza) el paquete Camtrap DP del proyecto de clasificación
+    `project_id` en el servidor Trapper `trapper_url`, lo descarga y lo
+    extrae en `output_dir`.
+
+    Args:
+        deployment_id: Limita el paquete a este despliegue. A pesar de lo que
+            documenta trapper-client ("Comma-separated deployment PKs"), el
+            servidor filtra con un simple `icontains` sobre el campo de texto
+            `deployment_id` (ej. "r0007-dona_0018"), no un PK numérico — así
+            que aquí solo se admite un único string, no una lista.
+        timeout: Timeout de red (segundos) para generar y descargar el
+            paquete. La generación (sobre todo con clear_cache=True o
+            proyectos grandes) puede tardar bastante en el propio servidor.
+        title, description, version: Metadatos que Trapper escribe dentro de
+            datapackage.json (mismos parámetros que ResultsDataPackageGenerator.
+            get_package_metadata() en el servidor). Deliberadamente NO se pasa
+            aquí 'licenses'/'keywords' (también soportados por la API): el
+            parseo de parámetros tipo lista de Trapper (AbstractParams.
+            from_query_params, que hace `f.type(val)` sobre un valor de query
+            string plano) no está verificado como fiable para listas — mejor
+            no arriesgarse a que la petición falle en el servidor.
+        license_id, license_name, license_url: Si se indican, se usan para
+            parchear en sitio los scopes ("data"/"media") de
+            datapackage.json["licenses"] que Trapper haya dejado como
+            "private" (o vacíos) — ver common.fix_datapackage_license. Arregla el
+            paquete en la fuente, en vez de dejar que cada consumidor
+            (ej. 'hfh prepare') tenga que hacer su propio fallback.
+        include_events: Si el paquete generado incluye observations.csv a
+            nivel de evento (agregado), además de las de nivel media —
+            parámetro `include_events` de la API. A diferencia de esta,
+            aquí el valor por defecto es True (la API por su cuenta usa
+            False), así que siempre se envía explícito, nunca se omite.
+        retry_attempts, retry_wait_seconds: reintentos (ver common.retrying)
+            de cada llamada de red a Trapper (generar el paquete y
+            descargarlo) que falle con un httpx.TimeoutException/ConnectError
+            — pensados para TrapperSettings.retry_attempts/retry_wait_seconds.
+
+    Returns:
+        `output_dir/<slug>` (slug derivado de project_id/deployment_id/
+        include_events — ver `_slug`), con el paquete ya extraído dentro
+        (datapackage.json, deployments.csv, media.csv, events.csv...) y el
+        .zip original (`camtrapdp.zip`) conservado junto a él. Si ese
+        destino ya existe y no está vacío, se devuelve directamente sin
+        tocar la red en absoluto (ni siquiera para regenerar/reutilizar el
+        paquete en el propio servidor) — mismo contrato "clear_cache borra
+        primero, si no existía o se acaba de borrar se descarga" que
+        camtrapdp_source.fetch_camtrap_dp_archive/git_source.clone_repository.
+
+    Raises:
+        RuntimeError: si Trapper no pudo generar el paquete, si se agota el
+        tiempo de espera, o si el servidor es inalcanzable.
+    """
+    destination = output_dir / _slug(project_id, deployment_id, include_events)
+
+    if clear_cache and destination.exists():
+        shutil.rmtree(destination)
+
+    if destination.is_dir() and any(destination.iterdir()):
+        console.print(f"[green]✔  Reusing the already-fetched Camtrap DP at {destination}[/green]")
+        return destination
+
+    client = TrapperClient(
+        base_url=trapper_url, user_name=trapper_user, user_password=trapper_password, timeout=timeout,
+    )
+
+    console.print(
+        "  Using Trapper's own defaults for: approved_only=True, exclude_blank=False, "
+        "trapper_url_token=True, release=False, private_human=True, private_vehicle=True "
+        "(not yet configurable from wildintel-publisher)."
+    )
+
+    package_kwargs = {"include_events": include_events}
+    if title:
+        package_kwargs["title"] = title
+    if description:
+        package_kwargs["description"] = description
+    if version:
+        package_kwargs["version"] = version
+
+    console.print(f"Generating (or reusing) the Camtrap DP package for project {project_id}...")
+    try:
+        for attempt in common.retrying(
+            retry_attempts, retry_wait_seconds, retry_on=(httpx.TimeoutException, httpx.ConnectError),
+        ):
+            with attempt:
+                response = client.classification_package.get_project_package(
+                    project_pk=project_id, clear_cache=clear_cache,
+                    all_deployments=False, filter_deployments=deployment_id,
+                    **package_kwargs,
+                )
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(
+            f"Timed out ({timeout}s) generating the Camtrap DP package for project "
+            f"{project_id}. If the project is large, try a higher --timeout."
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise RuntimeError(f"Could not connect to {trapper_url}: {exc}") from exc
+
+    if response.data is None or not response.data.package:
+        message = response.data.message if response.data else "No response from the server."
+        errors = response.data.errors if response.data else None
+        raise RuntimeError(f"Could not generate the Camtrap DP package: {message}" + (f"\n{errors}" if errors else ""))
+
+    console.print(response.data.message)
+    console.print(f"Downloading from {response.data.package} ...")
+    try:
+        for attempt in common.retrying(retry_attempts, retry_wait_seconds, retry_on=httpx.TimeoutException):
+            with attempt:
+                file_response = client.make_request(endpoint=response.data.package, method="GET")
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(
+            f"Timed out ({timeout}s) downloading the Camtrap DP package. "
+            "Try a higher --timeout."
+        ) from exc
+
+    destination.mkdir(parents=True, exist_ok=True)
+    zip_path = destination / CAMTRAPDP_ZIP_FILENAME
+    zip_path.write_bytes(file_response.content)
+
+    console.print(f"Extracting to {destination} ...")
+    with ZipFile(zip_path) as zf:
+        zf.extractall(destination)
+
+    common.decompress_gzipped_tables(destination)
+    if license_id:
+        # WildINTEL project policy: every dataset is published under
+        # CC-BY-NC-4.0 (see CamtrapDPSettings.license_id's own comment in
+        # config.py, the default `license_id` above resolves to unless the
+        # caller passed something else) — deliberately fixed, not meant to
+        # vary per project/dataset.
+        common.fix_datapackage_license(destination, license_id=license_id, license_name=license_name, license_url=license_url)
+
+    console.print(f"[green]✔  Camtrap DP for project {project_id} ready in {destination}[/green]")
+    return destination
+
+
+def test_connection(
+    *,
+    trapper_url: str,
+    trapper_user: str,
+    trapper_password: str,
+    project_id: int,
+) -> ClassificationProject:
+    """Comprueba que se puede conectar al servidor Trapper `trapper_url` con
+    estas credenciales, y que el usuario tiene acceso al proyecto de
+    clasificación `project_id`.
+
+    Returns:
+        El proyecto de clasificación, si la conexión y el acceso son correctos.
+
+    Raises:
+        RuntimeError: con un mensaje explicando qué ha fallado (servidor
+        inalcanzable, credenciales inválidas, o sin acceso al proyecto).
+    """
+    client = TrapperClient(base_url=trapper_url, user_name=trapper_user, user_password=trapper_password)
+
+    try:
+        return client.classification_projects.find(pk=project_id)
+    except httpx.ConnectError as exc:
+        raise RuntimeError(f"Could not connect to {trapper_url}: {exc}") from exc
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(f"Timed out connecting to {trapper_url}: {exc}") from exc
+    except err.UnauthorizedError as exc:
+        raise RuntimeError("Incorrect Trapper username or password.") from exc
+    except err.ForbiddenError as exc:
+        raise RuntimeError(f"The user does not have permission to access classification project {project_id}.") from exc
+    except err.NotFoundError as exc:
+        raise RuntimeError(f"Classification project {project_id} does not exist on {trapper_url}.") from exc
+    except err.APIError as exc:
+        raise RuntimeError(f"Trapper API error: {exc}") from exc

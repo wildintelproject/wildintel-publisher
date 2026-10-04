@@ -2,7 +2,7 @@
 'version' command."""
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
+from wildintel_publisher.cli.app import app
 
 runner = CliRunner()
 

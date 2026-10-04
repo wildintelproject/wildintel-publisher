@@ -12,8 +12,8 @@ from huggingface_hub import GitRefInfo, GitRefs
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
-from wildintel_publisher.services.common import _image_bucket
+from wildintel_publisher.cli.app import app
+from wildintel_publisher.core.services.common import _image_bucket
 
 runner = CliRunner()
 
@@ -189,10 +189,10 @@ def test_hfh_upload_rewrites_media_csv_and_calls_upload_folder(camtrapdp_dir, tm
     fake_api = MagicMock()
     fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)  # doesn't exist yet -> create it
 
-    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
-         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
-         patch("wildintel_publisher.services.hfh.create_repo") as mock_create_repo, \
-         patch("wildintel_publisher.services.hfh.upload_folder") as mock_upload_folder:
+    with patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.core.services.hfh.create_repo") as mock_create_repo, \
+         patch("wildintel_publisher.core.services.hfh.upload_folder") as mock_upload_folder:
         result = runner.invoke(app, [
             "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset",
         ], env={"HF_TOKEN": "hf_faketoken"})
@@ -248,10 +248,10 @@ def test_hfh_upload_writes_a_gbif_archive_with_real_media_urls(camtrapdp_dir, tm
     fake_api = MagicMock()
     fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)
 
-    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
-         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
-         patch("wildintel_publisher.services.hfh.create_repo"), \
-         patch("wildintel_publisher.services.hfh.upload_folder"):
+    with patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.core.services.hfh.create_repo"), \
+         patch("wildintel_publisher.core.services.hfh.upload_folder"):
         result = runner.invoke(app, [
             "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset",
         ], env={"HF_TOKEN": "hf_faketoken"})
@@ -295,10 +295,10 @@ def test_hfh_upload_link_mode_still_writes_gbif_archive_with_original_filepath(c
     fake_api = MagicMock()
     fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)
 
-    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
-         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
-         patch("wildintel_publisher.services.hfh.create_repo"), \
-         patch("wildintel_publisher.services.hfh.upload_folder"):
+    with patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.core.services.hfh.create_repo"), \
+         patch("wildintel_publisher.core.services.hfh.upload_folder"):
         result = runner.invoke(app, [
             "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset", "--link-images",
         ], env={"HF_TOKEN": "hf_faketoken"})
@@ -319,10 +319,10 @@ def test_hfh_upload_link_mode_does_not_touch_media_csv(camtrapdp_dir, tmp_path):
     fake_api = MagicMock()
     fake_api.repo_info.side_effect = RepositoryNotFoundError("not found", response=fake_response)
 
-    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
-         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
-         patch("wildintel_publisher.services.hfh.create_repo") as mock_create_repo, \
-         patch("wildintel_publisher.services.hfh.upload_folder") as mock_upload_folder:
+    with patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.core.services.hfh.create_repo") as mock_create_repo, \
+         patch("wildintel_publisher.core.services.hfh.upload_folder") as mock_upload_folder:
         result = runner.invoke(app, [
             "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset", "--link-images",
         ], env={"HF_TOKEN": "hf_faketoken"})
@@ -361,9 +361,9 @@ def test_hfh_upload_refuses_to_republish_a_version_already_tagged(camtrapdp_dir,
         branches=[], converts=[], tags=[GitRefInfo(name="1.0", ref="refs/tags/1.0", target_commit="abc123")],
     )
 
-    with patch("wildintel_publisher.services.hfh.whoami", return_value={"name": "tester"}), \
-         patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
-         patch("wildintel_publisher.services.hfh.upload_folder") as mock_upload_folder:
+    with patch("wildintel_publisher.core.services.hfh.whoami", return_value={"name": "tester"}), \
+         patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
+         patch("wildintel_publisher.core.services.hfh.upload_folder") as mock_upload_folder:
         result = runner.invoke(app, [
             "hfh", "upload", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset",
         ], env={"HF_TOKEN": "hf_faketoken"})
@@ -381,7 +381,7 @@ def test_hfh_release_tags_the_version_and_makes_repo_public_and_verifies_accessi
 
     fake_response = MagicMock(status_code=200)
 
-    with patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
+    with patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
          patch("httpx.head", return_value=fake_response), \
          patch("httpx.get", return_value=fake_response):
         result = runner.invoke(app, [
@@ -404,7 +404,7 @@ def test_hfh_release_maps_a_409_from_create_tag_to_a_clear_error(camtrapdp_dir, 
     fake_api = MagicMock()
     fake_api.create_tag.side_effect = HfHubHTTPError("409 Conflict", response=conflict_response)
 
-    with patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api):
+    with patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api):
         result = runner.invoke(app, [
             "hfh", "release", "--output-dir", str(output_dir), "--repo-id", "someuser/somedataset",
         ], env={"HF_TOKEN": "hf_faketoken"})
@@ -420,7 +420,7 @@ def test_hfh_release_dry_run_does_not_tag_or_change_visibility(camtrapdp_dir, tm
     fake_api.dataset_info.return_value = fake_info
     fake_response = MagicMock(status_code=404)
 
-    with patch("wildintel_publisher.services.hfh.HfApi", return_value=fake_api), \
+    with patch("wildintel_publisher.core.services.hfh.HfApi", return_value=fake_api), \
          patch("httpx.head", return_value=fake_response), \
          patch("httpx.get", return_value=fake_response):
         result = runner.invoke(app, [

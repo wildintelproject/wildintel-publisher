@@ -287,6 +287,17 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   `data.yaml` and `images/` — it also holds `labels/`.
 
 ### Changed
+- Web: **S3 image hosting** now holds several named remotes, listed as cards on the settings
+  page (⚙️ to edit one, **+** to add one, with a *Test connection* button) instead of a single
+  connection. The wizard's "Upload images to a public repository?" step just picks one of
+  them. An existing single-connection `[S3]` section in `settings.toml` is migrated to the
+  first remote on its own; `S3_ACCESS_KEY`/`S3_SECRET_KEY` are now only the fallback for a
+  remote with no keys of its own.
+- CLI/Web: the repository is now a single project, laid out like wildintel-zooniverse —
+  one `pyproject.toml`, the Python code in `src/wildintel_publisher/{core,cli,web}`, the
+  web wizard in `frontend/`. For developers: the `cli.py` and `webcli.py` management
+  scripts are replaced by `wpcli` (`uv run wpcli --help`: `dev`, `test`, `docs`,
+  `backend`, `frontend`, `package`), and the web backend is installed with the CLI.
 - Web: restrict the Camtrap DP wizard to Hugging Face Hub and GBIF only (Zenodo and
   B2SHARE remain available for Camtrap DP via the CLI).
 - Web: GBIF is now mandatory for Camtrap DP in the wizard — pre-selected and not

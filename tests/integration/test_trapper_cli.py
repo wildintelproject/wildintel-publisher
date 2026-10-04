@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from wildintel_publisher.main import app
+from wildintel_publisher.cli.app import app
 
 runner = CliRunner()
 
@@ -26,7 +26,7 @@ def test_download_missing_deployment_id_is_a_required_option():
 
 
 def test_download_calls_service_with_resolved_params_when_all_present(tmp_path):
-    with patch("wildintel_publisher.commands.trapper.trapper_service.fetch_camtrapdp_package") as mock_fetch:
+    with patch("wildintel_publisher.cli.commands.trapper.trapper_service.fetch_camtrapdp_package") as mock_fetch:
         mock_fetch.return_value = tmp_path
         result = runner.invoke(app, [
             "trapper", "download",
@@ -44,7 +44,7 @@ def test_download_calls_service_with_resolved_params_when_all_present(tmp_path):
 
 
 def test_download_can_disable_include_events(tmp_path):
-    with patch("wildintel_publisher.commands.trapper.trapper_service.fetch_camtrapdp_package") as mock_fetch:
+    with patch("wildintel_publisher.cli.commands.trapper.trapper_service.fetch_camtrapdp_package") as mock_fetch:
         mock_fetch.return_value = tmp_path
         result = runner.invoke(app, [
             "trapper", "download",
@@ -58,7 +58,7 @@ def test_download_can_disable_include_events(tmp_path):
 
 
 def test_download_reports_service_errors_and_exits_nonzero():
-    with patch("wildintel_publisher.commands.trapper.trapper_service.fetch_camtrapdp_package", side_effect=RuntimeError("boom")):
+    with patch("wildintel_publisher.cli.commands.trapper.trapper_service.fetch_camtrapdp_package", side_effect=RuntimeError("boom")):
         result = runner.invoke(app, [
             "trapper", "download",
             "--trapper-url", "https://t.example", "--trapper-user", "u", "--trapper-password", "p",
@@ -75,7 +75,7 @@ def test_test_connection_without_params_reports_missing():
 
 def test_test_connection_success_prints_project_info():
     fake_project = type("P", (), {"name": "Test Project", "pk": 1, "owner": "someone"})()
-    with patch("wildintel_publisher.commands.trapper.trapper_service.test_connection", return_value=fake_project):
+    with patch("wildintel_publisher.cli.commands.trapper.trapper_service.test_connection", return_value=fake_project):
         result = runner.invoke(app, [
             "trapper", "test-connection",
             "--trapper-url", "https://t.example", "--trapper-user", "u", "--trapper-password", "p", "--project-id", "1",
@@ -86,7 +86,7 @@ def test_test_connection_success_prints_project_info():
 
 
 def test_test_connection_reports_service_error():
-    with patch("wildintel_publisher.commands.trapper.trapper_service.test_connection", side_effect=RuntimeError("Incorrect Trapper username or password.")):
+    with patch("wildintel_publisher.cli.commands.trapper.trapper_service.test_connection", side_effect=RuntimeError("Incorrect Trapper username or password.")):
         result = runner.invoke(app, [
             "trapper", "test-connection",
             "--trapper-url", "https://t.example", "--trapper-user", "u", "--trapper-password", "wrong", "--project-id", "1",

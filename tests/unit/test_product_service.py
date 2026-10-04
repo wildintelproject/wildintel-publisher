@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from wildintel_publisher.services import product
+from wildintel_publisher.core.services import product
 
 
 def test_registered_product_types_includes_the_built_in_adapters():

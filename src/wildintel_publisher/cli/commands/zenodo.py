@@ -1,0 +1,234 @@
+"""Comandos CLI del grupo 'zenodo' — registro de metadatos en Zenodo (sin imágenes).
+
+Gestiona únicamente los parámetros de entrada; la lógica vive en
+wildintel_publisher.core.services.zenodo. Título/descripción/versión/
+licencia/autores salen siempre de datapackage.json (el propio camtrapdp) —
+'zenodo prepare' falla si no los trae, igual que 'hfh prepare'. Solo lo que
+no existe en el estándar Camtrap DP (environment, communities, token) sale
+de settings.toml (sección ZENODO, ver 'wildintel-publisher zenodo config').
+"""
+import logging
+import os
+from pathlib import Path
+from typing import Optional
+
+import typer
+from rich.console import Console
+
+from wildintel_publisher.cli.commands.config_commands import build_section_config_app
+from wildintel_publisher.core.config import (
+    ZenodoSettings,
+    get_hfh_output_dir,
+    get_trapper_output_dir,
+    get_zenodo_output_dir,
+    settings,
+)
+from wildintel_publisher.core.services import common
+from wildintel_publisher.core.services import zenodo as zenodo_service
+
+console = Console()
+app     = typer.Typer(help="Commands related to Zenodo (metadata only, no images).")
+app.add_typer(build_section_config_app("ZENODO", ZenodoSettings), name="config")
+
+ZENODO_TOKEN_ENV_VAR = "ZENODO_TOKEN"
+
+
+def _require_token() -> str:
+    token = os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.token
+    if token:
+        return token
+    base_url = "https://sandbox.zenodo.org" if settings.ZENODO.environment == "sandbox" else "https://zenodo.org"
+    console.print(
+        "[red]✘  No Zenodo token configured.[/red]\n"
+        f"   Get one at [bold]{base_url}/account/settings/applications/tokens/new/[/bold] and export it:\n"
+        f"   [bold]export {ZENODO_TOKEN_ENV_VAR}='...'[/bold]\n"
+        "   or store it permanently: "
+        "[bold]wildintel-publisher zenodo config set token[/bold]"
+    )
+    raise typer.Exit(1)
+
+
+@app.command("prepare")
+def prepare(
+    input_dir: Optional[str] = typer.Option(
+        None, "--input-dir",
+        help=(
+            "Directory with the already-downloaded Camtrap DP package (output of 'trapper "
+            "download'). Defaults to $HOME/Documents/wildintel-publisher/trapper."
+        ),
+    ),
+    output_dir: Optional[str] = typer.Option(
+        None, "--output-dir",
+        help=(
+            "Directory where the Zenodo record is prepared. "
+            "Defaults to $HOME/Documents/wildintel-publisher/zenodo."
+        ),
+    ),
+    hfh_repo_id: Optional[str] = typer.Option(
+        settings.HFH.repo_id, "--hfh-repo-id",
+        help=(
+            "HuggingFace Hub repository where the images live — linked from README.md, and (unless "
+            "--self-contained) used to rewrite media.csv's filePath to the predictable HuggingFace "
+            "Hub URL of each file."
+        ),
+    ),
+    self_contained: Optional[bool] = typer.Option(
+        None, "--self-contained/--no-self-contained",
+        help=(
+            "Downloads the public images and bundles datapackage.json/CSVs + the images/ folder "
+            "into a single self-contained camtrapdp.zip (filePath relative to images/), instead of "
+            "linking to HuggingFace Hub. Takes precedence over --hfh-repo-id for the filePath rewrite. "
+            "Defaults to enabled (mirror) for Camtrap DP when --hfh-repo-id isn't also given, disabled "
+            "otherwise."
+        ),
+    ),
+    version: str = typer.Option(
+        zenodo_service.DEFAULT_VERSION, "--version",
+        help="Dataset version — written into README.md and CITATION.cff.",
+    ),
+    timeout: int = typer.Option(
+        common.DEFAULT_IMAGE_TIMEOUT, "--timeout",
+        help="Network timeout (seconds) to download each public image. Only applies with --self-contained.",
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite",
+        help="Allows reusing --output-dir even if it already exists and has content (overwriting it).",
+    ),
+    fit_archive_size: bool = typer.Option(
+        True, "--fit-archive-size/--no-fit-archive-size",
+        help=(
+            "Camtrap DP + --self-contained only: before bundling, resize the already-downloaded "
+            "images uniformly (never below --min-image-edge) if their combined size threatens to "
+            "exceed --max-zip-file — camtrapdp.zip's final size is still checked against that limit "
+            "either way, raising an error rather than letting the later upload to Zenodo fail."
+        ),
+    ),
+    max_zip_file: float = typer.Option(
+        zenodo_service.DEFAULT_MAX_ZIP_BYTES / 1024 ** 3, "--max-zip-file",
+        help="Camtrap DP + --self-contained only: camtrapdp.zip's own size budget, in GiB. Defaults to Zenodo's own per-file upload limit.",
+    ),
+    min_image_edge: int = typer.Option(
+        zenodo_service.DEFAULT_MIN_IMAGE_EDGE, "--min-image-edge",
+        help="Camtrap DP + --self-contained only: never resize an image's longest edge below this many pixels, even if --max-zip-file is still exceeded.",
+    ),
+) -> None:
+    """Prepares the Zenodo record: copies the Camtrap DP from Trapper (public media only), and
+    generates README.md, CITATION.cff, LICENSE and checksums-sha256.txt. Defaults to
+    --self-contained (bundling the images into the record itself) for Camtrap DP, unless
+    --hfh-repo-id is given (which points media.csv at HuggingFace Hub instead) — pass
+    --no-self-contained to leave media.csv's filePath untouched instead."""
+    resolved_input_dir = Path(input_dir) if input_dir else get_trapper_output_dir()
+    resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
+    try:
+        zenodo_service.prepare_zenodo_export(
+            input_dir=resolved_input_dir,
+            output_dir=resolved_output_dir,
+            metadata=settings.ZENODO,
+            hfh_repo_id=hfh_repo_id,
+            self_contained=self_contained,
+            version=version,
+            image_timeout=timeout,
+            overwrite=overwrite,
+            fit_archive_size=fit_archive_size,
+            max_zip_bytes=round(max_zip_file * 1024 ** 3),
+            min_image_edge=min_image_edge,
+        )
+    except Exception as exc:
+        logging.error("Could not prepare the Zenodo record: %s", exc)
+        raise typer.Exit(1) from exc
+
+
+@app.command("upload")
+def upload(
+    output_dir: Optional[str] = typer.Option(
+        None, "--output-dir",
+        help=(
+            "Directory of the already-prepared record (the same one from 'zenodo prepare'). "
+            "Defaults to $HOME/Documents/wildintel-publisher/zenodo."
+        ),
+    ),
+    environment: str = typer.Option(
+        settings.ZENODO.environment, "--environment",
+        help="Zenodo environment: 'sandbox' (testing, no real DOI) or 'production'. (ZENODO.environment)",
+    ),
+    communities: Optional[str] = typer.Option(
+        settings.ZENODO.communities, "--communities",
+        help="Zenodo communities, comma-separated. (ZENODO.communities)",
+    ),
+    hfh_repo_id: Optional[str] = typer.Option(
+        settings.HFH.repo_id, "--hfh-repo-id",
+        help="HuggingFace Hub repository to link via related_identifiers.",
+    ),
+    existing_deposition_id: Optional[str] = typer.Option(
+        None, "--existing-deposition-id",
+        help=(
+            "Numeric id of an already-published Zenodo deposition to create a proper linked NEW "
+            "VERSION of (shares its conceptrecid/conceptdoi), instead of an unrelated fresh "
+            "deposition. Only consulted the first time (no zenodo_record.json yet in --output-dir)."
+        ),
+    ),
+) -> None:
+    """Creates (or reuses) a Zenodo deposition and uploads the files of the already-prepared record."""
+    resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
+    token = _require_token()
+
+    try:
+        zenodo_service.upload_to_zenodo(
+            resolved_output_dir, token=token, environment=environment,
+            communities=communities, hfh_repo_id=hfh_repo_id, existing_deposition_id=existing_deposition_id,
+        )
+    except Exception as exc:
+        logging.error("Could not upload the record to Zenodo: %s", exc)
+        raise typer.Exit(1) from exc
+
+
+@app.command("release")
+def release(
+    output_dir: Optional[str] = typer.Option(
+        None, "--output-dir",
+        help=(
+            "Directory of the already-uploaded record (the same one from 'zenodo upload'). "
+            "Defaults to $HOME/Documents/wildintel-publisher/zenodo."
+        ),
+    ),
+) -> None:
+    """Publishes the Zenodo deposition (assigns the final DOI) and reflects it in its own CITATION.cff."""
+    resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
+    token = _require_token()
+
+    try:
+        zenodo_service.release_on_zenodo(resolved_output_dir, token=token)
+    except Exception as exc:
+        logging.error("Could not publish the Zenodo deposition: %s", exc)
+        raise typer.Exit(1) from exc
+
+
+@app.command("sync-doi")
+def sync_doi(
+    zenodo_output_dir: Optional[str] = typer.Option(
+        None, "--zenodo-output-dir",
+        help=(
+            "Directory of the already-published Zenodo record (the same one from 'zenodo release'). "
+            "Defaults to $HOME/Documents/wildintel-publisher/zenodo."
+        ),
+    ),
+    hfh_output_dir: Optional[str] = typer.Option(
+        None, "--hfh-output-dir",
+        help=(
+            "Directory of the already-prepared HuggingFace Hub export (the same one from 'hfh prepare'). "
+            "Defaults to $HOME/Documents/wildintel-publisher/hfh."
+        ),
+    ),
+) -> None:
+    """Reads the DOI already published on Zenodo and reflects it in the CITATION.cff of the HuggingFace
+    Hub export (regenerating its checksums). The recommended next step is 'hfh upload'."""
+    resolved_zenodo_output_dir = Path(zenodo_output_dir) if zenodo_output_dir else get_zenodo_output_dir()
+    resolved_hfh_output_dir = Path(hfh_output_dir) if hfh_output_dir else get_hfh_output_dir()
+
+    try:
+        zenodo_service.sync_doi_to_hfh(
+            zenodo_output_dir=resolved_zenodo_output_dir, hfh_output_dir=resolved_hfh_output_dir,
+        )
+    except Exception as exc:
+        logging.error("Could not sync the DOI with the HuggingFace Hub export: %s", exc)
+        raise typer.Exit(1) from exc

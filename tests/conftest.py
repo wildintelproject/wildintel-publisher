@@ -1,7 +1,7 @@
 """Shared pytest fixtures.
 
 Redirects HOME / XDG_CONFIG_HOME / APPDATA to a throwaway temp directory
-*before* anything imports ``wildintel_publisher.config`` (which
+*before* anything imports ``wildintel_publisher.core.config`` (which
 auto-creates a settings file in the user's real app-config dir on first
 import). This keeps the test suite from touching the developer's actual
 ~/.config/wildintel-publisher or ~/Documents.
@@ -91,7 +91,7 @@ def camtrapdp_dir(tmp_path: Path):
         input_dir = camtrapdp_dir("trapper_out")
         input_dir = camtrapdp_dir("trapper_out", include_private_media=False)
     """
-    from wildintel_publisher.services import product
+    from wildintel_publisher.core.services import product
 
     def _make(name: str = "camtrapdp", *, include_private_media: bool = True) -> Path:
         root = _write_camtrapdp(tmp_path / name, include_private_media=include_private_media)
@@ -117,6 +117,6 @@ def _mock_camtrap_dp_validation(monkeypatch: pytest.MonkeyPatch):
     reference to the original function object — unaffected by this fixture
     rebinding the attribute on the `common` module later."""
     monkeypatch.setattr(
-        "wildintel_publisher.services.common.validate_camtrap_dp",
+        "wildintel_publisher.core.services.common.validate_camtrap_dp",
         lambda output_dir, *, patch_missing_profile=True: None,
     )

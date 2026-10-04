@@ -3,7 +3,7 @@
 #         wildintel-publisher — Environment Setup Script
 # ============================================================================ #
 # Sets up a Python virtual environment with uv and installs the dependencies
-# needed to run the "wildintel-publisher" and "cli" tools.
+# needed to run the "wildintel-publisher" and "wpcli" tools.
 #
 # Usage:
 #   ./setup.sh
@@ -85,14 +85,12 @@ print_next_steps() {
     echo ""
     print_info "Available commands:"
     echo "  wildintel-publisher --help    Show the CLI's commands"
-    echo "  cli docs serve                          Serve the docs locally"
-    echo "  cli docs build                          Build the static docs site"
+    echo "  wpcli dev                     Web app in development (backend + frontend)"
+    echo "  wpcli test                    Run the test suite"
+    echo "  wpcli docs serve              Serve the docs locally"
+    echo "  wpcli --help                  All the project's management commands"
     echo ""
-    print_info "Run the web app locally (from wildintel_publisher_web/):"
-    echo ""
-    echo "  cd wildintel_publisher_web"
-    echo "  uv sync"
-    echo "  uv run wildintel-publisher-web dev"
+    print_info "The frontend needs Node.js (v18+); 'wpcli dev' runs 'npm install' on its own."
     echo ""
 }
 

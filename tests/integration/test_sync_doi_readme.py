@@ -6,8 +6,8 @@ used to call out ("HFH todavía no [tiene marcador], así que de momento su
 README no refleja el DOI cruzado, solo su CITATION.cff")."""
 import json
 
-from wildintel_publisher.config import HFHSettings
-from wildintel_publisher.services import b2share, gbif, hfh, zenodo
+from wildintel_publisher.core.config import HFHSettings
+from wildintel_publisher.core.services import b2share, gbif, hfh, zenodo
 
 
 def _prepared_hfh_dir(camtrapdp_dir, tmp_path, name="hfh_out"):

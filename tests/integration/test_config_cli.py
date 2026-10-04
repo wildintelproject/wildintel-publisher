@@ -4,8 +4,8 @@ generic engine, shared by all four)."""
 import pytest
 from typer.testing import CliRunner
 
-from wildintel_publisher.config import DEFAULT_CONFIG_FILE, load_settings
-from wildintel_publisher.main import app
+from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, load_settings
+from wildintel_publisher.cli.app import app
 
 runner = CliRunner()
 

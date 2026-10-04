@@ -2,18 +2,19 @@
 requires = ["setuptools>=70"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-py-modules = ["cli"]
-packages = ["wildintel_publisher", "wildintel_publisher.commands", "wildintel_publisher.services"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [project]
 name = "wildintel-publisher"
 version = "0.1.0"
-description = "Fetches Camtrap DP/YOLO products and publishes them to HuggingFace Hub, Zenodo, and B2SHARE"
+description = "WildINTEL Publisher — web and command-line app to publish Camtrap DP, YOLO and software products to Hugging Face Hub, Zenodo, B2SHARE and GBIF"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "boto3>=1.34",
   "dynaconf>=3.2.12",
+  "fastapi>=0.138.0",
   "frictionless>=5.17",
   "httpx>=0.27",
   "huggingface-hub>=0.23.0",
@@ -21,16 +22,19 @@ dependencies = [
   "pillow>=10.0",
   "platformdirs>=4.0",
   "pydantic>=2.9",
+  "pydantic-settings>=2.0",
   "pyyaml>=6.0",
   "rich>=13.0",
   "tenacity>=8.2",
   "wildintel-trapper-sdk",
   "typer>=0.15",
+  "uvicorn[standard]>=0.49.0",
 ]
 
 [project.scripts]
-cli = "cli:app"
-wildintel-publisher = "wildintel_publisher.main:app"
+wildintel-publisher = "wildintel_publisher.cli.app:app"
+# Not "cli": wildintel-trapper-sdk, in the same environment, has its own.
+wpcli = "wildintel_publisher.wpcli:app"
 
 [tool.uv.sources]
 # wildintel-trapper-sdk aún no está publicado en PyPI, solo como release de GitHub.
@@ -38,6 +42,7 @@ wildintel-trapper-sdk = { git = "https://github.com/wildintelproject/wildintelpr
 
 [dependency-groups]
 dev = [
+  "debugpy>=1.8",
   "mkdocs>=1.6.1",
   "mkdocs-material>=9.7.6",
   "mkdocs-with-pdf>=0.9.3",
@@ -48,7 +53,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit", "tests/integration"]
+testpaths = ["tests/unit", "tests/integration", "tests/web"]
 markers = [
   "real_default_preview: runs zenodo.set_default_preview for real instead of test_zenodo_cli.py's autouse no-op",
 ]

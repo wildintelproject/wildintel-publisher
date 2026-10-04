@@ -3,7 +3,7 @@
 reuse a non-empty --output-dir unless --overwrite is passed."""
 import pytest
 
-from wildintel_publisher.services.common import ensure_output_dir
+from wildintel_publisher.core.services.common import ensure_output_dir
 
 
 def test_ensure_output_dir_creates_missing_directory(tmp_path):

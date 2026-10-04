@@ -8,7 +8,7 @@ import csv
 from pathlib import Path
 from unittest.mock import patch
 
-from wildintel_publisher.services.common import _image_bucket, download_public_images
+from wildintel_publisher.core.services.common import _image_bucket, download_public_images
 
 
 def _write_media_csv(output_dir: Path, *, file_path: str, file_name: str = "m1.jpg") -> None:
