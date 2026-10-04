@@ -59,6 +59,7 @@ IMAGES_DIRNAME = "images"
 LOCAL_ZIP_FILENAME = "camtrapdp-local.zip"
 REMOTE_ZIP_FILENAME = "camtrapdp-remote.zip"
 DEFAULT_IMAGE_TIMEOUT = 60
+DEFAULT_DOWNLOAD_WORKERS = 4   # same as TrapperSettings.download_workers' own default
 
 # Hugging Face Hub rejects a git push with more than 10,000 files in any one
 # directory (its own repo-level limit, not ours) — sharding images/ into 256
@@ -1248,7 +1249,7 @@ def _link_or_copy(source: Path, destination: Path) -> None:
 def download_public_images(
     output_dir: Path, *, input_dir: Path, images_dirname: str = IMAGES_DIRNAME, timeout: int = DEFAULT_IMAGE_TIMEOUT,
     cache_dir: Path | None = None, retry_attempts: int = 3, retry_wait_seconds: float = 2.0,
-    only_public: bool = False,
+    only_public: bool = False, workers: int = DEFAULT_DOWNLOAD_WORKERS,
 ) -> dict[str, Any]:
     """Trae a `output_dir`/<images_dirname>/ cada fichero referenciado en
     media.csv (ya filtrado a solo público) — su columna filePath admite las
@@ -1292,6 +1293,10 @@ def download_public_images(
     media.csv aún no se ha filtrado a solo público — ver
     keep_only_public_media), sin modificar media.csv.
 
+    workers: cuántos ficheros se traen a la vez (hilos) — pensado para
+    TrapperSettings.download_workers; 1 los trae de uno en uno. Un fileName
+    repetido en media.csv se trae una sola vez.
+
     Devuelve {"failures": [(fileName, motivo), ...]} — los ficheros que no se
     pudieron traer, para que el llamador los muestre además del log de consola."""
     media_csv = output_dir / MEDIA_CSV_FILENAME
@@ -1310,66 +1315,85 @@ def download_public_images(
         console.print("  No public images to download.")
         return {"failures": failures}
 
-    console.print(f"Fetching {len(rows)} public image(s) into {images_dir} ...")
-    downloaded = copied = cached = skipped = failed = 0
-    with httpx.Client(timeout=timeout) as client:
-        for row in track(rows, description="Fetching images"):
-            file_path = row.get(FILE_PATH_COLUMN)
-            file_name = row.get(FILE_NAME_COLUMN) or row.get(MEDIA_ID_COLUMN)
-            if not file_path or not file_name:
-                failures.append((file_name or row.get(MEDIA_ID_COLUMN) or "?", "media.csv row has no filePath/fileName"))
-                failed += 1
+    console.print(f"Fetching {len(rows)} public image(s) into {images_dir} ({workers} at once) ...")
+
+    def fetch_one(row: dict, client: httpx.Client) -> tuple[str, Optional[tuple[str, str]]]:
+        """Brings one file. Returns (outcome, failure) — outcome is one of
+        downloaded/copied/cached/skipped/failed, failure the (fileName,
+        reason) pair of a failed one. Runs in a worker thread: it only
+        touches its own destination (and, per distinct name, its cache
+        entry), so nothing is shared but the thread-safe httpx client."""
+        file_path = row.get(FILE_PATH_COLUMN)
+        file_name = row.get(FILE_NAME_COLUMN) or row.get(MEDIA_ID_COLUMN)
+        if not file_path or not file_name:
+            return "failed", (file_name or row.get(MEDIA_ID_COLUMN) or "?", "media.csv row has no filePath/fileName")
+
+        bucket = _image_bucket(file_name)
+        bucket_dir = images_dir / bucket
+        bucket_dir.mkdir(exist_ok=True)
+        destination = bucket_dir / file_name
+        if destination.exists():
+            return "skipped", None
+
+        cache_destination = None
+        if cache_dir is not None:
+            cache_bucket_dir = cache_dir / bucket
+            cache_bucket_dir.mkdir(parents=True, exist_ok=True)
+            cache_destination = cache_bucket_dir / file_name
+            if cache_destination.is_file():
+                _link_or_copy(cache_destination, destination)
+                return "cached", None
+
+        # Absent a cache, fetched straight into `destination`; with one,
+        # fetched into the cache first so it's there for the next repo
+        # too, then hardlinked (see _link_or_copy) into `destination`
+        # just like a cache hit above would have.
+        fetch_destination = cache_destination or destination
+
+        if file_path.startswith("http://") or file_path.startswith("https://"):
+            try:
+                for attempt in retrying(retry_attempts, retry_wait_seconds, retry_on=httpx.HTTPError):
+                    with attempt:
+                        response = client.get(file_path)
+                        response.raise_for_status()
+            except httpx.HTTPError as exc:
+                console.print(f"  [red]✘  Could not download {file_name}: {exc}[/red]")
+                return "failed", (file_name, f"could not download {file_path}: {exc}")
+            fetch_destination.write_bytes(response.content)
+            outcome = "downloaded"
+        else:
+            source = input_dir / file_path
+            if not source.is_file():
+                console.print(f"  [red]✘  {file_name}: local file not found at {source}[/red]")
+                return "failed", (file_name, f"local file not found at {source}")
+            shutil.copy2(source, fetch_destination)
+            outcome = "copied"
+
+        if cache_destination is not None:
+            _link_or_copy(fetch_destination, destination)
+        return outcome, None
+
+    # Two rows with the same fileName would race on one destination — keep
+    # the first, the way the sequential loop's "already exists" skip did.
+    unique_rows: list[dict] = []
+    seen_names: set[str] = set()
+    for row in rows:
+        name = row.get(FILE_NAME_COLUMN) or row.get(MEDIA_ID_COLUMN)
+        if name:
+            if name in seen_names:
                 continue
-
-            bucket = _image_bucket(file_name)
-            bucket_dir = images_dir / bucket
-            bucket_dir.mkdir(exist_ok=True)
-            destination = bucket_dir / file_name
-            if destination.exists():
-                skipped += 1
-                continue
-
-            cache_destination = None
-            if cache_dir is not None:
-                cache_bucket_dir = cache_dir / bucket
-                cache_bucket_dir.mkdir(parents=True, exist_ok=True)
-                cache_destination = cache_bucket_dir / file_name
-                if cache_destination.is_file():
-                    _link_or_copy(cache_destination, destination)
-                    cached += 1
-                    continue
-
-            # Absent a cache, fetched straight into `destination`; with one,
-            # fetched into the cache first so it's there for the next repo
-            # too, then hardlinked (see _link_or_copy) into `destination`
-            # just like a cache hit above would have.
-            fetch_destination = cache_destination or destination
-
-            if file_path.startswith("http://") or file_path.startswith("https://"):
-                try:
-                    for attempt in retrying(retry_attempts, retry_wait_seconds, retry_on=httpx.HTTPError):
-                        with attempt:
-                            response = client.get(file_path)
-                            response.raise_for_status()
-                except httpx.HTTPError as exc:
-                    console.print(f"  [red]✘  Could not download {file_name}: {exc}[/red]")
-                    failures.append((file_name, f"could not download {file_path}: {exc}"))
-                    failed += 1
-                    continue
-                fetch_destination.write_bytes(response.content)
-                downloaded += 1
-            else:
-                source = input_dir / file_path
-                if not source.is_file():
-                    console.print(f"  [red]✘  {file_name}: local file not found at {source}[/red]")
-                    failures.append((file_name, f"local file not found at {source}"))
-                    failed += 1
-                    continue
-                shutil.copy2(source, fetch_destination)
-                copied += 1
-
-            if cache_destination is not None:
-                _link_or_copy(fetch_destination, destination)
+            seen_names.add(name)
+        unique_rows.append(row)
+    counts = {"downloaded": 0, "copied": 0, "cached": 0, "skipped": len(rows) - len(unique_rows), "failed": 0}
+    with httpx.Client(timeout=timeout, limits=httpx.Limits(max_connections=workers)) as client, \
+            ThreadPoolExecutor(max_workers=workers, thread_name_prefix="download") as pool:
+        for outcome, failure in track(
+            pool.map(lambda row: fetch_one(row, client), unique_rows), total=len(unique_rows), description="Fetching images",
+        ):
+            counts[outcome] += 1
+            if failure is not None:
+                failures.append(failure)
+    downloaded, copied, cached, skipped, failed = (counts[k] for k in ("downloaded", "copied", "cached", "skipped", "failed"))
 
     cache_note = f"{cached} reused from cache, " if cache_dir is not None else ""
     console.print(

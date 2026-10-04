@@ -19,7 +19,7 @@ const APP_SETTINGS: AppSettings = {
   },
   TRAPPER: {
     base_url: 'https://trapper.example.org', has_user_name: true, has_user_password: true, project_id: 12,
-    retry_attempts: 3, retry_wait_seconds: 2,
+    download_workers: 4, retry_attempts: 3, retry_wait_seconds: 2,
   },
   HFH: {
     message: 'If you use this dataset, please cite it as below.',
@@ -126,6 +126,30 @@ describe('SettingsPage', () => {
     await userEvent.clear(projectId)
     await userEvent.type(projectId, 'abc')
     expect(screen.getByText('A whole number, or blank.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('saves the number of parallel Trapper downloads', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await screen.findByLabelText('Log level')
+    await section('Trapper')
+    const workers = screen.getByLabelText('Parallel downloads')
+    expect(workers).toHaveValue('4')
+    await userEvent.clear(workers)
+    await userEvent.type(workers, '8')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(mockedApi.saveSettings.mock.calls[0][0].TRAPPER).toMatchObject({ download_workers: 8 })
+  })
+
+  it.each(['0', '33', 'abc', ''])('rejects %j parallel downloads and cannot save', async (value) => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await screen.findByLabelText('Log level')
+    await section('Trapper')
+    const workers = screen.getByLabelText('Parallel downloads')
+    await userEvent.clear(workers)
+    if (value) await userEvent.type(workers, value)
+    expect(screen.getByText('A whole number from 1 to 32.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 

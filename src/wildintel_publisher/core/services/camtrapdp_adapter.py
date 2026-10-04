@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
+from wildintel_publisher.core.config import load_settings
 from wildintel_publisher.core.services import common, product
 
 # Appended as the closing paragraph of every Camtrap DP's description (see
@@ -102,6 +103,7 @@ class CamtrapDPAdapter:
         if mirror:
             common.download_public_images(
                 output_dir, input_dir=media_dir or input_dir, timeout=image_timeout, cache_dir=media_cache_dir,
+                workers=load_settings().TRAPPER.download_workers,  # the active config, which can change while the app runs
             )
 
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:

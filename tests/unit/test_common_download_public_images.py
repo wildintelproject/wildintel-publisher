@@ -5,8 +5,11 @@ relative to input_dir (an already-local, self-contained Camtrap DP package —
 the same convention write_local_zip's own generated media.csv uses, e.g.
 examples/camtrapdp)."""
 import csv
+import threading
 from pathlib import Path
 from unittest.mock import patch
+
+import httpx
 
 from wildintel_publisher.core.services.common import _image_bucket, download_public_images
 
@@ -160,3 +163,60 @@ def test_download_public_images_copies_relative_filepath_into_cache_too(tmp_path
     bucket = _image_bucket("m1.jpg")
     assert (cache_dir / bucket / "m1.jpg").read_bytes() == b"local-bytes"
     assert (output_dir / "images" / bucket / "m1.jpg").read_bytes() == b"local-bytes"
+
+
+def _write_media_csv_rows(output_dir: Path, names: list[str]) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with (output_dir / "media.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["mediaID", "filePath", "fileName"])
+        writer.writeheader()
+        for name in names:
+            writer.writerow({"mediaID": name, "filePath": f"https://trapper.example/{name}", "fileName": name})
+
+
+def test_download_public_images_downloads_several_files_in_parallel(tmp_path):
+    output_dir = tmp_path / "output"
+    names = [f"m{i}.jpg" for i in range(8)]
+    _write_media_csv_rows(output_dir, names)
+    # Every call waits at the barrier until 4 are in flight at once — only
+    # possible if the downloads really run concurrently (a sequential loop
+    # would hit the barrier timeout).
+    barrier = threading.Barrier(4, timeout=5)
+
+    def fake_get(self, url):
+        barrier.wait()
+        return _FakeResponse(url.encode())
+
+    with patch("httpx.Client.get", new=fake_get):
+        result = download_public_images(output_dir, input_dir=tmp_path / "input", workers=4)
+
+    assert result["failures"] == []
+    for name in names:
+        assert (output_dir / "images" / _image_bucket(name) / name).read_bytes() == f"https://trapper.example/{name}".encode()
+
+
+def test_download_public_images_one_worker_still_works_and_reports_failures(tmp_path):
+    output_dir = tmp_path / "output"
+    _write_media_csv_rows(output_dir, ["a.jpg", "b.jpg", "c.jpg"])
+
+    def fake_get(self, url):
+        if url.endswith("b.jpg"):
+            raise httpx.ConnectError("boom")
+        return _FakeResponse(b"ok")
+
+    with patch("httpx.Client.get", new=fake_get):
+        result = download_public_images(output_dir, input_dir=tmp_path / "input", workers=1, retry_attempts=1)
+
+    assert [name for name, _ in result["failures"]] == ["b.jpg"]
+    assert (output_dir / "images" / _image_bucket("a.jpg") / "a.jpg").is_file()
+    assert (output_dir / "images" / _image_bucket("c.jpg") / "c.jpg").is_file()
+
+
+def test_download_public_images_fetches_a_repeated_filename_only_once(tmp_path):
+    output_dir = tmp_path / "output"
+    _write_media_csv_rows(output_dir, ["dup.jpg", "dup.jpg"])
+
+    with patch("httpx.Client.get", return_value=_FakeResponse(b"x")) as mock_get:
+        download_public_images(output_dir, input_dir=tmp_path / "input", workers=4)
+
+    assert mock_get.call_count == 1

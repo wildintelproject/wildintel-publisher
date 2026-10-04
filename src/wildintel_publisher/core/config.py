@@ -149,6 +149,13 @@ class TrapperSettings(BaseModel):
             "from — can be overridden with --project-id. (TRAPPER.project_id)"
         ),
     )
+    download_workers: int = Field(
+        default=4, ge=1, le=32,
+        description=(
+            "How many images are downloaded at once when a dataset's images are fetched (mirror "
+            "mode, S3 upload) — 1 downloads them one by one. (TRAPPER.download_workers)"
+        ),
+    )
     retry_attempts: int = Field(
         default=3,
         description=(

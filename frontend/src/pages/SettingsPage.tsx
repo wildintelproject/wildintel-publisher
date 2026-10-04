@@ -174,6 +174,7 @@ interface Draft {
   camtrapdpDatasetSlug: string
   camtrapdpDatasetName: string
   camtrapdpDescription: string
+  trapperDownloadWorkers: string
   trapperRetryAttempts: string
   trapperRetryWaitSeconds: string
 
@@ -228,6 +229,7 @@ function toDraft(s: AppSettings): Draft {
     camtrapdpDatasetSlug: s.CAMTRAPDP.dataset_slug ?? '',
     camtrapdpDatasetName: s.CAMTRAPDP.dataset_name ?? '',
     camtrapdpDescription: s.CAMTRAPDP.description ?? '',
+    trapperDownloadWorkers: String(s.TRAPPER.download_workers),
     trapperRetryAttempts: String(s.TRAPPER.retry_attempts),
     trapperRetryWaitSeconds: String(s.TRAPPER.retry_wait_seconds),
 
@@ -288,8 +290,15 @@ function retryWaitValid(v: string): boolean {
   return v.trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0
 }
 
+// TrapperSettings.download_workers' own bounds.
+const MAX_DOWNLOAD_WORKERS = 32
+function downloadWorkersValid(v: string): boolean {
+  return /^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= MAX_DOWNLOAD_WORKERS
+}
+
 function toUpdate(d: Draft): AppSettingsUpdate | null {
   if (!projectIdValid(d.trapperProjectId)) return null
+  if (!downloadWorkersValid(d.trapperDownloadWorkers)) return null
   if (!retryAttemptsValid(d.trapperRetryAttempts) || !retryWaitValid(d.trapperRetryWaitSeconds)) return null
   if (!retryAttemptsValid(d.s3RetryAttempts) || !retryWaitValid(d.s3RetryWaitSeconds)) return null
   if (d.s3Remotes.some((r) => r.name.trim() === '')) return null
@@ -299,6 +308,7 @@ function toUpdate(d: Draft): AppSettingsUpdate | null {
       user_name: d.trapperUserName || null,
       user_password: d.trapperUserPassword || null,
       project_id: d.trapperProjectId.trim() ? Number(d.trapperProjectId) : null,
+      download_workers: Number(d.trapperDownloadWorkers),
       retry_attempts: Number(d.trapperRetryAttempts),
       retry_wait_seconds: Number(d.trapperRetryWaitSeconds),
     },
@@ -1081,7 +1091,20 @@ export default function SettingsPage({ onClose }: Props) {
                 />
               </Field>
             </Row>
-            <Row label="Downloads" description="How a call to Trapper is retried. Each retry waits twice as long as the one before.">
+            <Row label="Downloads" description="How images are downloaded from Trapper, and how a call to it is retried. Each retry waits twice as long as the one before.">
+              <Field
+                label="Parallel downloads"
+                error={downloadWorkersValid(draft.trapperDownloadWorkers) ? null : `A whole number from 1 to ${MAX_DOWNLOAD_WORKERS}.`}
+              >
+                <span className="flex items-baseline gap-2">
+                  <input
+                    className={inputClass} inputMode="numeric" value={draft.trapperDownloadWorkers} aria-label="Parallel downloads"
+                    aria-invalid={!downloadWorkersValid(draft.trapperDownloadWorkers)}
+                    onChange={(e) => set('trapperDownloadWorkers', e.target.value)}
+                  />
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">at once</span>
+                </span>
+              </Field>
               <RetryFields
                 attempts={draft.trapperRetryAttempts} wait={draft.trapperRetryWaitSeconds} attemptsLabel="Attempts per call"
                 onAttemptsChange={(v) => set('trapperRetryAttempts', v)} onWaitChange={(v) => set('trapperRetryWaitSeconds', v)}

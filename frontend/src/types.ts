@@ -190,6 +190,7 @@ export interface AppSettings {
     has_user_name: boolean
     has_user_password: boolean
     project_id: number | null
+    download_workers: number
     retry_attempts: number
     retry_wait_seconds: number
   }

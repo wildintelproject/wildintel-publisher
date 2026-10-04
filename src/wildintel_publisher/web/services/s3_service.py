@@ -293,6 +293,7 @@ def run_s3_image_upload(
     download = common.download_public_images(
         input_dir, input_dir=media_dir or input_dir,
         retry_attempts=retry_attempts, retry_wait_seconds=retry_wait_seconds, only_public=True,
+        workers=settings.TRAPPER.download_workers,
     )
     failures = [{"file": name, "key": reason, "action": "failed"} for name, reason in download["failures"]]
     _report(log=list(failures))

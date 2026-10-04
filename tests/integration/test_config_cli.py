@@ -10,7 +10,7 @@ from wildintel_publisher.cli.app import app
 runner = CliRunner()
 
 # Field counts (in model declaration order) — see config.py.
-TRAPPER_FIELD_COUNT = 6
+TRAPPER_FIELD_COUNT = 7
 CAMTRAPDP_FIELD_COUNT = 6
 GENERAL_FIELD_COUNT = 1
 HFH_FIELD_COUNT = 5
@@ -146,7 +146,8 @@ def test_trapper_config_wizard_saves_a_changed_value():
 
 def test_config_wizard_retries_after_invalid_value_and_cancel_does_not_persist():
     # project_id is TRAPPER's 4th field (index 3): base_url, user_name, user_password, project_id.
-    answers = "y\n" + "\n" * 3 + "not-a-number\n" + "42\n" + "\n" * 2 + "n\n"
+    # Then blank through download_workers, retry_attempts and retry_wait_seconds.
+    answers = "y\n" + "\n" * 3 + "not-a-number\n" + "42\n" + "\n" * 3 + "n\n"
 
     result = runner.invoke(app, ["trapper", "config", "wizard"], input=answers)
 
