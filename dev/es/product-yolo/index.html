@@ -1831,7 +1831,12 @@ harmless to any YOLO trainer, which simply ignores keys it doesn't recognise:</p
 The publisher and rights holder are picked from the organizations configured in
 <code>settings.toml</code> (<code>[[PRODUCT.organizations]]</code>), the same list Camtrap DP uses. The license
 is picked from a list of common ones (CC-BY-NC-4.0 by default, WildINTEL's own policy),
-which fills in its id, full name and URL at once; "Other…" lets you type any other.</p>
+which fills in its id, full name and URL at once; "Other…" lets you type any other.
+The authors listed in <code>data.yaml</code> are shown as they are; the "Add a saved author…" menu
+adds one of the authors saved in the settings page's <em>Authors</em> section
+(<code>[[PRODUCT.authors]]</code> in <code>settings.toml</code>) with one click, and each one stays editable.
+The <em>Additional funding text</em> field is appended to the README's <em>Funding</em> section
+(saved as <code>funding</code> in the copy of <code>data.yaml</code>).</p>
 <p>Unlike Camtrap DP, there is no <code>filePublic</code>/privacy concept — every image under
 <code>images/</code> is treated as publishable, and no media-reference URL needs rewriting: the
 images themselves either travel with the export (mirror mode) or are simply left out

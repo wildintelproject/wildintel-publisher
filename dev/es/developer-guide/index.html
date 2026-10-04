@@ -2060,41 +2060,50 @@ step afterwards.</p>
 </ul>
 <hr />
 <h2 id="project-layout">Project layout</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>wildintel_publisher/                  ← the CLI package
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── commands/                         ← Typer command groups (trapper, product, hfh, zenodo, b2share)
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>└── services/
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    ├── product.py                    ← ProductAdapter protocol + metadata.json envelope
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    ├── camtrapdp_adapter.py           ← ProductAdapter for Camtrap DP
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    ├── yolo_adapter.py                ← ProductAdapter for YOLO
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    ├── common.py                     ← shared helpers (README/CITATION.cff rendering, checksums, zip bundling...)
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    ├── doi_populate.py               ← cross-repository DOI reflection (web app only)
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    ├── hfh.py / zenodo.py / b2share.py  ← one module per repository integration
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    └── trapper.py                    ← Trapper API client (Camtrap DP fetching only)
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>wildintel_publisher_web/              ← the web app (FastAPI backend + React frontend)
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>├── backend/src/services/             ← thin wrappers around wildintel_publisher.services.*
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>│   └── publish_orchestrator.py       ← multi-repo upload-all → populate → lock-all sequencing
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>└── frontend/src/                     ← the wizard UI
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/wildintel_publisher/
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── core/                             ← all the logic, shared by the CLI and the web app
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>│   ├── config.py / logging_setup.py  ← settings.toml (Dynaconf + Pydantic) and the app log
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>│   └── services/
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>│       ├── product.py                ← ProductAdapter protocol + metadata.json envelope
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>│       ├── camtrapdp_adapter.py      ← ProductAdapter for Camtrap DP
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>│       ├── yolo_adapter.py           ← ProductAdapter for YOLO
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>│       ├── common.py                 ← shared helpers (README/CITATION.cff rendering, checksums, zip bundling...)
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>│       ├── doi_populate.py           ← cross-repository DOI reflection (web app only)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>│       ├── hfh.py / zenodo.py / b2share.py  ← one module per repository integration
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>│       └── trapper.py                ← Trapper API client (Camtrap DP fetching only)
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>├── cli/                              ← the command-line app (Typer)
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>│   ├── app.py                        ← entry point (`wildintel-publisher`)
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>│   └── commands/                     ← command groups (trapper, product, hfh, zenodo, b2share, gbif)
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>├── web/                              ← the web app&#39;s FastAPI backend
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>│   ├── main.py / app_entry.py        ← the app / the bundled executable&#39;s entry point
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>│   ├── api/routers/                  ← one router per feature
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>│   ├── schemas/                      ← request models
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>│   └── services/                     ← thin wrappers around core.services.*
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>│       └── publish_orchestrator.py   ← multi-repo upload-all → populate → lock-all sequencing
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>└── wpcli.py                          ← project management (`wpcli`): dev, tests, docs, packages
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>frontend/src/                         ← the web app&#39;s wizard UI (React + Vite)
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>templates/                            ← Jinja templates for the READMEs / CITATION.cff / LICENSE
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>tests/                                ← unit/ (core), integration/ (CLI), web/ (backend)
 </code></pre></div>
-<p>The web backend does not reimplement any publishing logic — it depends on
-<code>wildintel_publisher</code> as an editable path dependency and calls straight into
-<code>wildintel_publisher.services.*</code>, wrapping each blocking call in <code>asyncio.to_thread</code> so
+<p>The web backend does not reimplement any publishing logic — it calls straight into
+<code>wildintel_publisher.core.services.*</code>, wrapping each blocking call in <code>asyncio.to_thread</code> so
 the CLI's own synchronous functions can run from FastAPI's async routes. A new product
-type or repository integration written in <code>wildintel_publisher/services/</code> is
+type or repository integration written in <code>core/services/</code> is
 automatically available to both the CLI and the web app — there is nothing to
 duplicate on the web side beyond a router/schema/UI form for it.</p>
 <hr />
 <h2 id="running-the-web-app-locally">Running the web app locally</h2>
-<p>From <code>wildintel_publisher_web/</code> (requires Node.js v18+ for the frontend):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>sync
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>run<span class="w"> </span>wildintel-publisher-web<span class="w"> </span>dev
+<p>From the repository's root (requires Node.js v18+ for the frontend):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>run<span class="w"> </span>wpcli<span class="w"> </span>dev
 </code></pre></div>
 <p>This starts the FastAPI backend (<code>--reload</code>, default port <code>8767</code> or
 <code>WILDINTEL_PUBLISHER_WEB_PORT</code>) and the Vite frontend dev server (port <code>5174</code>) together,
 streaming both logs interleaved — Ctrl+C stops both. Override ports with
 <code>--backend-port</code>/<code>--frontend-port</code>.</p>
-<p><code>wildintel_publisher_web/webcli.py</code> (installed as the <code>wildintel-publisher-web</code> entry
-point) also exposes each piece individually, useful when you only need one side running:</p>
+<p><code>wpcli</code> (<code>src/wildintel_publisher/wpcli.py</code>) manages the whole project, and also exposes
+each piece individually, useful when you only need one side running:</p>
 <table>
 <thead>
 <tr>
@@ -2104,32 +2113,40 @@ point) also exposes each piece individually, useful when you only need one side 
 </thead>
 <tbody>
 <tr>
-<td><code>uv run wildintel-publisher-web backend serve [dev\|prod]</code></td>
-<td>Backend only — <code>dev</code> reloads on change, <code>prod</code> runs multi-worker without reload.</td>
+<td><code>uv run wpcli backend serve [dev\|prod\|debug]</code></td>
+<td>Backend only — <code>dev</code> reloads on change, <code>prod</code> runs multi-worker without reload, <code>debug</code> waits for a debugger on port 5678.</td>
 </tr>
 <tr>
-<td><code>uv run wildintel-publisher-web backend test</code></td>
-<td>Backend pytest suite (<code>-v</code>/<code>-k</code> passthrough).</td>
+<td><code>uv run wpcli test [unit\|integration\|web\|all]</code></td>
+<td>Python test suites (<code>-v</code>/<code>-k</code> passthrough). <code>backend test</code> runs them all.</td>
 </tr>
 <tr>
-<td><code>uv run wildintel-publisher-web frontend dev</code></td>
+<td><code>uv run wpcli frontend dev</code></td>
 <td>Frontend dev server only (hot-reload).</td>
 </tr>
 <tr>
-<td><code>uv run wildintel-publisher-web frontend build</code></td>
+<td><code>uv run wpcli frontend build</code></td>
 <td>Production build → <code>frontend/dist/</code>.</td>
 </tr>
 <tr>
-<td><code>uv run wildintel-publisher-web frontend preview</code></td>
+<td><code>uv run wpcli frontend preview</code></td>
 <td>Serves the production build locally.</td>
 </tr>
 <tr>
-<td><code>uv run wildintel-publisher-web frontend lint</code></td>
+<td><code>uv run wpcli frontend lint</code></td>
 <td>oxlint over the frontend source.</td>
 </tr>
 <tr>
-<td><code>uv run wildintel-publisher-web frontend test</code></td>
+<td><code>uv run wpcli frontend test</code></td>
 <td>Frontend Vitest suite.</td>
+</tr>
+<tr>
+<td><code>uv run wpcli docs serve\|build\|pdf\|screenshots</code></td>
+<td>These docs: serve them, build the site or a single PDF, regenerate the web manual's screenshots.</td>
+</tr>
+<tr>
+<td><code>uv run wpcli package build</code></td>
+<td>The executable for this system (AppImage / <code>.exe</code> / <code>.dmg</code>) in <code>dist/</code> — one binary: no arguments starts the web app, any runs the CLI.</td>
 </tr>
 </tbody>
 </table>
@@ -2141,7 +2158,7 @@ prebuilt release binary instead (see the
 <p>A <strong>product type</strong> (<code>camtrapdp</code>, <code>yolo</code>, ...) is anything <code>wildintel-publisher</code> can turn
 into a publishable export. Every repository integration (<code>hfh.py</code>/<code>zenodo.py</code>/
 <code>b2share.py</code>) is written against the generic <code>metadata.json</code> envelope described in
-<code>wildintel_publisher/services/product.py</code> — it never inspects the raw product's own
+<code>src/wildintel_publisher/core/services/product.py</code> — it never inspects the raw product's own
 format directly. This is what lets <code>hfh prepare --product-type yolo</code> and
 <code>hfh prepare --product-type camtrapdp</code> share the exact same command implementation.</p>
 <h3 id="1-implement-the-productadapter-protocol">1. Implement the <code>ProductAdapter</code> protocol</h3>
@@ -2273,13 +2290,13 @@ as primary (<code>primary_doi_source</code> — Zenodo's, else B2SHARE's, by def
 </ul>
 <h3 id="wiring-it-into-the-cli-and-web-app">Wiring it into the CLI and web app</h3>
 <ul>
-<li><strong>CLI</strong>: add <code>wildintel_publisher/commands/&lt;repo&gt;.py</code>, following <code>hfh.py</code>/<code>zenodo.py</code>/
+<li><strong>CLI</strong>: add <code>src/wildintel_publisher/cli/commands/&lt;repo&gt;.py</code>, following <code>hfh.py</code>/<code>zenodo.py</code>/
   <code>b2share.py</code> for the <code>prepare</code>/<code>upload</code>/<code>release</code> (and <code>sync-doi</code>-equivalent, if your
-  repository provides a DOI) command shape, and register the Typer app in <code>main.py</code>.</li>
-<li><strong>Web app</strong>: add <code>wildintel_publisher_web/backend/src/services/&lt;repo&gt;_service.py</code>
-  (thin <code>asyncio.to_thread</code> wrappers) and <code>api/routers/&lt;repo&gt;.py</code>, then add the
+  repository provides a DOI) command shape, and register the Typer app in <code>cli/app.py</code>.</li>
+<li><strong>Web app</strong>: add <code>src/wildintel_publisher/web/services/&lt;repo&gt;_service.py</code>
+  (thin <code>asyncio.to_thread</code> wrappers) and <code>web/api/routers/&lt;repo&gt;.py</code>, then add the
   repository to <code>publish_orchestrator.py</code>'s upload/populate/lock phases and
-  <code>schemas/requests.py</code>'s <code>RepoPublishConfig</code>, and add a config form on the frontend
+  <code>web/schemas/requests.py</code>'s <code>RepoPublishConfig</code>, and add a config form on the frontend
   (see <code>HFHPublishForm.tsx</code>/<code>ZenodoPublishForm.tsx</code>/<code>B2SharePublishForm.tsx</code>).</li>
 </ul>
 <h3 id="write-the-docs-and-tests">Write the docs and tests</h3>
