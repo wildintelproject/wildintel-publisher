@@ -19,6 +19,8 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
 ## Upcoming release
 
 ### Added
+- New example, `examples/yolo-dataset-extras`: a small synthetic AI Dataset with bounding boxes, empty
+  images, authors with affiliations, a publisher, extra funding text and an `additional_info/` folder.
 - Web: the *General* section of the settings page has an **Update** button: *Check updates* looks
   for a newer web-app release (`web-vX.Y.Z` tags only, never a CLI release) and, if there is one,
   becomes *Tap to download X.Y.Z* (the build for your OS). If the check can't be done (offline...)

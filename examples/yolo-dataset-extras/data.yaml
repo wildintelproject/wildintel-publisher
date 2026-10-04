@@ -1,0 +1,44 @@
+train: images/train
+val: images/val
+test: images/test
+
+nc: 5  # Number of classes
+
+names:
+  0: 'Ave'
+  1: 'Cervus elaphus'
+  2: 'Sus scrofa'
+  3: 'Vulpes vulpes'
+  4: 'Empty'
+
+# The following keys aren't part of the YOLO spec — YOLO training scripts
+# ignore them — but wildintel-publisher reads them to seed metadata.json
+# (see core/services/yolo_adapter.py).
+title: Example Wildlife Detection Dataset with Additional Information
+description: >-
+  A small, synthetic camera-trap object-detection dataset (4 animal categories
+  plus empty images) with bounding boxes in YOLO format, laid out like a real
+  one: authors with affiliations, a publisher and rights holder, extra funding
+  text, and an additional_info/ folder with the lists and statistics that came
+  with it. Not real field data; the images are generated placeholders.
+version: "1.0"
+license:
+  id: CC-BY-NC-4.0
+  name: Creative Commons Attribution-NonCommercial 4.0 International
+  url: https://creativecommons.org/licenses/by-nc/4.0/
+authors:
+  - name: Jane Researcher
+    affiliation: Department of Integrated Sciences, University of Huelva, Huelva, Spain
+  - name: John Roe
+    affiliation: >-
+      Department of Integrated Sciences, University of Huelva, Huelva, Spain;
+      Institute of Nature Conservation, Polish Academy of Sciences, Kraków, Poland
+publisher:                         # credited in CITATION.cff's preferred-citation
+  name: University of Huelva
+  website: https://www.uhu.es/
+copyright_holders:                 # "© <year> <names>" in the citation
+  - University of Huelva
+# Markdown appended to the README's "Funding" section, after the standard text.
+funding: >-
+  Additional support was provided by the Example Foundation (project EX-2021-001).
+homepage: https://github.com/wildintelproject/wildintel-publisher

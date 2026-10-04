@@ -1,0 +1,20 @@
+file_name,group,label,bbox_x_center,bbox_y_center,bbox_width,bbox_height,category,revised,path
+cam01_20210314_0001.txt,train,1,0.3500,0.6200,0.3000,0.3400,Cervus elaphus,reviewer-1,images/train/cam01_20210314_0001.jpg
+cam01_20210314_0002.txt,train,1,0.5500,0.6000,0.2800,0.3200,Cervus elaphus,reviewer-1,images/train/cam01_20210314_0002.jpg
+cam01_20210314_0002.txt,train,1,0.2200,0.6600,0.2000,0.2600,Cervus elaphus,reviewer-1,images/train/cam01_20210314_0002.jpg
+cam02_20210402_0001.txt,train,2,0.4800,0.7000,0.3600,0.2800,Sus scrofa,reviewer-1,images/train/cam02_20210402_0001.jpg
+cam02_20210402_0002.txt,train,2,0.3000,0.6800,0.3000,0.2500,Sus scrofa,reviewer-1,images/train/cam02_20210402_0002.jpg
+cam02_20210402_0002.txt,train,2,0.7000,0.7200,0.2200,0.2000,Sus scrofa,reviewer-1,images/train/cam02_20210402_0002.jpg
+cam03_20210515_0001.txt,train,3,0.6200,0.6600,0.2200,0.2000,Vulpes vulpes,reviewer-1,images/train/cam03_20210515_0001.jpg
+cam03_20210515_0002.txt,train,0,0.4000,0.2500,0.1000,0.0900,Ave,reviewer-1,images/train/cam03_20210515_0002.jpg
+cam03_20210515_0002.txt,train,3,0.7000,0.7000,0.2000,0.1800,Vulpes vulpes,reviewer-1,images/train/cam03_20210515_0002.jpg
+cam03_20210516_0001.txt,train,4,,,,,Empty,reviewer-1,images/train/cam03_20210516_0001.jpg
+cam04_20210601_0001.txt,train,0,0.5500,0.3000,0.1200,0.1000,Ave,reviewer-1,images/train/cam04_20210601_0001.jpg
+cam01_20210320_0001.txt,val,1,0.5000,0.6200,0.3200,0.3600,Cervus elaphus,reviewer-1,images/val/cam01_20210320_0001.jpg
+cam02_20210410_0001.txt,val,2,0.4200,0.7000,0.3400,0.2700,Sus scrofa,reviewer-1,images/val/cam02_20210410_0001.jpg
+cam02_20210410_0001.txt,val,0,0.8000,0.2200,0.0900,0.0800,Ave,reviewer-1,images/val/cam02_20210410_0001.jpg
+cam03_20210520_0001.txt,val,4,,,,,Empty,reviewer-1,images/val/cam03_20210520_0001.jpg
+cam01_20210325_0001.txt,test,1,0.2800,0.6400,0.2600,0.3000,Cervus elaphus,reviewer-1,images/test/cam01_20210325_0001.jpg
+cam01_20210325_0001.txt,test,3,0.7200,0.7200,0.2000,0.1800,Vulpes vulpes,reviewer-1,images/test/cam01_20210325_0001.jpg
+cam04_20210610_0001.txt,test,0,0.4500,0.2800,0.1100,0.1000,Ave,reviewer-1,images/test/cam04_20210610_0001.jpg
+cam04_20210610_0002.txt,test,4,,,,,Empty,reviewer-1,images/test/cam04_20210610_0002.jpg

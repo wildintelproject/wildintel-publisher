@@ -1,0 +1,5 @@
+category,total_num_bboxes,total_num_images,train_num_bboxes,val_num_bboxes,test_num_bboxes,train_num_images,val_num_images,test_num_images
+Ave,4,4,2,1,1,2,1,1
+Cervus elaphus,5,4,3,1,1,2,1,1
+Sus scrofa,4,3,3,1,0,2,1,0
+Vulpes vulpes,3,3,2,0,1,2,0,1
