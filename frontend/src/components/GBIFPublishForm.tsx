@@ -143,7 +143,10 @@ export default function GBIFPublishForm({
     publishingOrganizationKey: '', installationKey: '', registryLanguage: 'eng',
     username: '', password: '', datasetKey: found?.dataset_key ?? '',
   })
-  const [hasSavedCredentials, setHasSavedCredentials] = useState(false)
+  // Saved per environment (sandbox/production have their own account, organization and installation).
+  const [savedCredentials, setSavedCredentials] = useState<Record<'sandbox' | 'production', boolean>>({ sandbox: false, production: false })
+  const [savedKeys, setSavedKeys] = useState<Record<string, { publishing_organization_key: string | null; installation_key: string | null }>>({})
+  const hasSavedCredentials = savedCredentials[form.environment as 'sandbox' | 'production'] ?? false
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
   const [archiveCheck, setArchiveCheck] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
   // Results of the "Search existing datasets" button below (see
@@ -194,14 +197,17 @@ export default function GBIFPublishForm({
   useEffect(() => {
     api.gbifGetConfig()
       .then((config) => {
-        setHasSavedCredentials(config.has_credentials)
+        setSavedCredentials(config.has_credentials_by_environment)
+        setSavedKeys(config.keys_by_environment)
         if (initialConfig) return
+        const environment = found?.environment ?? config.environment
+        const keys = config.keys_by_environment[environment]
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
-          environment: found?.environment ?? config.environment,
-          publishingOrganizationKey: config.publishing_organization_key ?? f.publishingOrganizationKey,
-          installationKey: config.installation_key ?? f.installationKey,
+          environment,
+          publishingOrganizationKey: keys?.publishing_organization_key ?? f.publishingOrganizationKey,
+          installationKey: keys?.installation_key ?? f.installationKey,
           registryLanguage: config.registry_language ?? f.registryLanguage,
         }))
       })
@@ -289,6 +295,17 @@ export default function GBIFPublishForm({
     setForm((f) => ({ ...f, [key]: value }))
     if (key === 'username' || key === 'password') setTest({ status: 'idle', message: '' })
     if (key === 'archiveUrl') setArchiveCheck({ status: 'idle', message: '' })
+    // Organization and installation belong to an environment: switching shows the new one's own
+    // saved one, if any (a hand-typed value is kept, one picked from a dropdown is re-resolved by
+    // the effects above instead).
+    if (key === 'environment') {
+      const keys = savedKeys[value]
+      setForm((f) => ({
+        ...f,
+        publishingOrganizationKey: selectedOrgTitle ? f.publishingOrganizationKey : keys?.publishing_organization_key ?? f.publishingOrganizationKey,
+        installationKey: selectedInstallationTitle ? f.installationKey : keys?.installation_key ?? f.installationKey,
+      }))
+    }
     // A stale result list would no longer reflect the org/environment it
     // was searched under.
     if (key === 'publishingOrganizationKey' || key === 'environment') {
@@ -340,7 +357,7 @@ export default function GBIFPublishForm({
     setTest({ status: 'testing', message: '' })
     try {
       await api.gbifTestCredentials(form.username, form.password, form.environment)
-      setHasSavedCredentials(true) // the backend saves environment/username/password on a successful test
+      setSavedCredentials((c) => ({ ...c, [form.environment]: true })) // the backend saves environment/username/password on a successful test
       setTest({ status: 'ok', message: 'Credentials verified.' })
     } catch (e) {
       setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the credentials.' })
@@ -511,7 +528,7 @@ export default function GBIFPublishForm({
         (manual review, cannot be automated).
       </p>
 
-      {publication?.kind !== 'new' && (
+      {(publication?.kind === 'version' || (!publication && form.datasetKey.trim() !== '')) && (
         <div className="mb-6">
           <label className={labelClass} htmlFor="gbif-dataset-key">
             {found ? "Previous version's GBIF dataset UUID" : 'Dataset UUID (leave blank to create a new dataset)'}

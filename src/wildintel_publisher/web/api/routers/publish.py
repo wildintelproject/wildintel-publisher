@@ -60,7 +60,7 @@ def _resolve_repo_config(
             data["output_dir"] = str(hfh_service.get_hfh_output_dir())
     elif cfg.repo == "zenodo":
         try:
-            data["token"] = zenodo_service.resolve_token(cfg.token)
+            data["token"] = zenodo_service.resolve_token(cfg.token, cfg.environment)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         zenodo_service.save_config(cfg.environment, cfg.communities, cfg.token)
@@ -70,7 +70,7 @@ def _resolve_repo_config(
         if not cfg.community_id:
             raise HTTPException(400, "Missing the EUDAT B2SHARE community UUID.")
         try:
-            data["token"] = b2share_service.resolve_token(cfg.token)
+            data["token"] = b2share_service.resolve_token(cfg.token, cfg.environment)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         b2share_service.save_config(cfg.environment, cfg.community_id, cfg.token)
@@ -82,7 +82,7 @@ def _resolve_repo_config(
         if not cfg.publishing_organization_key or not cfg.installation_key:
             raise HTTPException(400, "Missing the GBIF publishing organization/installation UUID.")
         try:
-            data["username"], data["password"] = gbif_service.resolve_credentials(cfg.username, cfg.password)
+            data["username"], data["password"] = gbif_service.resolve_credentials(cfg.username, cfg.password, cfg.environment)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         gbif_service.save_config(

@@ -26,12 +26,12 @@ import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
 import type {
-  Organization, DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary,
+  Organization, ProductAuthor, DatapackageContributor, DatapackageSummary, ProductType, PublishSessionSummary,
   Publication, SessionFetch, SessionPreprocessing, SessionSummary, TrapperDownloadSelection, YoloDataYamlFields,
   YoloDataYamlMetadata,
 } from '../types'
 
-const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Download', 'Publish']
+const STEP_LABELS = ['Product Type', 'Source', 'Metadata', 'Package', 'Publish']
 
 // Data Package spec's own constraints on these two fields (the others —
 // title/description/homepage — are free text, nothing to validate).
@@ -440,6 +440,7 @@ export default function WizardPage({ resumeSession }: Props) {
   // its own disabled= below), so neither dropdown is ever shown, or a
   // contributor list built, with nothing to choose from.
   const [organizationOptions, setOrganizationOptions] = useState<Organization[]>([])
+  const [authorOptions, setAuthorOptions] = useState<ProductAuthor[]>([])
   // The single selected publisher/rightsHolder organization's own title —
   // always one of organizationOptions. Both start blank (organizationOptions
   // itself starts empty) and get their real default once BOTH that fetch
@@ -907,6 +908,7 @@ export default function WizardPage({ resumeSession }: Props) {
   // still change later via step 0's own product-type buttons).
   useEffect(() => {
     api.organizations().then(setOrganizationOptions).catch(() => { /* dropdowns just stay empty */ })
+    api.authors().then(setAuthorOptions).catch(() => { /* the quick-add just stays empty */ })
   }, [])
 
   // Pre-fills datapackage.json's own name/title/description/homepage/
@@ -976,7 +978,7 @@ export default function WizardPage({ resumeSession }: Props) {
       .then((fields) => {
         const { metadata, warnings } = withOrganizationDefaults({
           title: fields.title ?? '', description: fields.description ?? '', version: fields.version ?? '',
-          homepage: fields.homepage ?? '', license: initialLicense(fields.license),
+          homepage: fields.homepage ?? '', funding: fields.funding ?? '', license: initialLicense(fields.license),
           authors: fields.authors.length > 0 ? fields.authors : [{ name: '', affiliation: '' }],
           publisher: fields.publisher ?? null, copyright_holders: fields.copyright_holders ?? [],
         }, organizationOptions)
@@ -1492,7 +1494,7 @@ export default function WizardPage({ resumeSession }: Props) {
           {productType === 'yolo' && yoloDataset && (
             <YoloMetadataEditor
               dataset={yoloDataset} value={yoloMetadata} onChange={setYoloMetadata}
-              organizations={organizationOptions} organizationWarnings={yoloOrganizationWarnings}
+              organizations={organizationOptions} authorOptions={authorOptions} organizationWarnings={yoloOrganizationWarnings}
               previousVersion={previousVersion}
             />
           )}

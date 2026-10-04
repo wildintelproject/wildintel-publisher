@@ -7,6 +7,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from wildintel_publisher.web.schemas.requests import PickDirectoryRequest
+from wildintel_publisher.web.services import native_dialog
+
 router = APIRouter(prefix="/api/fs", tags=["fs"])
 logger = logging.getLogger(__name__)
 
@@ -42,3 +45,16 @@ def browse(path: str = "") -> dict:
         "parent": str(p.parent) if p.parent != p else None,
         "dirs": [{"name": d.name, "path": str(d)} for d in dirs],
     }
+
+
+@router.post("/pick-directory")
+def pick_directory(req: PickDirectoryRequest) -> dict:
+    """Opens the operating system's own folder dialog (see
+    services.native_dialog) and returns the chosen path — {"path": null}
+    when the user cancels. 501 when this machine can't open one, so the
+    frontend falls back to its in-page browser."""
+    try:
+        path = native_dialog.pick_directory(req.initial_path, req.title or "Select the directory")
+    except native_dialog.NativeDialogUnavailable as exc:
+        raise HTTPException(501, f"No native folder dialog available: {exc}") from exc
+    return {"path": path}

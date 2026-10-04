@@ -73,6 +73,11 @@ The publisher and rights holder are picked from the organizations configured in
 `settings.toml` (`[[PRODUCT.organizations]]`), the same list Camtrap DP uses. The license
 is picked from a list of common ones (CC-BY-NC-4.0 by default, WildINTEL's own policy),
 which fills in its id, full name and URL at once; "Other…" lets you type any other.
+The authors listed in `data.yaml` are shown as they are; the "Add a saved author…" menu
+adds one of the authors saved in the settings page's *Authors* section
+(`[[PRODUCT.authors]]` in `settings.toml`) with one click, and each one stays editable.
+The *Additional funding text* field is appended to the README's *Funding* section
+(saved as `funding` in the copy of `data.yaml`).
 
 Unlike Camtrap DP, there is no `filePublic`/privacy concept — every image under
 `images/` is treated as publishable, and no media-reference URL needs rewriting: the

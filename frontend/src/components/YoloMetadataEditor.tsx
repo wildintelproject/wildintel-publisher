@@ -1,7 +1,7 @@
 import type { Organization, ProductAuthor, ProductLicense, YoloDataYamlFields, YoloDataYamlMetadata } from '../types'
 import { COMMON_LICENSES, findCommonLicense } from '../licenses'
 import { isNewerVersion } from '../versions'
-import { authorIsInvalid, licenseIsInvalid, organizationPublisher } from '../yoloMetadata'
+import { authorIsBlank, authorIsInvalid, licenseIsInvalid, organizationPublisher } from '../yoloMetadata'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100'
 const invalidInputClass = 'w-full px-3 py-2 text-sm rounded border border-red-500 dark:border-red-500 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100'
@@ -20,6 +20,8 @@ interface Props {
   /** settings.toml's PRODUCT.organizations — the options for both the
    * publisher and the rights holder (see api.organizations). */
   organizations: Organization[]
+  /** settings.toml's PRODUCT.authors — quick-add options for the authors list. */
+  authorOptions?: ProductAuthor[]
   /** Why a publisher/rights holder from data.yaml was replaced (see
    * withOrganizationDefaults). */
   organizationWarnings: string[]
@@ -31,7 +33,7 @@ interface Props {
 /** The wizard's metadata step for a YOLO dataset: edits the keys this tool
  * adds to data.yaml (not part of the YOLO spec itself) on the session's
  * working copy — the user's own data.yaml is never modified. */
-export default function YoloMetadataEditor({ dataset, value, onChange, organizations, organizationWarnings, previousVersion }: Props) {
+export default function YoloMetadataEditor({ dataset, value, onChange, organizations, authorOptions = [], organizationWarnings, previousVersion }: Props) {
   const set = <K extends keyof YoloDataYamlMetadata>(key: K, fieldValue: YoloDataYamlMetadata[K]) =>
     onChange({ ...value, [key]: fieldValue })
   const license = value.license ?? {}
@@ -42,6 +44,10 @@ export default function YoloMetadataEditor({ dataset, value, onChange, organizat
     set('license', { ...license, [key]: fieldValue })
   const setAuthor = (index: number, key: keyof ProductAuthor, fieldValue: string) =>
     set('authors', value.authors.map((a, i) => (i === index ? { ...a, [key]: fieldValue } : a)))
+
+  // Saved authors not already in the list (matched by name).
+  const listed = new Set(value.authors.map((a) => (a.name ?? '').trim().toLowerCase()))
+  const availableAuthors = authorOptions.filter((a) => a.name && !listed.has(a.name.trim().toLowerCase()))
 
   return (
     <div className="space-y-4">
@@ -169,12 +175,26 @@ export default function YoloMetadataEditor({ dataset, value, onChange, organizat
         {value.authors.some(authorIsInvalid) && (
           <p className="text-xs text-red-600 dark:text-red-400 mt-1">Every author needs a name.</p>
         )}
-        <button
-          type="button" className={`${btnOutline} mt-2`}
-          onClick={() => set('authors', [...value.authors, { name: '', affiliation: '' }])}
-        >
-          + Add author
-        </button>
+        <div className="flex items-center gap-2 flex-wrap mt-2">
+          <button
+            type="button" className={btnOutline}
+            onClick={() => set('authors', [...value.authors, { name: '', affiliation: '' }])}
+          >
+            + Add author
+          </button>
+          {availableAuthors.length > 0 && (
+            <select
+              aria-label="Add a saved author" className={selectClass} value=""
+              onChange={(e) => {
+                const author = availableAuthors[Number(e.target.value)]
+                if (author) set('authors', [...value.authors.filter((a) => !authorIsBlank(a)), { name: author.name ?? '', affiliation: author.affiliation ?? '' }])
+              }}
+            >
+              <option value="">+ Add a saved author…</option>
+              {availableAuthors.map((a, i) => <option key={a.name} value={i}>{a.name}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       <div>
@@ -215,6 +235,17 @@ export default function YoloMetadataEditor({ dataset, value, onChange, organizat
             </select>
           </div>
         </div>
+      </div>
+
+      <div>
+        <label htmlFor="yolo-funding" className={labelClass}>Additional funding text</label>
+        <textarea
+          id="yolo-funding" rows={3} className={inputClass} value={value.funding ?? ''}
+          onChange={(e) => set('funding', e.target.value)}
+        />
+        <p className={hintClass}>
+          Optional (Markdown). Added to the README's "Funding" section, after the standard WildINTEL text.
+        </p>
       </div>
 
       <p className={hintClass}>

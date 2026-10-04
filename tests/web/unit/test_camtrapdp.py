@@ -464,6 +464,15 @@ def test_organizations_returns_the_configured_list():
     assert institute["path"] == "https://www.iop.krakow.pl/"
 
 
+def test_authors_returns_the_configured_list():
+    response = _client().get("/api/product/authors")
+
+    assert response.status_code == 200
+    names = [author["name"] for author in response.json()]
+    assert "Iñaki Fernández de Viana" in names
+    assert all("affiliation" in author for author in response.json())
+
+
 def test_open_folder_returns_404_when_directory_missing(tmp_path):
     response = _client().post("/api/camtrapdp/open-folder", json={"path": str(tmp_path / "missing")})
     assert response.status_code == 404

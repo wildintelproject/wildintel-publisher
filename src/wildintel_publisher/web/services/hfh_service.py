@@ -25,7 +25,7 @@ from typing import Any
 
 from dynaconf import loaders
 from huggingface_hub import HfApi, snapshot_download, whoami
-from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, get_hfh_output_dir, load_settings
+from wildintel_publisher.core.config import active_config_file, get_hfh_output_dir, load_settings
 from wildintel_publisher.core.services import common as camtrapdp_common
 from wildintel_publisher.core.services import hfh as hfh_service
 from wildintel_publisher.core.services import product
@@ -126,7 +126,7 @@ def save_config(repo_id: str | None, token: str | None) -> None:
         settings.HFH.username = repo_id.split("/", 1)[0]
     if token:
         settings.HFH.token = token
-    loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
+    loaders.toml_loader.write(str(active_config_file()), settings.model_dump(mode="json"), merge=False)
 
 
 def test_token(token: str, repo_id: str | None = None, version: str | None = None) -> dict:

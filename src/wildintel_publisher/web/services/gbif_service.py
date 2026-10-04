@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 from dynaconf import loaders
 from huggingface_hub import upload_file
-from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, get_gbif_output_dir, load_settings
+from wildintel_publisher.core.config import active_config_file, get_gbif_output_dir, load_settings
 from wildintel_publisher.core.services import gbif as gbif_cli
 from wildintel_publisher.core.services.gbif import validate_camtrap_dp_archive
 
@@ -39,28 +39,49 @@ def get_connection_defaults() -> dict:
     settings = load_settings()
     return {
         "environment": settings.GBIF.environment,
-        "publishing_organization_key": settings.GBIF.publishing_organization_key,
-        "installation_key": settings.GBIF.installation_key,
+        "publishing_organization_key": settings.GBIF.value_for("publishing_organization_key"),
+        "installation_key": settings.GBIF.value_for("installation_key"),
+        # Per environment — the wizard's own environment selector can differ
+        # from the saved default.
+        "keys_by_environment": {
+            env: {
+                "publishing_organization_key": settings.GBIF.value_for("publishing_organization_key", env),
+                "installation_key": settings.GBIF.value_for("installation_key", env),
+            }
+            for env in ("sandbox", "production")
+        },
         "registry_language": settings.GBIF.registry_language,
         "output_dir": str(get_gbif_output_dir()),
         "has_credentials": bool(
-            (os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.username)
-            and (os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.password)
+            (os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.value_for("username"))
+            and (os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.value_for("password"))
         ),
+        # Per environment — the wizard's own environment selector can differ
+        # from the saved default.
+        "has_credentials_by_environment": {
+            env: bool(
+                (os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.value_for("username", env))
+                and (os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.value_for("password", env))
+            )
+            for env in ("sandbox", "production")
+        },
     }
 
 
-def resolve_credentials(username: str | None, password: str | None) -> tuple[str, str]:
+def resolve_credentials(
+    username: str | None, password: str | None, environment: str | None = None,
+) -> tuple[str, str]:
     """Mirrors commands/gbif.py's own _require_credentials: the
     GBIF_USERNAME/GBIF_PASSWORD environment variables take priority, then
-    whatever's saved in settings.toml.
+    whatever's saved in settings.toml for `environment` (default: the configured
+    one).
 
     Raises:
         ValueError: if either half is missing from every source.
     """
     settings = load_settings()
-    resolved_username = username or os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.username
-    resolved_password = password or os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.password
+    resolved_username = username or os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.value_for("username", environment)
+    resolved_password = password or os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.value_for("password", environment)
     if not resolved_username or not resolved_password:
         raise ValueError(
             "Missing GBIF Registry API credentials — provide a username/password, or save them "
@@ -86,17 +107,18 @@ def save_config(
     settings = load_settings()
     if environment:
         settings.GBIF.environment = environment
+    prefix = settings.GBIF.environment
     if publishing_organization_key:
-        settings.GBIF.publishing_organization_key = publishing_organization_key
+        setattr(settings.GBIF, f"{prefix}_publishing_organization_key", publishing_organization_key)
     if installation_key:
-        settings.GBIF.installation_key = installation_key
+        setattr(settings.GBIF, f"{prefix}_installation_key", installation_key)
     if registry_language:
         settings.GBIF.registry_language = registry_language
     if username:
-        settings.GBIF.username = username
+        setattr(settings.GBIF, f"{prefix}_username", username)
     if password:
-        settings.GBIF.password = password
-    loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
+        setattr(settings.GBIF, f"{prefix}_password", password)
+    loaders.toml_loader.write(str(active_config_file()), settings.model_dump(mode="json"), merge=False)
 
 
 def test_credentials(username: str, password: str, environment: str) -> dict:

@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import B2SharePublishForm, { SyncPidSection } from './B2SharePublishForm'
 
+// Publishing a new version of something already published — where the existing-record field lives.
+const VERSION = { kind: 'version' as const, previous: null }
+
 vi.mock('../api', () => ({
   api: {
     b2shareGetConfig: vi.fn(),
@@ -18,7 +21,7 @@ const mockedApi = vi.mocked(api)
 
 beforeEach(() => {
   mockedApi.b2shareGetConfig.mockResolvedValue({
-    environment: 'sandbox', community_id: null, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false,
+    environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: null, production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
   })
   mockedApi.hfhGetConfig.mockResolvedValue({
     username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
@@ -32,7 +35,7 @@ afterEach(() => {
 describe('B2SharePublishForm', () => {
   it('prefills the output directory and environment from settings', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
 
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
     expect(screen.getByLabelText('Environment')).toHaveValue('sandbox')
@@ -40,7 +43,7 @@ describe('B2SharePublishForm', () => {
 
   it('shows a note that the linked HFH repository is detected automatically, in link mode — no field to type it in', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     expect(screen.queryByText(/detected automatically/i)).not.toBeInTheDocument()
@@ -54,7 +57,7 @@ describe('B2SharePublishForm', () => {
 
   it('requires a community UUID even in mirror mode', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
@@ -66,7 +69,7 @@ describe('B2SharePublishForm', () => {
 
   it('allows continuing in link mode even without a community UUID filled in yet being irrelevant to detection', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
@@ -79,7 +82,7 @@ describe('B2SharePublishForm', () => {
   it('tests the token', async () => {
     mockedApi.b2shareTestToken.mockResolvedValue({ ok: true })
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
@@ -92,7 +95,7 @@ describe('B2SharePublishForm', () => {
   it('reports the collected configuration when Continue is clicked', async () => {
     const onConfigured = vi.fn()
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
@@ -110,7 +113,7 @@ describe('B2SharePublishForm', () => {
   })
 
   it('keeps "Search existing records" disabled until a token is typed', async () => {
-    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByRole('button', { name: /search existing records/i })).toBeDisabled()
@@ -124,7 +127,7 @@ describe('B2SharePublishForm', () => {
       { id: 'rec-1', title: 'Camera Trap Survey v1' },
       { id: 'rec-2', title: 'Camera Trap Survey v2' },
     ])
-    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
 
@@ -143,7 +146,7 @@ describe('B2SharePublishForm', () => {
 
   it('reports no records found instead of an empty, silent list', async () => {
     mockedApi.b2shareRecords.mockResolvedValue([])
-    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
 
@@ -154,7 +157,7 @@ describe('B2SharePublishForm', () => {
 
   it('shows an error message when the search itself fails', async () => {
     mockedApi.b2shareRecords.mockRejectedValue(new Error('B2SHARE returned an unexpected error.'))
-    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
 
@@ -165,7 +168,7 @@ describe('B2SharePublishForm', () => {
 
   it('clears stale results when the environment changes', async () => {
     mockedApi.b2shareRecords.mockResolvedValue([{ id: 'rec-1', title: 'Camera Trap Survey v1' }])
-    render(<B2SharePublishForm onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
     await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
@@ -178,7 +181,7 @@ describe('B2SharePublishForm', () => {
 
   it('sends the typed existing record id when Continue is clicked', async () => {
     const onConfigured = vi.fn()
-    render(<B2SharePublishForm onConfigured={onConfigured} />)
+    render(<B2SharePublishForm publication={VERSION} onConfigured={onConfigured} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
     await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
@@ -193,7 +196,7 @@ describe('B2SharePublishForm', () => {
 
   it('uses Camtrap DP wording for the Mode section when productType is omitted', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     expect(screen.getByText(/bundles them inside B2SHARE's own camtrapdp\.zip/i)).toBeInTheDocument()
@@ -202,7 +205,7 @@ describe('B2SharePublishForm', () => {
 
   it('uses reference-only wording for the Mode section for a Software Application', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm productType="software" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} productType="software" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     expect(screen.getByText(/bundles the whole repository/i)).toBeInTheDocument()
@@ -213,7 +216,7 @@ describe('B2SharePublishForm', () => {
   it('shows the archive-size options for Camtrap DP in Mirror mode, and reports them on Continue', async () => {
     const onConfigured = vi.fn()
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
+    render(<B2SharePublishForm publication={VERSION} productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     expect(screen.getByText(/resize images to fit the archive size limit/i)).toBeInTheDocument()
@@ -232,13 +235,13 @@ describe('B2SharePublishForm', () => {
 
   it('hides the archive-size options once Link mode is picked, or for a non-Camtrap-DP product', async () => {
     const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} productType="camtrapdp" onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
     expect(screen.queryByText(/resize images to fit the archive size limit/i)).not.toBeInTheDocument()
 
-    render(<B2SharePublishForm productType="yolo" onOutputDirChange={vi.fn()} onConfigured={vi.fn()} />)
+    render(<B2SharePublishForm publication={VERSION} productType="yolo" onOutputDirChange={vi.fn()} onConfigured={vi.fn()} />)
     expect(screen.queryByText(/resize images to fit the archive size limit/i)).not.toBeInTheDocument()
   })
 })

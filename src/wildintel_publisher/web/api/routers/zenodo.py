@@ -27,7 +27,7 @@ def test_token(req: ZenodoTestTokenRequest) -> dict:
     """Verify a Zenodo token, and save it (with environment, if given) to
     settings.toml once verified — so it doesn't need to be retyped."""
     try:
-        token = zenodo_service.resolve_token(req.token)
+        token = zenodo_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -50,7 +50,7 @@ async def publish(req: ZenodoPublishRequest) -> dict:
     """Start prepare -> upload -> release as a background task.
     Returns a task_id; poll GET /api/zenodo/publish/{task_id} for status."""
     try:
-        token = zenodo_service.resolve_token(req.token)
+        token = zenodo_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -59,7 +59,7 @@ async def publish(req: ZenodoPublishRequest) -> dict:
 
     defaults = zenodo_service.get_connection_defaults()
     environment = req.environment or defaults["environment"]
-    communities = req.communities if req.communities is not None else defaults["communities"]
+    communities = req.communities if req.communities is not None else defaults["communities_by_environment"][environment]
 
     zenodo_service.save_config(req.environment, req.communities, req.token)
 
@@ -96,7 +96,7 @@ def depositions(req: ZenodoDepositionsRequest) -> list[dict]:
     existing_deposition_id from a list instead of typing/tracking a numeric
     id by hand."""
     try:
-        token = zenodo_service.resolve_token(req.token)
+        token = zenodo_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

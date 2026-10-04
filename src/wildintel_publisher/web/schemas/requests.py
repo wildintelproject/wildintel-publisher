@@ -474,3 +474,8 @@ class ResumePublishRequest(BaseModel):
     repos: list[RepoPublishConfig]
     version: Optional[str] = None
     timeout: Optional[int] = None
+
+
+class PickDirectoryRequest(BaseModel):
+    initial_path: Optional[str] = None
+    title: Optional[str] = None

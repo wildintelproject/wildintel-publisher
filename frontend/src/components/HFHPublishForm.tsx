@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { preparedCoreFiles } from '../productFiles'
 import type { OutputMode, ProductType, Publication } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
@@ -347,10 +348,10 @@ export default function HFHPublishForm({ productType, publication, productTitle,
               checked={outputMode === 'prepared'}
               onChange={() => setOutputMode('prepared')}
             />
-            <span><strong>Prepared package</strong> - just the Camtrap DP files (datapackage.json,
-              deployments.csv, media.csv, observations.csv) with the changes made while preparing
-              and uploading, plus CITATION.cff/README.md/checksums (needed to sync a DOI/PID here
-              later) — no LICENSE, images or the local zip.</span>
+            <span><strong>Prepared package</strong> - just {preparedCoreFiles(productType).what} with the
+              changes made while preparing and uploading, plus CITATION.cff/README.md/checksums
+              (needed to sync a DOI/PID here later) — no LICENSE,{' '}
+              {preparedCoreFiles(productType).imagesSeparate ? 'images or the local zip' : 'or the local zip'}.</span>
           </label>
           <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
             <input

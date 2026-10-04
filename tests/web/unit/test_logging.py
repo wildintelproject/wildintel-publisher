@@ -12,9 +12,15 @@ def _client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def clean(monkeypatch):
-    from wildintel_publisher.core import config
+    from wildintel_publisher.core import config, logging_setup
 
     monkeypatch.delenv("WILDINTEL_PUBLISHER_LOG_LEVEL", raising=False)
+    # The CLI suites (same pytest process) leave the app's own handlers on
+    # the root logger, the console one bound to a CliRunner stream that's
+    # closed by now — start from none, so configure() makes fresh ones.
+    root = logging.getLogger()
+    for handler in [h for h in root.handlers if logging_setup._ours(h)]:
+        root.removeHandler(handler)
     config.save_settings(config.Settings())
     root_level = logging.getLogger().level
     yield

@@ -17,6 +17,8 @@ Expected layout:
     └── test/
         └── ...
     data.yaml
+    <anything else>      (optional — extra files/folders such as a statistics/
+                          or lists/ folder, a paper, a .docx README...; gathered under additional_info/, see copy_extra_files)
 
 Validation (see YoloAdapter.validate) is done with Pydantic models:
 YoloDataYaml for data.yaml itself (split paths, nc vs names) and
@@ -35,7 +37,8 @@ names) plus a handful of optional top-level keys this tool reads for
 metadata.json (not part of the YOLO spec itself, but harmless extra keys
 that YOLO training scripts simply ignore): title, description, version,
 license (a string treated as the license id, or a {id, name, url} mapping),
-authors (a list of {name, affiliation}), homepage, publisher (a {name,
+authors (a list of {name, affiliation}), homepage, funding (extra text
+appended to the README's Funding section), publisher (a {name,
 website, email} mapping) and copyright_holders (a list of names).
 
 Unlike Camtrap DP, a YOLO dataset's images are already local, plain files —
@@ -78,6 +81,13 @@ MAX_REPORTED_PROBLEMS = 10
 # images/ and labels/ keep being read from, so only data.yaml needs copying.
 SOURCE_POINTER_FILENAME = "yolo-source.json"
 
+# Top-level names that are never "extra files": handled on their own
+# (data.yaml, images/, labels/), pipeline bookkeeping (the source pointer), or
+# editor leftovers nobody wants published (LibreOffice's .~lock.<file>#, .git).
+_NOT_EXTRA_NAMES = {DATA_YAML_FILENAME, IMAGES_DIRNAME, LABELS_DIRNAME, SOURCE_POINTER_FILENAME, ".git"}
+HF_METADATA_JSONL = "metadata.jsonl"
+ADDITIONAL_INFO_DIRNAME = "additional_info"
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,6 +106,96 @@ def _copy_splits(source_dir: Path, target_dir: Path, dirname: str) -> None:
         split_dir = source_root / split
         if split_dir.is_dir():
             shutil.copytree(split_dir, target_root / split, dirs_exist_ok=True)
+
+
+def _is_extra_entry(entry: Path) -> bool:
+    return entry.name not in _NOT_EXTRA_NAMES and not entry.name.startswith(".~lock.")
+
+
+def _extra_entries(root: Path, *, own_metadata_json: bool) -> list[Path]:
+    """Top-level files/folders of `root` besides data.yaml/images/labels —
+    what the dataset's authors sent along (statistics, lists, a paper...).
+    `own_metadata_json` says whether a metadata.json at root is this
+    pipeline's own bookkeeping (root IS the input directory — never part of
+    the dataset) or the dataset's own, unrelated file."""
+    return sorted(
+        entry for entry in root.iterdir()
+        if _is_extra_entry(entry) and not (own_metadata_json and entry.name == product.METADATA_FILENAME)
+    )
+
+
+def _loose_extras(root: Path, *, own_metadata_json: bool) -> list[Path]:
+    """The extras that sit loose in the dataset's root — i.e. everything
+    _extra_entries finds except the additional_info/ folder itself."""
+    return [e for e in _extra_entries(root, own_metadata_json=own_metadata_json) if e.name != ADDITIONAL_INFO_DIRNAME]
+
+
+def _has_content(directory: Path) -> bool:
+    return directory.is_dir() and any(directory.iterdir())
+
+
+def copy_extra_files(root: Path, output_dir: Path, *, own_metadata_json: bool) -> None:
+    """Gathers everything extra in the dataset's root (see _extra_entries)
+    under output_dir/additional_info/ — so none of it can ever collide with
+    a file this pipeline generates (README.md, LICENSE, CITATION.cff...).
+
+    The dataset's own additional_info/ folder is copied as it is when there
+    are no loose extras. When there are, and it isn't empty, its contents
+    move one level down to additional_info/additional_info/ so the loose
+    extras can sit directly in additional_info/ without mixing with them."""
+    existing = root / ADDITIONAL_INFO_DIRNAME
+    loose = _loose_extras(root, own_metadata_json=own_metadata_json)
+    target = output_dir / ADDITIONAL_INFO_DIRNAME
+    if not loose:
+        if existing.is_dir():
+            shutil.copytree(existing, target, dirs_exist_ok=True)
+        return
+    target.mkdir(exist_ok=True)
+    if _has_content(existing):
+        shutil.copytree(existing, target / ADDITIONAL_INFO_DIRNAME, dirs_exist_ok=True)
+    for entry in loose:
+        if entry.is_dir():
+            shutil.copytree(entry, target / entry.name, dirs_exist_ok=True)
+        else:
+            shutil.copy2(entry, target / entry.name)
+
+
+def source_conflicts(directory: Path) -> list[str]:
+    """Warnings for what this pipeline does NOT publish where/as it found it:
+    loose extras (moved into additional_info/), a Hub metadata.jsonl it
+    replaces, and data.yaml itself when the wizard's metadata editor changed
+    it."""
+    root = dataset_root(directory)
+    own_metadata_json = root.resolve() == directory.resolve()
+    warnings = []
+    loose = _loose_extras(root, own_metadata_json=own_metadata_json)
+    if loose:
+        warnings.append(
+            f"{', '.join(f'{e.name}/' if e.is_dir() else e.name for e in loose)} will be published inside "
+            f"{ADDITIONAL_INFO_DIRNAME}/ (not in the dataset's root)."
+        )
+        if _has_content(root / ADDITIONAL_INFO_DIRNAME):
+            warnings.append(
+                f"The dataset's own {ADDITIONAL_INFO_DIRNAME}/ will be published as "
+                f"{ADDITIONAL_INFO_DIRNAME}/{ADDITIONAL_INFO_DIRNAME}/."
+            )
+    for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
+        if (root / IMAGES_DIRNAME / split / HF_METADATA_JSONL).is_file():
+            warnings.append(
+                f"{IMAGES_DIRNAME}/{split}/{HF_METADATA_JSONL} already exists — the Hugging Face Hub export "
+                f"generates its own; the original is kept as SOURCE_{HF_METADATA_JSONL}."
+            )
+    if root != directory and _data_yaml_path(root).is_file():
+        try:
+            changed = yaml.safe_load(_data_yaml_path(root).read_text(encoding="utf-8")) != _load_data_yaml(directory)
+        except (yaml.YAMLError, OSError, RuntimeError):
+            changed = False
+        if changed:
+            warnings.append(
+                "data.yaml will be published with the metadata edited in the wizard (title, authors, license...); "
+                "your original file is not modified, but YAML comments are lost in the published copy."
+            )
+    return warnings
 
 
 def _load_data_yaml(directory: Path) -> dict:
@@ -230,6 +330,7 @@ class YoloMetadata(BaseModel):
     description: YamlText = None
     version: YamlText = None
     homepage: YamlText = None
+    funding: YamlText = None
 
 
 def _resolve_publisher(value) -> Optional[dict]:
@@ -460,7 +561,7 @@ def check_dataset(directory: Path) -> list[str]:
         if other_files:
             warnings.append(f"{other_files} non-image file(s) under {split_dir} will be published as-is.")
 
-    return [*warnings, *_validate_labels(root, config, images_by_split)]
+    return [*warnings, *source_conflicts(directory), *_validate_labels(root, config, images_by_split)]
 
 
 def dataset_statistics(directory: Path, config: YoloDataYaml) -> dict:
@@ -641,7 +742,11 @@ def write_hf_metadata_jsonl(output_dir: Path) -> None:
                     if bboxes:
                         entry["objects"] = {"bbox": bboxes, "categories": categories}
             lines.append(json.dumps(entry))
-        (images_split_dir / "metadata.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        jsonl_path = images_split_dir / HF_METADATA_JSONL
+        if jsonl_path.is_file():
+            # The dataset's own — keep it rather than silently overwrite.
+            jsonl_path.replace(images_split_dir / f"SOURCE_{HF_METADATA_JSONL}")
+        jsonl_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 class YoloAdapter:
@@ -700,6 +805,7 @@ class YoloAdapter:
         root = dataset_root(input_dir)
         _copy_splits(root, output_dir, IMAGES_DIRNAME)
         _copy_splits(root, output_dir, LABELS_DIRNAME)
+        copy_extra_files(root, output_dir, own_metadata_json=root.resolve() == input_dir.resolve())
         self.validate(output_dir)
 
     def anonymize_coordinates(self, input_dir: Path, *, decimals: int) -> None:
@@ -715,6 +821,14 @@ class YoloAdapter:
             shutil.copy2(data_yaml_source, _data_yaml_path(target_dir))
             _copy_splits(output_dir, target_dir, IMAGES_DIRNAME)
             _copy_splits(output_dir, target_dir, LABELS_DIRNAME)
+            for entry in output_dir.iterdir():
+                # additional_info/ travels on;
+                # this repo's own generated files and zip don't.
+                if _is_extra_entry(entry) and entry.name not in product.GENERATED_FILENAMES and entry.suffix != ".zip":
+                    if entry.is_dir():
+                        shutil.copytree(entry, target_dir / entry.name, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(entry, target_dir / entry.name)
             # A Hugging Face Hub build/download may be sharded (see
             # shard_large_splits) — hand everything downstream (the next
             # repo in the chain, the user's own output_dir) the original
@@ -764,6 +878,10 @@ class YoloAdapter:
             # The dataset's own homepage, if data.yaml gives one — where the
             # README's "Contributing" section points (omitted otherwise).
             "contributing_url": homepage,
+            # Extra text for the shared README "Funding" section (see
+            # templates/common/_readme-funding.md.j2), from data.yaml's own
+            # "funding" key — the wizard's metadata editor writes it there.
+            "funding_extra": (_read_funding(output_dir) or "").strip(),
             # Hugging Face Hub Dataset Card discovery fields (see
             # README-yolo-body.md.j2's frontmatter) — size_category is
             # computed from what's actually on disk (common.hf_size_category),
@@ -786,6 +904,9 @@ class YoloEditableMetadata(BaseModel):
     description: Optional[str] = None
     version: Optional[str] = None
     homepage: Optional[str] = None
+    # Free text (Markdown) appended to the README's "Funding" section, after
+    # the standard WildINTEL text — see readme_context's funding_extra.
+    funding: Optional[str] = None
     license: Optional[YoloLicense] = None
     authors: list[YoloAuthor] = Field(default_factory=list)
     # Same meaning as metadata.json's own publisher/copyright_holders —
@@ -794,10 +915,20 @@ class YoloEditableMetadata(BaseModel):
     copyright_holders: list[NonBlankText] = Field(default_factory=list)
 
 
+def _read_funding(directory: Path) -> Optional[str]:
+    try:
+        return YoloMetadata.model_validate(_load_data_yaml(directory)).funding
+    except (ValidationError, RuntimeError):
+        return None
+
+
 def read_editable_fields(directory: Path) -> dict:
     """Best-effort, same as extract_metadata: a missing or malformed key
     just comes back empty, for the user to fill in."""
-    return YoloAdapter().extract_metadata(directory)
+    fields = YoloAdapter().extract_metadata(directory)
+    # funding only feeds the README (see readme_context), so it never goes
+    # through extract_metadata/metadata.json — read straight from data.yaml.
+    return {**fields, "funding": _read_funding(directory)}
 
 
 def update_editable_fields(directory: Path, fields: YoloEditableMetadata) -> None:

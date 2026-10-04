@@ -155,9 +155,13 @@ def test_resolve_local_source_patches_trappers_private_license_placeholder(camtr
     that."""
     from wildintel_publisher.core.services import camtrapdp_source
 
-    monkeypatch.setattr(camtrapdp_source.settings.CAMTRAPDP, "license_id", "MIT")
-    monkeypatch.setattr(camtrapdp_source.settings.CAMTRAPDP, "license_name", "MIT License")
-    monkeypatch.setattr(camtrapdp_source.settings.CAMTRAPDP, "license_url", "https://opensource.org/license/mit")
+    from wildintel_publisher.core.config import Settings
+
+    configured = Settings()
+    configured.CAMTRAPDP.license_id = "MIT"
+    configured.CAMTRAPDP.license_name = "MIT License"
+    configured.CAMTRAPDP.license_url = "https://opensource.org/license/mit"
+    monkeypatch.setattr(camtrapdp_source, "load_settings", lambda: configured)
 
     source_dir = camtrapdp_dir()
     datapackage_path = source_dir / "datapackage.json"

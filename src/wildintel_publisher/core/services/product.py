@@ -478,6 +478,9 @@ def zip_directory(source_dir: Path, zip_path: Path, *, exclude_names: set[str] =
 
     with ZipFile(zip_path, "w") as zf:
         for file_path in sorted(source_dir.rglob("*")):
-            if not file_path.is_file() or file_path == zip_path or file_path.name in exclude_names:
+            relative = file_path.relative_to(source_dir)
+            # Generated files only exist at the top level — a same-named file
+            # deeper down (statistics/README.md) is the dataset's own.
+            if not file_path.is_file() or file_path == zip_path or (len(relative.parts) == 1 and file_path.name in exclude_names):
                 continue
-            zf.write(file_path, file_path.relative_to(source_dir).as_posix())
+            zf.write(file_path, relative.as_posix())

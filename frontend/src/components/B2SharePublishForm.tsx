@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { preparedCoreFiles } from '../productFiles'
 import type { OutputMode, ProductType, Publication } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
@@ -105,7 +106,10 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
   const [fitArchiveSize, setFitArchiveSize] = useState(initialConfig?.fitArchiveSize ?? true)
   const [maxZipFile, setMaxZipFile] = useState(initialConfig?.maxZipFile?.toString() ?? '')
   const [minImageEdge, setMinImageEdge] = useState(initialConfig?.minImageEdge?.toString() ?? '640')
-  const [hasSavedToken, setHasSavedToken] = useState(false)
+  // Saved per environment (sandbox/production have their own token and community).
+  const [savedTokens, setSavedTokens] = useState<Record<'sandbox' | 'production', boolean>>({ sandbox: false, production: false })
+  const [savedCommunityIds, setSavedCommunityIds] = useState<Record<string, string | null>>({})
+  const hasSavedToken = savedTokens[form.environment as 'sandbox' | 'production'] ?? false
 
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
   // Results of the "Search existing records" button below (see
@@ -134,13 +138,15 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
   useEffect(() => {
     api.b2shareGetConfig()
       .then((config) => {
-        setHasSavedToken(config.has_token)
+        setSavedTokens(config.has_token_by_environment)
+        setSavedCommunityIds(config.community_id_by_environment)
         if (initialConfig) return
+        const environment = found?.environment ?? config.environment
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
-          environment: found?.environment ?? config.environment,
-          communityId: config.community_id ?? f.communityId,
+          environment,
+          communityId: config.community_id_by_environment[environment] ?? f.communityId,
         }))
       })
       .catch(() => {})
@@ -157,6 +163,8 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
     if (key === 'token') setTest({ status: 'idle', message: '' })
+    // The community belongs to an environment: switching shows the new one's own.
+    if (key === 'environment') setForm((f) => ({ ...f, communityId: savedCommunityIds[value] ?? '' }))
     // A stale result list would no longer reflect the environment it was
     // searched under.
     if (key === 'environment') setRecordSearch({ status: 'idle', message: '', results: [] })
@@ -191,7 +199,7 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
     setTest({ status: 'testing', message: '' })
     try {
       await api.b2shareTestToken(form.token, form.environment)
-      setHasSavedToken(true) // the backend saves environment/token on a successful test
+      setSavedTokens((t) => ({ ...t, [form.environment]: true })) // the backend saves environment/token on a successful test
       setTest({ status: 'ok', message: 'Token verified.' })
     } catch (e) {
       setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the token.' })
@@ -288,7 +296,7 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
         )}
       </div>
 
-      {publication?.kind !== 'new' && (
+      {(publication?.kind === 'version' || (!publication && form.existingRecordId.trim() !== '')) && (
         <div className="mb-6">
           <label className={labelClass} htmlFor="b2share-existing-record-id">
             {found ? `Previous version's B2SHARE record ID` : 'B2SHARE record ID (leave blank to create a new draft)'}
@@ -465,10 +473,10 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
               checked={outputMode === 'prepared'}
               onChange={() => setOutputMode('prepared')}
             />
-            <span><strong>Prepared package</strong> - just the Camtrap DP files (datapackage.json,
-              deployments.csv, media.csv, observations.csv) with the changes made while preparing
-              and uploading, plus the B2SHARE record data (needed to sync the PID/DOI here later) —
-              no README, LICENSE, CITATION.cff, checksums or images.</span>
+            <span><strong>Prepared package</strong> - just {preparedCoreFiles(productType).what} with the
+              changes made while preparing and uploading, plus the B2SHARE record data (needed to
+              sync the PID/DOI here later) — no README, LICENSE, CITATION.cff,{' '}
+              {preparedCoreFiles(productType).imagesSeparate ? 'checksums or images' : 'or checksums'}.</span>
           </label>
           <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
             <input

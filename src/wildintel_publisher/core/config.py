@@ -8,6 +8,7 @@ máquina/usuario:
   - Windows: %APPDATA%\\wildintel-publisher\\settings.toml
 Se genera automáticamente con los valores por defecto la primera vez que se usa.
 """
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -31,6 +32,11 @@ else:
     REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SETTINGS_DIR = Path(typer.get_app_dir(APP_NAME))
 DEFAULT_CONFIG_FILE  = DEFAULT_SETTINGS_DIR / "settings.toml"
+# Más ficheros de configuración, además del de por defecto: uno por .toml en
+# CONFIGS_DIR; cuál se usa lo dice ACTIVE_CONFIG_POINTER (ver active_config_file).
+CONFIGS_DIR = DEFAULT_SETTINGS_DIR / "configs"
+ACTIVE_CONFIG_POINTER = DEFAULT_SETTINGS_DIR / "active-config"
+DEFAULT_CONFIG_ID = "default"
 
 
 def get_app_documents_dir() -> Path:
@@ -280,23 +286,45 @@ class ZenodoSettings(BaseModel):
             "'production' (zenodo.org, real DOI). (ZENODO.environment)"
         ),
     )
-    communities: Optional[str] = Field(
+    sandbox_communities: Optional[str] = Field(
+        default=None,
+        description=(
+            "Zenodo Sandbox communities to submit the deposition to when creating it, comma-"
+            "separated (communities are per environment). (ZENODO.sandbox_communities)"
+        ),
+    )
+    production_communities: Optional[str] = Field(
         default=None,
         description=(
             "Zenodo communities to submit the deposition to when creating it, comma-"
-            "separated (e.g. wildintelproject). (ZENODO.communities)"
+            "separated (e.g. wildintelproject). (ZENODO.production_communities)"
         ),
     )
-    token: Optional[str] = Field(
+    sandbox_token: Optional[str] = Field(
         default=None,
         description=(
-            "Zenodo access token (or Zenodo Sandbox's if environment=sandbox) — "
-            "https://zenodo.org/account/settings/applications/tokens/new/ (or the "
-            "equivalent on sandbox.zenodo.org). The ZENODO_TOKEN environment variable, if "
-            "set, takes priority over this value. (ZENODO.token)"
+            "Zenodo Sandbox access token (sandbox.zenodo.org — a separate account from "
+            "production's) — https://sandbox.zenodo.org/account/settings/applications/tokens/new/. "
+            "Used when environment=sandbox. The ZENODO_TOKEN environment variable, if set, "
+            "takes priority over this value. (ZENODO.sandbox_token)"
         ),
         json_schema_extra={"secret": True},
     )
+    production_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "Zenodo access token (zenodo.org) — "
+            "https://zenodo.org/account/settings/applications/tokens/new/. Used when "
+            "environment=production. The ZENODO_TOKEN environment variable, if set, takes "
+            "priority over this value. (ZENODO.production_token)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+
+    def value_for(self, field: str, environment: Optional[str] = None) -> Optional[str]:
+        """The saved value of a per-environment `field` (sandbox_<field> /
+        production_<field>) for `environment` (default: the configured one)."""
+        return getattr(self, f"{environment or self.environment}_{field}")
 
 
 class B2ShareSettings(BaseModel):
@@ -314,22 +342,46 @@ class B2ShareSettings(BaseModel):
             "'production' (b2share.eudat.eu, real PID/DOI). (B2SHARE.environment)"
         ),
     )
-    community_id: Optional[str] = Field(
+    sandbox_community_id: Optional[str] = Field(
         default=None,
         description=(
-            "UUID of the EUDAT B2SHARE community this record belongs to. Request it from "
-            "EUDAT (it cannot be guessed). (B2SHARE.community_id)"
+            "UUID of the EUDAT B2SHARE community this record belongs to on the sandbox "
+            "(trng-b2share.eudat.eu) — a different UUID from production's. Request it from "
+            "EUDAT (it cannot be guessed). (B2SHARE.sandbox_community_id)"
         ),
     )
-    token: Optional[str] = Field(
+    production_community_id: Optional[str] = Field(
         default=None,
         description=(
-            "B2SHARE access token (or its sandbox's if environment=sandbox) — generated "
-            "from your profile at b2share.eudat.eu. The B2SHARE_TOKEN environment "
-            "variable, if set, takes priority over this value. (B2SHARE.token)"
+            "UUID of the EUDAT B2SHARE community this record belongs to on production "
+            "(b2share.eudat.eu). Request it from EUDAT (it cannot be guessed). "
+            "(B2SHARE.production_community_id)"
+        ),
+    )
+    sandbox_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "B2SHARE sandbox access token (trng-b2share.eudat.eu — a separate account from "
+            "production's), generated from your profile there. Used when environment=sandbox. "
+            "The B2SHARE_TOKEN environment variable, if set, takes priority over this value. "
+            "(B2SHARE.sandbox_token)"
         ),
         json_schema_extra={"secret": True},
     )
+    production_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "B2SHARE access token (b2share.eudat.eu), generated from your profile there. "
+            "Used when environment=production. The B2SHARE_TOKEN environment variable, if "
+            "set, takes priority over this value. (B2SHARE.production_token)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+
+    def value_for(self, field: str, environment: Optional[str] = None) -> Optional[str]:
+        """The saved value of a per-environment `field` (sandbox_<field> /
+        production_<field>) for `environment` (default: the configured one)."""
+        return getattr(self, f"{environment or self.environment}_{field}")
 
 
 class GBIFInstallation(BaseModel):
@@ -373,18 +425,32 @@ class GBIFSettings(BaseModel):
             "public dataset). (GBIF.environment)"
         ),
     )
-    publishing_organization_key: Optional[str] = Field(
+    sandbox_publishing_organization_key: Optional[str] = Field(
         default=None,
         description=(
-            "UUID of your organization already registered and endorsed on gbif.org (or "
-            "gbif-test.org for sandbox). Cannot be guessed. (GBIF.publishing_organization_key)"
+            "UUID of your organization already registered and endorsed on gbif-test.org. "
+            "Cannot be guessed. (GBIF.sandbox_publishing_organization_key)"
         ),
     )
-    installation_key: Optional[str] = Field(
+    production_publishing_organization_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "UUID of your organization already registered and endorsed on gbif.org. "
+            "Cannot be guessed. (GBIF.production_publishing_organization_key)"
+        ),
+    )
+    sandbox_installation_key: Optional[str] = Field(
         default=None,
         description=(
             "UUID of your installation already registered under that organization on "
-            "gbif.org (or gbif-test.org). Cannot be guessed. (GBIF.installation_key)"
+            "gbif-test.org. Cannot be guessed. (GBIF.sandbox_installation_key)"
+        ),
+    )
+    production_installation_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "UUID of your installation already registered under that organization on "
+            "gbif.org. Cannot be guessed. (GBIF.production_installation_key)"
         ),
     )
     registry_language: Optional[str] = Field(
@@ -394,23 +460,47 @@ class GBIFSettings(BaseModel):
             "'language' field when registering the dataset. (GBIF.registry_language)"
         ),
     )
-    username: Optional[str] = Field(
+    sandbox_username: Optional[str] = Field(
         default=None,
         description=(
-            "Username of your gbif.org account (or gbif-test.org's, if environment="
-            "sandbox) — the Registry API uses Basic Auth. The GBIF_USERNAME environment "
-            "variable, if set, takes priority over this value. (GBIF.username)"
+            "Username of your gbif-test.org account (a separate account from production's) "
+            "— the Registry API uses Basic Auth. Used when environment=sandbox. The "
+            "GBIF_USERNAME environment variable, if set, takes priority over this value. "
+            "(GBIF.sandbox_username)"
         ),
         json_schema_extra={"secret": True},
     )
-    password: Optional[str] = Field(
+    sandbox_password: Optional[str] = Field(
         default=None,
         description=(
-            "Password of that same account. The GBIF_PASSWORD environment variable, if "
-            "set, takes priority over this value. (GBIF.password)"
+            "Password of that same gbif-test.org account. The GBIF_PASSWORD environment "
+            "variable, if set, takes priority over this value. (GBIF.sandbox_password)"
         ),
         json_schema_extra={"secret": True},
     )
+    production_username: Optional[str] = Field(
+        default=None,
+        description=(
+            "Username of your gbif.org account — the Registry API uses Basic Auth. Used "
+            "when environment=production. The GBIF_USERNAME environment variable, if set, "
+            "takes priority over this value. (GBIF.production_username)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+    production_password: Optional[str] = Field(
+        default=None,
+        description=(
+            "Password of that same gbif.org account. The GBIF_PASSWORD environment variable, "
+            "if set, takes priority over this value. (GBIF.production_password)"
+        ),
+        json_schema_extra={"secret": True},
+    )
+
+    def value_for(self, field: str, environment: Optional[str] = None) -> Optional[str]:
+        """The saved value of a per-environment `field` (sandbox_<field> /
+        production_<field>) for `environment` (default: the configured one)."""
+        return getattr(self, f"{environment or self.environment}_{field}")
+
     installations: list[GBIFInstallation] = Field(
         default_factory=lambda: [
             GBIFInstallation(title="WildINTEL", sandbox_installation_key="9970e64a-f762-11e1-a439-00145eb45e9a"),
@@ -556,6 +646,21 @@ class Organization(BaseModel):
     )
 
 
+class Author(BaseModel):
+    """One selectable entry of PRODUCT.authors below — the web wizard's
+    metadata-editing step offers these as quick-add options for a product's
+    authors (same {name, affiliation} shape as metadata.json's own authors).
+    An author is always editable in the wizard after adding it."""
+    name: str = Field(description="Author's full name, written as-is as the author's own name.")
+    affiliation: Optional[str] = Field(
+        default=None,
+        description="Author's affiliation(s), free text — several are joined with '; '.",
+    )
+
+
+_UHU_DEPARTMENT = "Department of Integrated Sciences, Faculty of Experimental Sciences, University of Huelva, Huelva, Spain"
+
+
 class ProductSettings(BaseModel):
     """Settings shared by every product type. organizations: selectable as
     a product's own publisher/rights holder in the web wizard's
@@ -593,6 +698,42 @@ class ProductSettings(BaseModel):
             Organization(title="Spanish Node of the Global Biodiversity Information Facility", path="https://www.gbif.es/"),
         ],
         description="Selectable publisher/rights holder organizations for the web wizard's metadata-editing step. (PRODUCT.organizations)",
+    )
+    authors: list[Author] = Field(
+        default_factory=lambda: [
+            Author(
+                name="Javier Calzada Samperio",
+                affiliation=(
+                    "Departamento de Ciencias Integradas y Centro de Estudios Avanzados en Física, Matemáticas y "
+                    "Computación, Facultad de Ciencias Experimentales, Universidad de Huelva, Huelva, 21071, Spain"
+                ),
+            ),
+            Author(name="Santiago Gutiérrez-Zapata", affiliation=_UHU_DEPARTMENT),
+            Author(
+                name="Simone Santoro",
+                affiliation=(
+                    f"{_UHU_DEPARTMENT}; Department of Natural Sciences and Environmental Health, "
+                    "University of South-Eastern Norway, Bø, Norway"
+                ),
+            ),
+            Author(
+                name="Manuel E. Gegundez-Arias",
+                affiliation=f"{_UHU_DEPARTMENT}; Science and Technology Research Centre, Universidad de Huelva, Huelva, Spain",
+            ),
+            Author(
+                name="Iñaki Fernández de Viana",
+                affiliation="Department Information Technologies, University of Huelva, 21007 Huelva, Spain",
+            ),
+            Author(name="Lenka Straková", affiliation=_UHU_DEPARTMENT),
+            Author(
+                name="Agata Kaczówka",
+                affiliation=(
+                    "Institute of Nature Conservation, Polish Academy of Sciences, al. Adama Mickiewicza 33, "
+                    "31-120 Kraków, Poland"
+                ),
+            ),
+        ],
+        description="Selectable authors the web wizard's metadata-editing step can add to a product. (PRODUCT.authors)",
     )
 
 
@@ -646,6 +787,21 @@ class Settings(BaseModel):
             data["TRAPPER"] = trapper
         if camtrapdp or "CAMTRAPDP" in data:
             data["CAMTRAPDP"] = camtrapdp
+        # These fields used to be one single value, whichever environment was selected — it becomes the one of
+        # that environment (GBIF.environment's own default, sandbox, included).
+        for section, legacy_fields in (
+            ("ZENODO", ("token", "communities")),
+            ("B2SHARE", ("token", "community_id")),
+            ("GBIF", ("username", "password", "publishing_organization_key", "installation_key")),
+        ):
+            block = data.get(section)
+            if isinstance(block, dict) and any(f in block for f in legacy_fields):
+                block = dict(block)
+                environment = block.get("environment") or "sandbox"
+                for f in legacy_fields:
+                    if f in block:
+                        block.setdefault(f"{environment}_{f}", block.pop(f))
+                data[section] = block
         s3 = data.get("S3")
         if isinstance(s3, dict) and "remotes" not in s3 and any(f in s3 for f in _S3_REMOTE_FIELDS):
             # The S3 section used to hold one single connection — it becomes
@@ -657,6 +813,89 @@ class Settings(BaseModel):
         return data
 
 
+class ConfigInfo(BaseModel):
+    """One settings file the user can switch to — see list_configs."""
+    id: str
+    name: str
+    path: str
+    active: bool
+
+
+def _config_path(config_id: str) -> Path:
+    return DEFAULT_CONFIG_FILE if config_id == DEFAULT_CONFIG_ID else CONFIGS_DIR / f"{config_id}.toml"
+
+
+def _config_ids() -> list[str]:
+    extra = sorted(p.stem for p in CONFIGS_DIR.glob("*.toml")) if CONFIGS_DIR.is_dir() else []
+    return [DEFAULT_CONFIG_ID, *(config_id for config_id in extra if config_id != DEFAULT_CONFIG_ID)]
+
+
+def active_config_id() -> str:
+    """The id of the config in use: the one ACTIVE_CONFIG_POINTER names, or
+    the default one if it's missing, empty or names a file that's gone."""
+    try:
+        config_id = ACTIVE_CONFIG_POINTER.read_text(encoding="utf-8").strip()
+    except OSError:
+        return DEFAULT_CONFIG_ID
+    return config_id if config_id in _config_ids() else DEFAULT_CONFIG_ID
+
+
+def active_config_file() -> Path:
+    """The settings file every load_settings()/save_settings() call without
+    an explicit file works on."""
+    return _config_path(active_config_id())
+
+
+def list_configs() -> list[ConfigInfo]:
+    active = active_config_id()
+    return [
+        ConfigInfo(
+            id=config_id, name="Default config" if config_id == DEFAULT_CONFIG_ID else config_id,
+            path=str(_config_path(config_id)), active=config_id == active,
+        )
+        for config_id in _config_ids()
+    ]
+
+
+def create_config(name: str) -> str:
+    """Writes a new config file with the default values — named after `name`
+    (made file-name safe, and unique among the existing ones) — and returns
+    its id. It doesn't become the active one.
+
+    Raises:
+        ValueError: if `name` has no letters or digits to name a file after.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    if not base:
+        raise ValueError("A config needs a name with at least one letter or digit.")
+    existing = set(_config_ids())
+    config_id, suffix = base, 2
+    while config_id in existing:
+        config_id, suffix = f"{base}-{suffix}", suffix + 1
+    CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+    loaders.toml_loader.write(str(_config_path(config_id)), Settings().model_dump(mode="json"), merge=False)
+    return config_id
+
+
+def set_active_config(config_id: str) -> None:
+    """Raises:
+        KeyError: if there's no config with that id.
+    """
+    if config_id not in _config_ids():
+        raise KeyError(config_id)
+    ACTIVE_CONFIG_POINTER.parent.mkdir(parents=True, exist_ok=True)
+    ACTIVE_CONFIG_POINTER.write_text(config_id, encoding="utf-8")
+
+
+def config_file_for(config_id: str) -> Path:
+    """Raises:
+        KeyError: if there's no config with that id.
+    """
+    if config_id not in _config_ids():
+        raise KeyError(config_id)
+    return _config_path(config_id)
+
+
 def _ensure_config_file(config_file: Path) -> None:
     """Crea config_file con los valores por defecto si todavía no existe."""
     if config_file.exists():
@@ -666,16 +905,18 @@ def _ensure_config_file(config_file: Path) -> None:
     loaders.toml_loader.write(str(config_file), defaults, merge=False)
 
 
-def load_settings(config_file: Path = DEFAULT_CONFIG_FILE) -> Settings:
+def load_settings(config_file: Optional[Path] = None) -> Settings:
+    config_file = config_file or active_config_file()
     _ensure_config_file(config_file)
     dynaconf_settings = Dynaconf(settings_files=[str(config_file)], envvar_prefix="WILDINTEL_PUBLISHER")
     return Settings.model_validate(dynaconf_settings.to_dict())
 
 
-def save_settings(new: Settings, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
+def save_settings(new: Settings, config_file: Optional[Path] = None) -> None:
     """Sobrescribe config_file entero con new — ver el router de
     settings.toml (web app), que preserva los secretos que llegan en blanco
     antes de llamar a esto."""
+    config_file = config_file or active_config_file()
     config_file.parent.mkdir(parents=True, exist_ok=True)
     loaders.toml_loader.write(str(config_file), new.model_dump(mode="json"), merge=False)
 

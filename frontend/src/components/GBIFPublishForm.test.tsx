@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import GBIFPublishForm, { GBIFSyncDoiSection } from './GBIFPublishForm'
 
+// Publishing a new version of something already published — where the existing-record field lives.
+const VERSION = { kind: 'version' as const, previous: null }
+
 vi.mock('../api', () => ({
   api: {
     gbifGetConfig: vi.fn(),
@@ -22,7 +25,12 @@ const mockedApi = vi.mocked(api)
 beforeEach(() => {
   mockedApi.gbifGetConfig.mockResolvedValue({
     environment: 'sandbox', publishing_organization_key: null, installation_key: null,
+    keys_by_environment: {
+      sandbox: { publishing_organization_key: null, installation_key: null },
+      production: { publishing_organization_key: null, installation_key: null },
+    },
     registry_language: 'eng', output_dir: '/gbif/output', has_credentials: false,
+    has_credentials_by_environment: { sandbox: false, production: false },
   })
   mockedApi.hfhGetConfig.mockResolvedValue({
     username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
@@ -36,25 +44,25 @@ beforeEach(() => {
 
 describe('GBIFPublishForm', () => {
   it('prefills the environment and registry language from settings', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
 
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     expect(screen.getByLabelText('Registry language')).toHaveValue('eng')
   })
 
   it('prefills the archive URL from the suggestion, without overwriting a manual edit', async () => {
-    const { rerender } = render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    const { rerender } = render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
-    rerender(<GBIFPublishForm suggestedArchiveUrl="https://example.org/datapackage.json" onConfigured={vi.fn()} />)
+    rerender(<GBIFPublishForm publication={VERSION} suggestedArchiveUrl="https://example.org/datapackage.json" onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Archive URL')).toHaveValue('https://example.org/datapackage.json'))
 
-    rerender(<GBIFPublishForm suggestedArchiveUrl="https://example.org/other.json" onConfigured={vi.fn()} />)
+    rerender(<GBIFPublishForm publication={VERSION} suggestedArchiveUrl="https://example.org/other.json" onConfigured={vi.fn()} />)
     expect(screen.getByLabelText('Archive URL')).toHaveValue('https://example.org/datapackage.json')
   })
 
   it('keeps Continue disabled until the required fields are filled', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
@@ -70,14 +78,14 @@ describe('GBIFPublishForm', () => {
   })
 
   it('warns that the archive is not published yet when Hugging Face Hub precedes GBIF in this run', async () => {
-    render(<GBIFPublishForm archiveNotPublishedYet onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} archiveNotPublishedYet onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByText(/hasn't published yet in this run/i)).toBeInTheDocument()
   })
 
   it('does not show the not-published-yet warning otherwise', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.queryByText(/hasn't published yet in this run/i)).not.toBeInTheDocument()
@@ -98,28 +106,28 @@ describe('GBIFPublishForm', () => {
   })
 
   it('leaves the archive URL editable when not locked', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByLabelText('Archive URL')).not.toHaveAttribute('readonly')
   })
 
   it('explains the local copy is metadata-only when GBIF is registered standalone', async () => {
-    render(<GBIFPublishForm standaloneRegistration onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} standaloneRegistration onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByText(/the local copy you just fetched/i)).toBeInTheDocument()
   })
 
   it('does not show the standalone note when Hugging Face Hub is also selected', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.queryByText(/the local copy you just fetched/i)).not.toBeInTheDocument()
   })
 
   it('explains the archive URL is pending when Zenodo/B2SHARE publish without Hugging Face Hub', async () => {
-    render(<GBIFPublishForm pendingFromOtherRepo onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} pendingFromOtherRepo onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByText(/their own record isn't assigned until they actually upload/i)).toBeInTheDocument()
@@ -127,14 +135,14 @@ describe('GBIFPublishForm', () => {
   })
 
   it('does not show the pending-from-other-repo note otherwise', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.queryByText(/their own record isn't assigned until they actually upload/i)).not.toBeInTheDocument()
   })
 
   it('does not require credentials or keys for a dry run', async () => {
-    render(<GBIFPublishForm dryRun onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} dryRun onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
@@ -143,7 +151,7 @@ describe('GBIFPublishForm', () => {
 
   it('tests the credentials', async () => {
     mockedApi.gbifTestCredentials.mockResolvedValue({ ok: true })
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.type(screen.getByLabelText('GBIF username'), 'alice')
@@ -155,7 +163,7 @@ describe('GBIFPublishForm', () => {
   })
 
   it('keeps the Validate archive button disabled until a URL is typed', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByRole('button', { name: /validate archive/i })).toBeDisabled()
@@ -166,7 +174,7 @@ describe('GBIFPublishForm', () => {
 
   it('validates the archive URL', async () => {
     mockedApi.gbifValidateArchive.mockResolvedValue({ ok: true })
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.type(screen.getByLabelText('Archive URL'), 'https://example.org/camtrapdp-remote.zip')
@@ -178,7 +186,7 @@ describe('GBIFPublishForm', () => {
 
   it('shows an error when the archive is not a valid Camtrap DP zip', async () => {
     mockedApi.gbifValidateArchive.mockRejectedValue(new Error('is not a valid zip archive'))
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.type(screen.getByLabelText('Archive URL'), 'https://example.org/datapackage.json')
@@ -189,7 +197,7 @@ describe('GBIFPublishForm', () => {
 
   it('resets the archive validation status when the URL is edited', async () => {
     mockedApi.gbifValidateArchive.mockResolvedValue({ ok: true })
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.type(screen.getByLabelText('Archive URL'), 'https://example.org/camtrapdp-remote.zip')
@@ -202,7 +210,7 @@ describe('GBIFPublishForm', () => {
 
   it('reports the collected configuration when Continue is clicked', async () => {
     const onConfigured = vi.fn()
-    render(<GBIFPublishForm onConfigured={onConfigured} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={onConfigured} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.type(screen.getByLabelText('Archive URL'), 'https://example.org/datapackage.json')
@@ -226,7 +234,7 @@ describe('GBIFPublishForm organization quick-fill', () => {
       { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
       { title: 'University of Huelva', path: 'https://www.uhu.es/', email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: 'prod-uuid-2' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     // University of Huelva has no sandbox key — not offered while sandbox
@@ -244,7 +252,7 @@ describe('GBIFPublishForm organization quick-fill', () => {
     mockedApi.organizations.mockResolvedValue([
       { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.selectOptions(screen.getByLabelText('Publishing organization'), 'WildINTEL')
     expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('sandbox-uuid-1')
@@ -258,7 +266,7 @@ describe('GBIFPublishForm organization quick-fill', () => {
     mockedApi.organizations.mockResolvedValue([
       { title: 'WildINTEL', path: 'https://wildintel.eu/', email: null, gbif_sandbox_organization_key: 'sandbox-uuid-1', gbif_production_organization_key: 'prod-uuid-1' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.selectOptions(screen.getByLabelText('Publishing organization'), 'WildINTEL')
 
@@ -270,7 +278,7 @@ describe('GBIFPublishForm organization quick-fill', () => {
   })
 
   it('hides the dropdown entirely when no organization has a key for either environment', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.queryByLabelText('Publishing organization')).not.toBeInTheDocument()
@@ -283,7 +291,7 @@ describe('GBIFPublishForm installation quick-fill', () => {
       { title: 'WildINTEL', sandbox_installation_key: 'sandbox-inst-1', production_installation_key: 'prod-inst-1' },
       { title: 'Another Installation', sandbox_installation_key: null, production_installation_key: 'prod-inst-2' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     // "Another Installation" has no sandbox key — not offered while
@@ -301,7 +309,7 @@ describe('GBIFPublishForm installation quick-fill', () => {
     mockedApi.gbifInstallations.mockResolvedValue([
       { title: 'WildINTEL', sandbox_installation_key: 'sandbox-inst-1', production_installation_key: 'prod-inst-1' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.selectOptions(screen.getByLabelText('Installation'), 'WildINTEL')
     expect(screen.getByLabelText('Installation UUID')).toHaveValue('sandbox-inst-1')
@@ -315,7 +323,7 @@ describe('GBIFPublishForm installation quick-fill', () => {
     mockedApi.gbifInstallations.mockResolvedValue([
       { title: 'WildINTEL', sandbox_installation_key: 'sandbox-inst-1', production_installation_key: 'prod-inst-1' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.selectOptions(screen.getByLabelText('Installation'), 'WildINTEL')
 
@@ -327,7 +335,7 @@ describe('GBIFPublishForm installation quick-fill', () => {
   })
 
   it('hides the dropdown entirely when no installation has a key for either environment', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.queryByLabelText('Installation')).not.toBeInTheDocument()
@@ -340,7 +348,7 @@ describe('GBIFPublishForm installation quick-fill', () => {
     mockedApi.gbifInstallations.mockResolvedValue([
       { title: 'WildINTEL', sandbox_installation_key: 'inst-uuid-1', production_installation_key: null },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.selectOptions(screen.getByLabelText('Publishing organization'), 'Institute of Nature Conservation PAS')
@@ -395,7 +403,7 @@ describe('GBIFSyncDoiSection', () => {
 
 describe('GBIFPublishForm dataset picker', () => {
   it('keeps "Search existing datasets" disabled until an organization UUID is typed', async () => {
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     expect(screen.getByRole('button', { name: /search existing datasets/i })).toBeDisabled()
@@ -409,7 +417,7 @@ describe('GBIFPublishForm dataset picker', () => {
       { key: 'uuid-1', title: 'Dataset One' },
       { key: 'uuid-2', title: 'Dataset Two' },
     ])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
 
@@ -428,7 +436,7 @@ describe('GBIFPublishForm dataset picker', () => {
 
   it('reports no datasets found instead of an empty, silent list', async () => {
     mockedApi.gbifOrganizationDatasets.mockResolvedValue([])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
 
@@ -439,7 +447,7 @@ describe('GBIFPublishForm dataset picker', () => {
 
   it('shows an error message when the search itself fails', async () => {
     mockedApi.gbifOrganizationDatasets.mockRejectedValue(new Error('GBIF returned an unexpected error.'))
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
 
@@ -450,7 +458,7 @@ describe('GBIFPublishForm dataset picker', () => {
 
   it('clears stale results when the organization or environment changes', async () => {
     mockedApi.gbifOrganizationDatasets.mockResolvedValue([{ key: 'uuid-1', title: 'Dataset One' }])
-    render(<GBIFPublishForm onConfigured={vi.fn()} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
     await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
     await userEvent.click(screen.getByRole('button', { name: /search existing datasets/i }))
@@ -463,7 +471,7 @@ describe('GBIFPublishForm dataset picker', () => {
 
   it('sends the typed dataset UUID when Continue is clicked', async () => {
     const onConfigured = vi.fn()
-    render(<GBIFPublishForm onConfigured={onConfigured} />)
+    render(<GBIFPublishForm publication={VERSION} onConfigured={onConfigured} />)
     await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
 
     await userEvent.type(screen.getByLabelText('Archive URL'), 'https://example.org/datapackage.json')

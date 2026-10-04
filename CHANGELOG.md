@@ -19,6 +19,39 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
 ## Upcoming release
 
 ### Added
+- Web: the *General* section of the settings page has an **Update** button: *Check updates* looks
+  for a newer web-app release (`web-vX.Y.Z` tags only, never a CLI release) and, if there is one,
+  becomes *Tap to download X.Y.Z* (the build for your OS). If the check can't be done (offline...)
+  it says so and becomes *Tap to retry*.
+- CLI/Web: **several configs**. The settings page has a new *Config* section listing the settings
+  files, with the active one marked; the **+** button creates a new file with the default values
+  (stored in `configs/` next to `settings.toml`), and each card can be activated, opened in the
+  file manager (its folder) or downloaded. Everything — wizard, CLI and settings page — reads and
+  saves the active config; the original `settings.toml` stays the "Default config".
+- Web: new **Authors** section in the settings page (`[[PRODUCT.authors]]` in `settings.toml`),
+  like Organizations: a list of saved authors (name and affiliation) that the AI Dataset (YOLO)
+  metadata step can add with one click ("Add a saved author…"). It starts with the authors of the
+  Doñana National Park Dataset.
+- Web: the AI Dataset (YOLO) metadata editor has an **Additional funding text** field (Markdown,
+  saved as `funding` in `data.yaml`) that is appended to the README's *Funding* section, after the
+  standard WildINTEL text.
+- CLI/Web: an AI Dataset (YOLO) now publishes **every extra file or folder** that came with
+  it (statistics, lists, papers...), not just `data.yaml`, `images/` and `labels/`: they are
+  gathered under an `additional_info/` folder, so they can never collide with the generated
+  `README.md`, `LICENSE` or `CITATION.cff`. A dataset's own `additional_info/` folder is
+  kept as it is, unless there are also loose extras: then its contents move to
+  `additional_info/additional_info/`. The dataset check warns about what gets moved, about an existing
+  `images/<split>/metadata.jsonl` (kept as `SOURCE_metadata.jsonl`) and about `data.yaml`
+  changes made in the wizard.
+- CLI/Web: Zenodo, B2SHARE and GBIF now keep **separate settings per environment**
+  (sandbox and production): access token (GBIF: username/password), Zenodo communities,
+  B2SHARE community UUID, and GBIF publishing organization/installation UUIDs. The
+  settings page shows a Sandbox and a Production column for each, the wizard picks the
+  saved values of whichever environment is selected, and `config set` takes
+  `sandbox_<field>` / `production_<field>`. A `settings.toml` written by an older version
+  is migrated automatically (its single value goes to the environment that was
+  selected). The `ZENODO_TOKEN`/`B2SHARE_TOKEN`/`GBIF_USERNAME`/`GBIF_PASSWORD` environment
+  variables still take priority for both.
 - Web: publish Camtrap DP to GBIF from the wizard, alongside Hugging Face Hub, Zenodo, and
   B2SHARE — previously CLI-only.
 - CLI/Web: add a new "software application" product type, now also selectable in the web
@@ -287,6 +320,13 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   `data.yaml` and `images/` — it also holds `labels/`.
 
 ### Changed
+- Web: **Browse** on the "Local directory" source (Camtrap DP and AI dataset) opens the
+  operating system's own folder dialog (zenity/kdialog on Linux, Finder on macOS, the Windows
+  folder dialog) instead of the in-page browser, which stays as the fallback on a machine that
+  can't open one.
+- Web: on the settings page, HuggingFace Hub, Zenodo, B2SHARE and GBIF are grouped under a
+  single **Repositories** section — one card each (⚙️ opens its form), and the Organizations
+  section uses the same card layout.
 - Web: **S3 image hosting** now holds several named remotes, listed as cards on the settings
   page (⚙️ to edit one, **+** to add one, with a *Test connection* button) instead of a single
   connection. The wizard's "Upload images to a public repository?" step just picks one of

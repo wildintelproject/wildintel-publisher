@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { AppSettings, AppSettingsUpdate, GBIFInstallation, LogLevel, Organization, S3Remote } from '../types'
+import type { AppSettings, AppSettingsUpdate, ConfigInfo, VersionCheck, GBIFInstallation, LogLevel, Organization, ProductAuthor, S3Remote } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
@@ -42,7 +42,7 @@ function newRemoteId(): string {
 type Environment = 'sandbox' | 'production'
 
 /** Every scalar field as typed text/select; the two list fields
- * (GBIF.installations, PRODUCT.organizations) are kept as their own
+ * (GBIF.installations, PRODUCT.organizations, PRODUCT.authors) are kept as their own
  * structured arrays instead. */
 interface Draft {
   trapperUrl: string
@@ -66,19 +66,27 @@ interface Draft {
   hfhToken: string
 
   zenodoEnvironment: Environment
-  zenodoCommunities: string
-  zenodoToken: string
+  zenodoSandboxCommunities: string
+  zenodoProductionCommunities: string
+  zenodoSandboxToken: string
+  zenodoProductionToken: string
 
   b2shareEnvironment: Environment
-  b2shareCommunityId: string
-  b2shareToken: string
+  b2shareSandboxCommunityId: string
+  b2shareProductionCommunityId: string
+  b2shareSandboxToken: string
+  b2shareProductionToken: string
 
   gbifEnvironment: Environment
-  gbifPublishingOrganizationKey: string
-  gbifInstallationKey: string
+  gbifSandboxPublishingOrganizationKey: string
+  gbifProductionPublishingOrganizationKey: string
+  gbifSandboxInstallationKey: string
+  gbifProductionInstallationKey: string
   gbifRegistryLanguage: string
-  gbifUsername: string
-  gbifPassword: string
+  gbifSandboxUsername: string
+  gbifSandboxPassword: string
+  gbifProductionUsername: string
+  gbifProductionPassword: string
   gbifInstallations: GBIFInstallation[]
 
   s3Remotes: S3RemoteDraft[]
@@ -86,6 +94,7 @@ interface Draft {
   s3RetryWaitSeconds: string
 
   organizations: Organization[]
+  authors: ProductAuthor[]
 }
 
 function toDraft(s: AppSettings): Draft {
@@ -111,19 +120,27 @@ function toDraft(s: AppSettings): Draft {
     hfhToken: '',
 
     zenodoEnvironment: s.ZENODO.environment ?? 'sandbox',
-    zenodoCommunities: s.ZENODO.communities ?? '',
-    zenodoToken: '',
+    zenodoSandboxCommunities: s.ZENODO.sandbox_communities ?? '',
+    zenodoProductionCommunities: s.ZENODO.production_communities ?? '',
+    zenodoSandboxToken: '',
+    zenodoProductionToken: '',
 
     b2shareEnvironment: s.B2SHARE.environment ?? 'sandbox',
-    b2shareCommunityId: s.B2SHARE.community_id ?? '',
-    b2shareToken: '',
+    b2shareSandboxCommunityId: s.B2SHARE.sandbox_community_id ?? '',
+    b2shareProductionCommunityId: s.B2SHARE.production_community_id ?? '',
+    b2shareSandboxToken: '',
+    b2shareProductionToken: '',
 
     gbifEnvironment: s.GBIF.environment ?? 'sandbox',
-    gbifPublishingOrganizationKey: s.GBIF.publishing_organization_key ?? '',
-    gbifInstallationKey: s.GBIF.installation_key ?? '',
+    gbifSandboxPublishingOrganizationKey: s.GBIF.sandbox_publishing_organization_key ?? '',
+    gbifProductionPublishingOrganizationKey: s.GBIF.production_publishing_organization_key ?? '',
+    gbifSandboxInstallationKey: s.GBIF.sandbox_installation_key ?? '',
+    gbifProductionInstallationKey: s.GBIF.production_installation_key ?? '',
     gbifRegistryLanguage: s.GBIF.registry_language ?? '',
-    gbifUsername: '',
-    gbifPassword: '',
+    gbifSandboxUsername: '',
+    gbifSandboxPassword: '',
+    gbifProductionUsername: '',
+    gbifProductionPassword: '',
     gbifInstallations: s.GBIF.installations,
 
     s3Remotes: s.S3.remotes.map(toRemoteDraft),
@@ -131,6 +148,7 @@ function toDraft(s: AppSettings): Draft {
     s3RetryWaitSeconds: String(s.S3.retry_wait_seconds),
 
     organizations: s.PRODUCT.organizations,
+    authors: s.PRODUCT.authors,
   }
 }
 
@@ -184,21 +202,29 @@ function toUpdate(d: Draft): AppSettingsUpdate | null {
     },
     ZENODO: {
       environment: d.zenodoEnvironment,
-      communities: orNull(d.zenodoCommunities),
-      token: d.zenodoToken || null,
+      sandbox_communities: orNull(d.zenodoSandboxCommunities),
+      production_communities: orNull(d.zenodoProductionCommunities),
+      sandbox_token: d.zenodoSandboxToken || null,
+      production_token: d.zenodoProductionToken || null,
     },
     B2SHARE: {
       environment: d.b2shareEnvironment,
-      community_id: orNull(d.b2shareCommunityId),
-      token: d.b2shareToken || null,
+      sandbox_community_id: orNull(d.b2shareSandboxCommunityId),
+      production_community_id: orNull(d.b2shareProductionCommunityId),
+      sandbox_token: d.b2shareSandboxToken || null,
+      production_token: d.b2shareProductionToken || null,
     },
     GBIF: {
       environment: d.gbifEnvironment,
-      publishing_organization_key: orNull(d.gbifPublishingOrganizationKey),
-      installation_key: orNull(d.gbifInstallationKey),
+      sandbox_publishing_organization_key: orNull(d.gbifSandboxPublishingOrganizationKey),
+      production_publishing_organization_key: orNull(d.gbifProductionPublishingOrganizationKey),
+      sandbox_installation_key: orNull(d.gbifSandboxInstallationKey),
+      production_installation_key: orNull(d.gbifProductionInstallationKey),
       registry_language: orNull(d.gbifRegistryLanguage),
-      username: d.gbifUsername || null,
-      password: d.gbifPassword || null,
+      sandbox_username: d.gbifSandboxUsername || null,
+      sandbox_password: d.gbifSandboxPassword || null,
+      production_username: d.gbifProductionUsername || null,
+      production_password: d.gbifProductionPassword || null,
       installations: d.gbifInstallations,
     },
     S3: {
@@ -217,7 +243,7 @@ function toUpdate(d: Draft): AppSettingsUpdate | null {
       retry_attempts: Number(d.s3RetryAttempts),
       retry_wait_seconds: Number(d.s3RetryWaitSeconds),
     },
-    PRODUCT: { organizations: d.organizations },
+    PRODUCT: { organizations: d.organizations, authors: d.authors },
   }
 }
 
@@ -230,18 +256,25 @@ const LOG_LEVELS: { value: LogLevel; label: string; hint: string }[] = [
   { value: 'DEBUG', label: 'Debug', hint: 'Everything: each image uploaded to the bucket, full tracebacks. Big logs — for tracking a problem down.' },
 ]
 
-type SectionId = 'general' | 'trapper' | 'camtrapdp' | 'hfh' | 'zenodo' | 'b2share' | 'gbif' | 's3' | 'product'
+type SectionId = 'config' | 'general' | 'trapper' | 'products' | 'repositories' | 's3' | 'product' | 'authors'
+type RepoId = 'hfh' | 'zenodo' | 'b2share' | 'gbif'
 
 const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: '⚙️' },
   { id: 'trapper', label: 'Trapper', icon: '📷' },
-  { id: 'camtrapdp', label: 'Camtrap DP', icon: '🦌' },
+  { id: 'products', label: 'Products', icon: '📦' },
+  { id: 'repositories', label: 'Repositories', icon: '🗂️' },
+  { id: 's3', label: 'S3 image hosting', icon: '☁️' },
+  { id: 'product', label: 'Organizations', icon: '🏢' },
+  { id: 'authors', label: 'Authors', icon: '👤' },
+  { id: 'config', label: 'Config', icon: '🧾' },
+]
+
+const REPOS: { id: RepoId; label: string; icon: string }[] = [
   { id: 'hfh', label: 'HuggingFace Hub', icon: '🤗' },
   { id: 'zenodo', label: 'Zenodo', icon: '📚' },
   { id: 'b2share', label: 'B2SHARE', icon: '🗄️' },
   { id: 'gbif', label: 'GBIF', icon: '🌍' },
-  { id: 's3', label: 'S3 image hosting', icon: '☁️' },
-  { id: 'product', label: 'Organizations', icon: '🏢' },
 ]
 
 function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | null; children: React.ReactNode }) {
@@ -312,6 +345,43 @@ function RetryFields({ attempts, wait, onAttemptsChange, onWaitChange }: {
 
 const iconBtn = 'w-10 h-10 flex items-center justify-center rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors'
 
+/** The modal every card's gear opens. */
+function DialogShell({ label, title, onClose, children }: { label: string; title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        role="dialog" aria-modal="true" aria-label={label}
+        className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h5 className="text-lg font-semibold">{title}</h5>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** One entry of a card list: icon tile, name + subtitle, an optional badge, and the gear that edits it. */
+function ItemCard({ icon, title, subtitle, badge, badgeOk, editLabel, onEdit }: {
+  icon: string; title: string; subtitle: string; badge?: string; badgeOk?: boolean; editLabel: string; onEdit: () => void
+}) {
+  return (
+    <div className="flex items-center gap-4 px-4 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60">
+      <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/40 text-xl" aria-hidden="true">{icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium truncate">{title}</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">{subtitle}</p>
+      </div>
+      {badge && (
+        <span className={`text-xs px-2 py-1 rounded ${badgeOk ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
+          {badge}
+        </span>
+      )}
+      <button type="button" className={iconBtn} aria-label={editLabel} title="Edit" onClick={onEdit}>⚙️</button>
+    </div>
+  )
+}
+
 function remoteSubtitle(r: S3RemoteDraft): string {
   return [r.bucket && `bucket ${r.bucket}`, r.endpointUrl || 'AWS S3'].filter(Boolean).join(' · ')
 }
@@ -336,13 +406,7 @@ function S3RemoteDialog({ remote, onChange, onRemove, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        role="dialog" aria-modal="true" aria-label="S3 remote"
-        className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-6 space-y-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h5 className="text-lg font-semibold">{remote.name.trim() || 'New remote'}</h5>
+    <DialogShell label="S3 remote" title={remote.name.trim() || 'New remote'} onClose={onClose}>
         <Field label="Name" error={remote.name.trim() ? null : 'A name is required.'}>
           <input className={inputClass} value={remote.name} aria-label="Name" onChange={(e) => edit({ name: e.target.value })} />
         </Field>
@@ -381,8 +445,7 @@ function S3RemoteDialog({ remote, onChange, onRemove, onClose }: {
           <button type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} onClick={onRemove}>Remove remote</button>
           <button type="button" className={btnPrimary} disabled={!remote.name.trim()} onClick={onClose}>Done</button>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   )
 }
 
@@ -407,22 +470,14 @@ function S3RemotesEditor({ items, onChange }: { items: S3RemoteDraft[]; onChange
       </div>
       <div className="space-y-3">
         {items.length === 0 && <p className={hintClass}>No remote yet — the wizard can&rsquo;t upload images until you add one.</p>}
-        {items.map((r) => {
-          const hasKeys = (r.hasAccessKey || r.accessKey) && (r.hasSecretKey || r.secretKey)
-          return (
-            <div key={r.id} className="flex items-center gap-4 px-4 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60">
-              <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/40 text-xl" aria-hidden="true">☁️</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{r.name}</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">{remoteSubtitle(r)}</p>
-              </div>
-              <span className={`text-xs px-2 py-1 rounded ${hasKeys ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
-                {hasKeys ? 'Credentials saved' : 'No credentials'}
-              </span>
-              <button type="button" className={iconBtn} aria-label={`Edit ${r.name}`} title="Edit" onClick={() => setEditingId(r.id)}>⚙️</button>
-            </div>
-          )
-        })}
+        {items.map((r) => (
+          <ItemCard
+            key={r.id} icon="☁️" title={r.name} subtitle={remoteSubtitle(r)} editLabel={`Edit ${r.name}`}
+            badge={(r.hasAccessKey || r.accessKey) && (r.hasSecretKey || r.secretKey) ? 'Credentials saved' : 'No credentials'}
+            badgeOk={!!((r.hasAccessKey || r.accessKey) && (r.hasSecretKey || r.secretKey))}
+            onEdit={() => setEditingId(r.id)}
+          />
+        ))}
       </div>
       {editing && (
         <S3RemoteDialog
@@ -469,39 +524,305 @@ function InstallationsEditor({ items, onChange }: { items: GBIFInstallation[]; o
   )
 }
 
-function OrganizationsEditor({ items, onChange }: { items: Organization[]; onChange: (v: Organization[]) => void }) {
-  const update = (i: number, patch: Partial<Organization>) => onChange(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
-  const remove = (i: number) => onChange(items.filter((_, idx) => idx !== i))
-  const add = () => onChange([...items, {
-    title: '', path: null, email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: null,
-  }])
+function OrganizationDialog({ item, onChange, onRemove, onClose }: {
+  item: Organization; onChange: (patch: Partial<Organization>) => void; onRemove: () => void; onClose: () => void
+}) {
   return (
-    <div className="space-y-3">
-      {items.map((it, i) => (
-        <div key={i} className="p-3 border border-zinc-200 dark:border-zinc-700 rounded-lg space-y-2">
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <TextField label="Title" value={it.title} onChange={(v) => update(i, { title: v })} />
-            </div>
-            <button type="button" className={btnOutline} onClick={() => remove(i)}>Remove</button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <TextField label="Website" value={it.path ?? ''} onChange={(v) => update(i, { path: v || null })} />
-            <TextField label="Contact email (publisher role only)" value={it.email ?? ''} onChange={(v) => update(i, { email: v || null })} />
-            <TextField
-              label="GBIF sandbox organization UUID" mono
-              value={it.gbif_sandbox_organization_key ?? ''} onChange={(v) => update(i, { gbif_sandbox_organization_key: v || null })}
+    <DialogShell label="Organization" title={item.title.trim() || 'New organization'} onClose={onClose}>
+      <Field label="Title" error={item.title.trim() ? null : 'A title is required.'}>
+        <input className={inputClass} value={item.title} aria-label="Title" onChange={(e) => onChange({ title: e.target.value })} />
+      </Field>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <TextField label="Website" value={item.path ?? ''} onChange={(v) => onChange({ path: v || null })} />
+        <TextField label="Contact email (publisher role only)" value={item.email ?? ''} onChange={(v) => onChange({ email: v || null })} />
+        <TextField
+          label="GBIF sandbox organization UUID" mono
+          value={item.gbif_sandbox_organization_key ?? ''} onChange={(v) => onChange({ gbif_sandbox_organization_key: v || null })}
+        />
+        <TextField
+          label="GBIF production organization UUID" mono
+          value={item.gbif_production_organization_key ?? ''} onChange={(v) => onChange({ gbif_production_organization_key: v || null })}
+        />
+      </div>
+      <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
+        <button type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} onClick={onRemove}>Remove organization</button>
+        <button type="button" className={btnPrimary} disabled={!item.title.trim()} onClick={onClose}>Done</button>
+      </div>
+    </DialogShell>
+  )
+}
+
+function OrganizationsEditor({ items, onChange }: { items: Organization[]; onChange: (v: Organization[]) => void }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const editing = editingIndex !== null ? items[editingIndex] ?? null : null
+
+  function add() {
+    onChange([...items, { title: 'New organization', path: null, email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: null }])
+    setEditingIndex(items.length)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <label className={`${labelClass} mb-0`}>Organizations</label>
+        <button type="button" className={iconBtn} aria-label="Add organization" title="Add organization" onClick={add}>+</button>
+      </div>
+      <div className="space-y-3">
+        {items.length === 0 && <p className={hintClass}>No organization yet — the wizard&rsquo;s metadata step needs at least one.</p>}
+        {items.map((o, i) => {
+          const linked = !!(o.gbif_sandbox_organization_key || o.gbif_production_organization_key)
+          return (
+            <ItemCard
+              key={i} icon="🏛️" title={o.title} subtitle={o.path || 'No website'} editLabel={`Edit ${o.title}`}
+              badge={linked ? 'GBIF linked' : undefined} badgeOk onEdit={() => setEditingIndex(i)}
             />
-            <TextField
-              label="GBIF production organization UUID" mono
-              value={it.gbif_production_organization_key ?? ''} onChange={(v) => update(i, { gbif_production_organization_key: v || null })}
-            />
-          </div>
-        </div>
-      ))}
-      <button type="button" className={btnOutline} onClick={add}>+ Add organization</button>
+          )
+        })}
+      </div>
+      {editing && editingIndex !== null && (
+        <OrganizationDialog
+          item={editing}
+          onChange={(patch) => onChange(items.map((o, i) => (i === editingIndex ? { ...o, ...patch } : o)))}
+          onRemove={() => { onChange(items.filter((_, i) => i !== editingIndex)); setEditingIndex(null) }}
+          onClose={() => setEditingIndex(null)}
+        />
+      )}
     </div>
   )
+}
+
+function AuthorDialog({ item, onChange, onRemove, onClose }: {
+  item: ProductAuthor; onChange: (patch: Partial<ProductAuthor>) => void; onRemove: () => void; onClose: () => void
+}) {
+  const name = (item.name ?? '').trim()
+  return (
+    <DialogShell label="Author" title={name || 'New author'} onClose={onClose}>
+      <Field label="Name" error={name ? null : 'A name is required.'}>
+        <input className={inputClass} value={item.name ?? ''} aria-label="Name" onChange={(e) => onChange({ name: e.target.value })} />
+      </Field>
+      <TextField
+        label="Affiliation" hint="Free text — separate several affiliations with “; ”."
+        value={item.affiliation ?? ''} onChange={(v) => onChange({ affiliation: v || null })}
+      />
+      <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
+        <button type="button" className={`${btnOutline} text-red-600 dark:text-red-400`} onClick={onRemove}>Remove author</button>
+        <button type="button" className={btnPrimary} disabled={!name} onClick={onClose}>Done</button>
+      </div>
+    </DialogShell>
+  )
+}
+
+function AuthorsEditor({ items, onChange }: { items: ProductAuthor[]; onChange: (v: ProductAuthor[]) => void }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const editing = editingIndex !== null ? items[editingIndex] ?? null : null
+
+  function add() {
+    onChange([...items, { name: 'New author', affiliation: null }])
+    setEditingIndex(items.length)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <label className={`${labelClass} mb-0`}>Authors</label>
+        <button type="button" className={iconBtn} aria-label="Add author" title="Add author" onClick={add}>+</button>
+      </div>
+      <div className="space-y-3">
+        {items.length === 0 && <p className={hintClass}>No author yet — the wizard&rsquo;s metadata step will have none to quick-add.</p>}
+        {items.map((a, i) => (
+          <ItemCard
+            key={i} icon="👤" title={a.name ?? ''} subtitle={a.affiliation || 'No affiliation'} editLabel={`Edit ${a.name}`}
+            onEdit={() => setEditingIndex(i)}
+          />
+        ))}
+      </div>
+      {editing && editingIndex !== null && (
+        <AuthorDialog
+          item={editing}
+          onChange={(patch) => onChange(items.map((a, i) => (i === editingIndex ? { ...a, ...patch } : a)))}
+          onRemove={() => { onChange(items.filter((_, i) => i !== editingIndex)); setEditingIndex(null) }}
+          onClose={() => setEditingIndex(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+type UpdateState =
+  | { kind: 'idle' } | { kind: 'checking' } | { kind: 'error'; message: string } | { kind: 'result'; check: VersionCheck }
+
+/** One button that walks through the update check: "Check updates" → (if a newer
+ * release exists) "Tap to download vX" → or "Tap to retry" when it couldn't tell. */
+function UpdateCheck() {
+  const [state, setState] = useState<UpdateState>({ kind: 'idle' })
+
+  async function check() {
+    setState({ kind: 'checking' })
+    try {
+      const result = await api.checkVersion()
+      setState(result.error ? { kind: 'error', message: result.error } : { kind: 'result', check: result })
+    } catch (e) {
+      setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not check for updates.' })
+    }
+  }
+
+  const buttonClass = `${btnOutline} w-full max-w-sm text-center`
+  const check_ = state.kind === 'result' ? state.check : null
+  return (
+    <Field label="Update">
+      <div className="space-y-1.5">
+        {check_?.update_available ? (
+          <a href={check_.download_url ?? check_.release_url ?? '#'} target="_blank" rel="noreferrer" className={`${buttonClass} block no-underline`}>
+            Tap to download {check_.latest}
+          </a>
+        ) : (
+          <button type="button" className={buttonClass} disabled={state.kind === 'checking'} onClick={check}>
+            {state.kind === 'checking' ? 'Checking…' : state.kind === 'error' ? 'Tap to retry' : 'Check updates'}
+          </button>
+        )}
+        {state.kind === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{state.message}</p>}
+        {check_ && !check_.update_available && (
+          <p className="text-xs text-emerald-700 dark:text-emerald-400" role="status">
+            {check_.current === 'dev' ? 'This is a development build — updates aren’t checked.' : `You’re up to date (version ${check_.current}).`}
+          </p>
+        )}
+        {check_?.update_available && (
+          <p className={hintClass} role="status">Version {check_.latest} is available — you have {check_.current}.</p>
+        )}
+      </div>
+    </Field>
+  )
+}
+
+function ConfigsEditor({ onSwitched, onError }: { onSwitched: () => void; onError: (message: string) => void }) {
+  const [configs, setConfigs] = useState<ConfigInfo[] | null>(null)
+  const [adding, setAdding] = useState<{ name: string; error?: string } | null>(null)
+  const fail = (e: unknown, fallback: string) => onError(e instanceof Error ? e.message : fallback)
+
+  useEffect(() => {
+    api.configs().then(setConfigs).catch((e) => fail(e, 'Could not load the configs.'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function create() {
+    if (!adding?.name.trim()) return
+    try {
+      setConfigs(await api.addConfig(adding.name))
+      setAdding(null)
+    } catch (e) {
+      setAdding({ ...adding, error: e instanceof Error ? e.message : 'Could not create the config.' })
+    }
+  }
+
+  async function activate(id: string) {
+    try {
+      setConfigs(await api.activateConfig(id))
+      onSwitched()
+    } catch (e) {
+      fail(e, 'Could not switch config.')
+    }
+  }
+
+  return (
+    <div>
+      <p className={`${hintClass} mb-4`}>
+        Each config is a settings file; the active one is what the app reads and saves. A new one starts from the
+        default values. Keep in mind these files hold your tokens and passwords as plain text.
+      </p>
+      <div className="flex items-center justify-between mb-3">
+        <label className={`${labelClass} mb-0`}>Config</label>
+        <button type="button" className={iconBtn} aria-label="Add config" title="Add a config with the default values" onClick={() => setAdding({ name: '' })}>+</button>
+      </div>
+      <div className="space-y-3">
+        {configs?.map((c, i) => (
+          <div
+            key={c.id}
+            className={`flex items-center gap-4 px-4 py-3 rounded-xl border bg-zinc-50 dark:bg-zinc-800/60 ${c.active ? 'border-sky-500' : 'border-zinc-200 dark:border-zinc-700'}`}
+          >
+            <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-200 dark:bg-zinc-700 text-sm font-semibold shrink-0" aria-hidden="true">#{i + 1}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-medium truncate">{c.name}</p>
+                {c.active && <span className="text-xs px-2 py-0.5 rounded bg-sky-600 text-white">ACTIVE</span>}
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono break-all" aria-label={`${c.name} file location`}>{c.path}</p>
+            </div>
+            {!c.active && <button type="button" className={btnOutline} aria-label={`Activate ${c.name}`} onClick={() => activate(c.id)}>Activate</button>}
+            <button
+              type="button" className={iconBtn} aria-label={`Open ${c.name} folder`} title="Open the folder containing the config file"
+              onClick={() => api.openConfigFolder(c.id).catch((e) => fail(e, 'Could not open the folder.'))}
+            >
+              📂
+            </button>
+            <a
+              href={`/api/settings/configs/${encodeURIComponent(c.id)}/download`} download
+              aria-label={`Download ${c.name}`} title="Download the config file" className={`${iconBtn} no-underline`}
+            >
+              ⬇️
+            </a>
+          </div>
+        ))}
+      </div>
+      {adding && (
+        <DialogShell label="New config" title="New config" onClose={() => setAdding(null)}>
+          <Field label="Name" error={adding.error ?? null} hint="It names the file, so keep it short.">
+            <input
+              className={inputClass} aria-label="Config name" autoFocus value={adding.name}
+              onChange={(e) => setAdding({ name: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') create() }}
+            />
+          </Field>
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-zinc-800">
+            <button type="button" className={btnOutline} onClick={() => setAdding(null)}>Cancel</button>
+            <button type="button" className={btnPrimary} disabled={!adding.name.trim()} onClick={create}>Create</button>
+          </div>
+        </DialogShell>
+      )}
+    </div>
+  )
+}
+
+/** Badge of a repository with one credential per environment. */
+function tokensBadge(sandbox: boolean, production: boolean): { badge: string; ok: boolean } {
+  if (sandbox && production) return { badge: 'Sandbox + production saved', ok: true }
+  if (sandbox) return { badge: 'Sandbox saved', ok: true }
+  if (production) return { badge: 'Production saved', ok: true }
+  return { badge: 'No credentials', ok: false }
+}
+
+/** One column of a per-environment dialog (sandbox | production). */
+function EnvironmentColumn({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <fieldset className="space-y-4 rounded-lg border border-border p-4">
+      <legend className="px-1 text-sm font-semibold">{title}</legend>
+      {children}
+    </fieldset>
+  )
+}
+
+/** What a repository's card shows: where it points, and whether its credentials are saved. */
+function repoSummary(id: RepoId, d: Draft, saved: AppSettings): { subtitle: string; badge: string; ok: boolean } {
+  const env = (e: Environment) => (e === 'production' ? 'Production' : 'Sandbox')
+  switch (id) {
+    case 'hfh': {
+      const ok = saved.HFH.has_token || !!d.hfhToken
+      return { subtitle: d.hfhRepoId || d.hfhUsername || 'No default repo', badge: ok ? 'Token saved' : 'No token', ok }
+    }
+    case 'zenodo': {
+      const ok = tokensBadge(saved.ZENODO.has_sandbox_token || !!d.zenodoSandboxToken, saved.ZENODO.has_production_token || !!d.zenodoProductionToken)
+      return { subtitle: `Default: ${env(d.zenodoEnvironment)}`, ...ok }
+    }
+    case 'b2share': {
+      const ok = tokensBadge(saved.B2SHARE.has_sandbox_token || !!d.b2shareSandboxToken, saved.B2SHARE.has_production_token || !!d.b2shareProductionToken)
+      return { subtitle: `Default: ${env(d.b2shareEnvironment)}`, ...ok }
+    }
+    case 'gbif': {
+      const ok = tokensBadge(
+        (saved.GBIF.has_sandbox_username || !!d.gbifSandboxUsername) && (saved.GBIF.has_sandbox_password || !!d.gbifSandboxPassword),
+        (saved.GBIF.has_production_username || !!d.gbifProductionUsername) && (saved.GBIF.has_production_password || !!d.gbifProductionPassword),
+      )
+      return { subtitle: `Default: ${env(d.gbifEnvironment)}`, ...ok }
+    }
+  }
 }
 
 // ── The page ────────────────────────────────────────────────────────────
@@ -517,6 +838,8 @@ interface Props {
  * comment). One Save saves every section. */
 export default function SettingsPage({ onClose }: Props) {
   const [section, setSection] = useState<SectionId>('general')
+  const [repoDialog, setRepoDialog] = useState<RepoId | null>(null)
+  const [productDialog, setProductDialog] = useState<'camtrapdp' | null>(null)
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [status, setStatus] = useState<{ kind: 'idle' | 'saving' | 'saved' | 'error'; message?: string }>({ kind: 'idle' })
@@ -532,11 +855,14 @@ export default function SettingsPage({ onClose }: Props) {
     }
   }
 
-  useEffect(() => {
+  // Also called after switching config, which discards whatever wasn't saved.
+  function reloadSettings() {
     api.getSettings()
-      .then((s) => { setSaved(s); setDraft(toDraft(s)) })
+      .then((s) => { setSaved(s); setDraft(toDraft(s)); setStatus({ kind: 'idle' }) })
       .catch((e) => setStatus({ kind: 'error', message: e instanceof Error ? e.message : 'Could not load the settings.' }))
-  }, [])
+  }
+
+  useEffect(reloadSettings, [])
 
   function set<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((d) => (d && { ...d, [key]: value }))
@@ -617,7 +943,16 @@ export default function SettingsPage({ onClose }: Props) {
           </div>
         )}
 
-        {draft && saved && section === 'camtrapdp' && (
+        {draft && saved && section === 'products' && (
+          <div className="space-y-3">
+            <p className={hintClass}>Defaults for each kind of product the wizard publishes.</p>
+            <ItemCard
+              icon="🦌" title="Camtrap DP" editLabel="Edit Camtrap DP"
+              subtitle={[draft.camtrapdpDatasetName, draft.camtrapdpLicenseId].filter(Boolean).join(' · ') || 'No defaults set'}
+              onEdit={() => setProductDialog('camtrapdp')}
+            />
+            {productDialog === 'camtrapdp' && (
+              <DialogShell label="Camtrap DP" title="Camtrap DP" onClose={() => setProductDialog(null)}>
           <div className="space-y-4">
             <p className={hintClass}>
               Defaults for any Camtrap DP, whether it comes from Trapper, a local directory or a public URL.
@@ -636,10 +971,17 @@ export default function SettingsPage({ onClose }: Props) {
               The license replaces the &ldquo;private&rdquo; placeholder Trapper leaves in datapackage.json; a real license already in the package is kept.
             </p>
           </div>
+                <div className="flex justify-end pt-3 border-t border-zinc-200 dark:border-zinc-800">
+                  <button type="button" className={btnPrimary} onClick={() => setProductDialog(null)}>Done</button>
+                </div>
+              </DialogShell>
+            )}
+          </div>
         )}
 
         {draft && saved && section === 'general' && (
           <div className="space-y-6">
+            <UpdateCheck />
             <div className="space-y-2">
               <Field label="Log level" hint={LOG_LEVELS.find((l) => l.value === draft.logLevel)?.hint}>
                 <select className={inputClass} value={draft.logLevel} aria-label="Log level" onChange={(e) => set('logLevel', e.target.value as LogLevel)}>
@@ -684,7 +1026,21 @@ export default function SettingsPage({ onClose }: Props) {
           </div>
         )}
 
-        {draft && saved && section === 'hfh' && (
+        {draft && saved && section === 'repositories' && (
+          <div className="space-y-3">
+            <p className={hintClass}>Credentials and defaults of the repositories the wizard publishes to.</p>
+            {REPOS.map(({ id, label, icon }) => {
+              const summary = repoSummary(id, draft, saved)
+              return (
+                <ItemCard
+                  key={id} icon={icon} title={label} subtitle={summary.subtitle} editLabel={`Edit ${label}`}
+                  badge={summary.badge} badgeOk={summary.ok} onEdit={() => setRepoDialog(id)}
+                />
+              )
+            })}
+            {repoDialog && (
+              <DialogShell label={REPOS.find((r) => r.id === repoDialog)!.label} title={REPOS.find((r) => r.id === repoDialog)!.label} onClose={() => setRepoDialog(null)}>
+                {repoDialog === 'hfh' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextField label="Username / organization" value={draft.hfhUsername} onChange={(v) => set('hfhUsername', v)} />
@@ -695,33 +1051,52 @@ export default function SettingsPage({ onClose }: Props) {
             <TextField label="Repository code URL" value={draft.hfhRepositoryCode} onChange={(v) => set('hfhRepositoryCode', v)} mono />
           </div>
         )}
-
-        {draft && saved && section === 'zenodo' && (
+                {repoDialog === 'zenodo' && (
           <div className="space-y-4">
-            <EnvironmentField label="Environment" value={draft.zenodoEnvironment} onChange={(v) => set('zenodoEnvironment', v)} />
-            <TextField label="Access token" type="password" value={draft.zenodoToken} onChange={(v) => set('zenodoToken', v)} hint={passwordHint(saved.ZENODO.has_token, 'token')} />
-            <TextField label="Communities" value={draft.zenodoCommunities} onChange={(v) => set('zenodoCommunities', v)} hint="Comma-separated, e.g. wildintelproject." />
-          </div>
-        )}
-
-        {draft && saved && section === 'b2share' && (
-          <div className="space-y-4">
-            <EnvironmentField label="Environment" value={draft.b2shareEnvironment} onChange={(v) => set('b2shareEnvironment', v)} />
-            <TextField label="Access token" type="password" value={draft.b2shareToken} onChange={(v) => set('b2shareToken', v)} hint={passwordHint(saved.B2SHARE.has_token, 'token')} />
-            <TextField label="Community UUID" value={draft.b2shareCommunityId} onChange={(v) => set('b2shareCommunityId', v)} mono />
-          </div>
-        )}
-
-        {draft && saved && section === 'gbif' && (
-          <div className="space-y-4">
-            <EnvironmentField label="Environment" value={draft.gbifEnvironment} onChange={(v) => set('gbifEnvironment', v)} />
+            <EnvironmentField label="Default environment" value={draft.zenodoEnvironment} onChange={(v) => set('zenodoEnvironment', v)} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <TextField label="Username" value={draft.gbifUsername} onChange={(v) => set('gbifUsername', v)} hint={passwordHint(saved.GBIF.has_username, 'username')} />
-              <TextField label="Password" type="password" value={draft.gbifPassword} onChange={(v) => set('gbifPassword', v)} hint={passwordHint(saved.GBIF.has_password, 'password')} />
+              <EnvironmentColumn title="Sandbox">
+                <TextField label="Sandbox access token" type="password" value={draft.zenodoSandboxToken} onChange={(v) => set('zenodoSandboxToken', v)} hint={passwordHint(saved.ZENODO.has_sandbox_token, 'token')} />
+                <TextField label="Sandbox communities" value={draft.zenodoSandboxCommunities} onChange={(v) => set('zenodoSandboxCommunities', v)} hint="Comma-separated." />
+              </EnvironmentColumn>
+              <EnvironmentColumn title="Production">
+                <TextField label="Production access token" type="password" value={draft.zenodoProductionToken} onChange={(v) => set('zenodoProductionToken', v)} hint={passwordHint(saved.ZENODO.has_production_token, 'token')} />
+                <TextField label="Production communities" value={draft.zenodoProductionCommunities} onChange={(v) => set('zenodoProductionCommunities', v)} hint="Comma-separated, e.g. wildintelproject." />
+              </EnvironmentColumn>
             </div>
+          </div>
+        )}
+                {repoDialog === 'b2share' && (
+          <div className="space-y-4">
+            <EnvironmentField label="Default environment" value={draft.b2shareEnvironment} onChange={(v) => set('b2shareEnvironment', v)} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <TextField label="Publishing organization UUID" value={draft.gbifPublishingOrganizationKey} onChange={(v) => set('gbifPublishingOrganizationKey', v)} mono />
-              <TextField label="Installation UUID" value={draft.gbifInstallationKey} onChange={(v) => set('gbifInstallationKey', v)} mono />
+              <EnvironmentColumn title="Sandbox">
+                <TextField label="Sandbox access token" type="password" value={draft.b2shareSandboxToken} onChange={(v) => set('b2shareSandboxToken', v)} hint={passwordHint(saved.B2SHARE.has_sandbox_token, 'token')} />
+                <TextField label="Sandbox community UUID" value={draft.b2shareSandboxCommunityId} onChange={(v) => set('b2shareSandboxCommunityId', v)} mono />
+              </EnvironmentColumn>
+              <EnvironmentColumn title="Production">
+                <TextField label="Production access token" type="password" value={draft.b2shareProductionToken} onChange={(v) => set('b2shareProductionToken', v)} hint={passwordHint(saved.B2SHARE.has_production_token, 'token')} />
+                <TextField label="Production community UUID" value={draft.b2shareProductionCommunityId} onChange={(v) => set('b2shareProductionCommunityId', v)} mono />
+              </EnvironmentColumn>
+            </div>
+          </div>
+        )}
+                {repoDialog === 'gbif' && (
+          <div className="space-y-4">
+            <EnvironmentField label="Default environment" value={draft.gbifEnvironment} onChange={(v) => set('gbifEnvironment', v)} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <EnvironmentColumn title="Sandbox (gbif-test.org)">
+                <TextField label="Sandbox username" value={draft.gbifSandboxUsername} onChange={(v) => set('gbifSandboxUsername', v)} hint={passwordHint(saved.GBIF.has_sandbox_username, 'username')} />
+                <TextField label="Sandbox password" type="password" value={draft.gbifSandboxPassword} onChange={(v) => set('gbifSandboxPassword', v)} hint={passwordHint(saved.GBIF.has_sandbox_password, 'password')} />
+                <TextField label="Sandbox publishing organization UUID" value={draft.gbifSandboxPublishingOrganizationKey} onChange={(v) => set('gbifSandboxPublishingOrganizationKey', v)} mono />
+                <TextField label="Sandbox installation UUID" value={draft.gbifSandboxInstallationKey} onChange={(v) => set('gbifSandboxInstallationKey', v)} mono />
+              </EnvironmentColumn>
+              <EnvironmentColumn title="Production (gbif.org)">
+                <TextField label="Production username" value={draft.gbifProductionUsername} onChange={(v) => set('gbifProductionUsername', v)} hint={passwordHint(saved.GBIF.has_production_username, 'username')} />
+                <TextField label="Production password" type="password" value={draft.gbifProductionPassword} onChange={(v) => set('gbifProductionPassword', v)} hint={passwordHint(saved.GBIF.has_production_password, 'password')} />
+                <TextField label="Production publishing organization UUID" value={draft.gbifProductionPublishingOrganizationKey} onChange={(v) => set('gbifProductionPublishingOrganizationKey', v)} mono />
+                <TextField label="Production installation UUID" value={draft.gbifProductionInstallationKey} onChange={(v) => set('gbifProductionInstallationKey', v)} mono />
+              </EnvironmentColumn>
             </div>
             <TextField label="Registry language (ISO 639-2/T)" value={draft.gbifRegistryLanguage} onChange={(v) => set('gbifRegistryLanguage', v)} />
             <div>
@@ -729,6 +1104,13 @@ export default function SettingsPage({ onClose }: Props) {
               <p className={`${hintClass} mb-2`}>Offered as GBIFPublishForm&rsquo;s own &ldquo;Installation UUID&rdquo; quick-fill dropdown.</p>
               <InstallationsEditor items={draft.gbifInstallations} onChange={(v) => set('gbifInstallations', v)} />
             </div>
+          </div>
+        )}
+                <div className="flex justify-end pt-3 border-t border-zinc-200 dark:border-zinc-800">
+                  <button type="button" className={btnPrimary} onClick={() => setRepoDialog(null)}>Done</button>
+                </div>
+              </DialogShell>
+            )}
           </div>
         )}
 
@@ -755,6 +1137,19 @@ export default function SettingsPage({ onClose }: Props) {
               also backs GBIF&rsquo;s own &ldquo;Publishing organization UUID&rdquo; quick-fill.
             </p>
             <OrganizationsEditor items={draft.organizations} onChange={(v) => set('organizations', v)} />
+          </div>
+        )}
+
+        {section === 'config' && (
+          <ConfigsEditor onSwitched={reloadSettings} onError={(message) => setStatus({ kind: 'error', message })} />
+        )}
+
+        {draft && saved && section === 'authors' && (
+          <div className="space-y-4">
+            <p className={hintClass}>
+              Authors the wizard&rsquo;s metadata step can add to a dataset with one click (they stay editable there).
+            </p>
+            <AuthorsEditor items={draft.authors} onChange={(v) => set('authors', v)} />
           </div>
         )}
 

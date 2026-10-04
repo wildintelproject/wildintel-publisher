@@ -40,7 +40,7 @@ from typing import Any
 import httpx
 from dynaconf import loaders
 from huggingface_hub import upload_file
-from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, get_b2share_output_dir, load_settings
+from wildintel_publisher.core.config import active_config_file, get_b2share_output_dir, load_settings
 from wildintel_publisher.core.services import b2share as b2share_service
 from wildintel_publisher.core.services import product
 
@@ -63,23 +63,33 @@ def get_connection_defaults() -> dict:
     settings = load_settings()
     return {
         "environment": settings.B2SHARE.environment,
-        "community_id": settings.B2SHARE.community_id,
+        "community_id": settings.B2SHARE.value_for("community_id"),
+        "community_id_by_environment": {
+            env: settings.B2SHARE.value_for("community_id", env) for env in ("sandbox", "production")
+        },
         "output_dir": str(get_b2share_output_dir()),
         "version": DEFAULT_VERSION,
         "timeout": DEFAULT_TIMEOUT,
-        "has_token": bool(os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.token),
+        "has_token": bool(os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.value_for("token")),
+        # Per environment — the wizard's own environment selector can differ
+        # from the saved default.
+        "has_token_by_environment": {
+            env: bool(os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.value_for("token", env))
+            for env in ("sandbox", "production")
+        },
     }
 
 
-def resolve_token(token: str | None) -> str:
+def resolve_token(token: str | None, environment: str | None = None) -> str:
     """Mirrors commands/b2share.py's own _require_token: the B2SHARE_TOKEN
-    environment variable takes priority, then whatever's saved in settings.toml.
+    environment variable takes priority, then whatever's saved in settings.toml
+    for `environment` (default: the configured one).
 
     Raises:
         ValueError: if no token is available from any source.
     """
     settings = load_settings()
-    resolved = token or os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.token
+    resolved = token or os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.value_for("token", environment)
     if not resolved:
         raise ValueError("Missing B2SHARE token — provide one, or save it in the configuration first.")
     return resolved
@@ -94,10 +104,10 @@ def save_config(environment: str | None, community_id: str | None, token: str | 
     if environment:
         settings.B2SHARE.environment = environment
     if community_id:
-        settings.B2SHARE.community_id = community_id
+        setattr(settings.B2SHARE, f"{settings.B2SHARE.environment}_community_id", community_id)
     if token:
-        settings.B2SHARE.token = token
-    loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
+        setattr(settings.B2SHARE, f"{settings.B2SHARE.environment}_token", token)
+    loaders.toml_loader.write(str(active_config_file()), settings.model_dump(mode="json"), merge=False)
 
 
 def test_token(token: str, environment: str) -> dict:

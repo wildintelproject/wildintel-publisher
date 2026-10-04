@@ -25,7 +25,7 @@ from pathlib import Path
 
 import httpx
 
-from wildintel_publisher.core.config import settings
+from wildintel_publisher.core.config import load_settings
 from wildintel_publisher.core.services import common
 
 DEFAULT_TIMEOUT = 300
@@ -53,6 +53,7 @@ def _fix_license_from_trapper_settings(output_dir: Path) -> None:
     real license was set at generation time. A no-op if CAMTRAPDP.license_id
     isn't configured, or if every scope already has a real license — see
     common.fix_datapackage_license."""
+    settings = load_settings()  # the active config, which can change while the app runs
     if settings.CAMTRAPDP.license_id:
         # WildINTEL project policy: every dataset is published under
         # CC-BY-NC-4.0 (see CamtrapDPSettings.license_id's own comment in

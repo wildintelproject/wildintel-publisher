@@ -47,9 +47,28 @@ export interface ProductPublisher {
   email?: string | null
 }
 
+/** GET /api/version — whether a newer release of the web app exists. `error`
+ * is set when that couldn't be found out (offline...), distinct from "up to date". */
+export interface VersionCheck {
+  current: string
+  latest: string | null
+  update_available: boolean
+  release_url: string | null
+  download_url: string | null
+  error: string | null
+}
+
+/** One settings file the app can run on (see the backend's core.config.ConfigInfo). */
+export interface ConfigInfo {
+  id: string
+  name: string
+  path: string
+  active: boolean
+}
+
 export interface ProductAuthor {
   name?: string
-  affiliation?: string
+  affiliation?: string | null
 }
 
 /** Headline fields read from an already-obtained product's metadata.json
@@ -162,6 +181,7 @@ export interface AppSettings {
     log_level: LogLevel
     /** Where the log goes (read-only). */
     log_file: string
+    config_file: string
     /** The level WILDINTEL_PUBLISHER_LOG_LEVEL sets instead, if any (read-only). */
     log_level_override: LogLevel | null
   }
@@ -190,21 +210,29 @@ export interface AppSettings {
   }
   ZENODO: {
     environment: 'sandbox' | 'production' | null
-    communities: string | null
-    has_token: boolean
+    sandbox_communities: string | null
+    production_communities: string | null
+    has_sandbox_token: boolean
+    has_production_token: boolean
   }
   B2SHARE: {
     environment: 'sandbox' | 'production' | null
-    community_id: string | null
-    has_token: boolean
+    sandbox_community_id: string | null
+    production_community_id: string | null
+    has_sandbox_token: boolean
+    has_production_token: boolean
   }
   GBIF: {
     environment: 'sandbox' | 'production' | null
-    publishing_organization_key: string | null
-    installation_key: string | null
+    sandbox_publishing_organization_key: string | null
+    production_publishing_organization_key: string | null
+    sandbox_installation_key: string | null
+    production_installation_key: string | null
     registry_language: string | null
-    has_username: boolean
-    has_password: boolean
+    has_sandbox_username: boolean
+    has_sandbox_password: boolean
+    has_production_username: boolean
+    has_production_password: boolean
     installations: GBIFInstallation[]
   }
   S3: {
@@ -214,6 +242,7 @@ export interface AppSettings {
   }
   PRODUCT: {
     organizations: Organization[]
+    authors: ProductAuthor[]
   }
 }
 
@@ -229,11 +258,22 @@ export interface AppSettingsUpdate {
     user_password: string | null
   }
   HFH: Omit<AppSettings['HFH'], 'has_token'> & { token: string | null }
-  ZENODO: Omit<AppSettings['ZENODO'], 'has_token'> & { token: string | null }
-  B2SHARE: Omit<AppSettings['B2SHARE'], 'has_token'> & { token: string | null }
-  GBIF: Omit<AppSettings['GBIF'], 'has_username' | 'has_password'> & {
-    username: string | null
-    password: string | null
+  ZENODO: Omit<AppSettings['ZENODO'], 'has_sandbox_token' | 'has_production_token'> & {
+    sandbox_token: string | null
+    production_token: string | null
+  }
+  B2SHARE: Omit<AppSettings['B2SHARE'], 'has_sandbox_token' | 'has_production_token'> & {
+    sandbox_token: string | null
+    production_token: string | null
+  }
+  GBIF: Omit<
+    AppSettings['GBIF'],
+    'has_sandbox_username' | 'has_sandbox_password' | 'has_production_username' | 'has_production_password'
+  > & {
+    sandbox_username: string | null
+    sandbox_password: string | null
+    production_username: string | null
+    production_password: string | null
   }
   S3: Omit<AppSettings['S3'], 'remotes'> & { remotes: S3RemoteUpdate[] }
   PRODUCT: AppSettings['PRODUCT']
@@ -263,6 +303,8 @@ export interface YoloDataYamlMetadata {
   description?: string | null
   version?: string | null
   homepage?: string | null
+  /** Appended to the README's Funding section, after the standard text. */
+  funding?: string | null
   license?: ProductLicense | null
   authors: ProductAuthor[]
   /** Picked from PRODUCT.organizations, same as a Camtrap DP's own

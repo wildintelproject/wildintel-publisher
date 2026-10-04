@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import SettingsPage from './SettingsPage'
 import type { AppSettings } from '../types'
 
-vi.mock('../api', () => ({ api: { getSettings: vi.fn(), saveSettings: vi.fn(), clearLog: vi.fn(), s3TestConnection: vi.fn() } }))
+vi.mock('../api', () => ({ api: { getSettings: vi.fn(), saveSettings: vi.fn(), clearLog: vi.fn(),
+    openConfigFolder: vi.fn(), configs: vi.fn(), addConfig: vi.fn(), activateConfig: vi.fn(), checkVersion: vi.fn(), s3TestConnection: vi.fn() } }))
 
 const mockedApi = vi.mocked(api)
 
 const APP_SETTINGS: AppSettings = {
-  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', log_level_override: null },
+  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', config_file: '/home/me/.config/wildintel-publisher/settings.toml', log_level_override: null },
   CAMTRAPDP: {
     license_id: 'CC-BY-NC-4.0', license_name: 'Creative Commons Attribution-NonCommercial 4.0 International',
     license_url: 'https://creativecommons.org/licenses/by-nc/4.0/', dataset_slug: 'wildintel-camtrapdp',
@@ -25,11 +26,18 @@ const APP_SETTINGS: AppSettings = {
     repository_code: 'https://github.com/wildintelproject/wildintel-publisher',
     repo_id: null, username: null, has_token: false,
   },
-  ZENODO: { environment: 'sandbox', communities: null, has_token: false },
-  B2SHARE: { environment: 'sandbox', community_id: null, has_token: false },
+  ZENODO: {
+    environment: 'sandbox', sandbox_communities: null, production_communities: null,
+    has_sandbox_token: false, has_production_token: false,
+  },
+  B2SHARE: {
+    environment: 'sandbox', sandbox_community_id: null, production_community_id: null,
+    has_sandbox_token: false, has_production_token: false,
+  },
   GBIF: {
-    environment: 'sandbox', publishing_organization_key: null, installation_key: null, registry_language: 'eng',
-    has_username: false, has_password: false,
+    environment: 'sandbox', sandbox_publishing_organization_key: null, production_publishing_organization_key: null,
+    sandbox_installation_key: null, production_installation_key: null, registry_language: 'eng',
+    has_sandbox_username: false, has_sandbox_password: false, has_production_username: false, has_production_password: false,
     installations: [{ title: 'WildINTEL', sandbox_installation_key: 'abc-123', production_installation_key: null }],
   },
   S3: {
@@ -41,6 +49,7 @@ const APP_SETTINGS: AppSettings = {
   },
   PRODUCT: {
     organizations: [{ title: 'University of Huelva', path: 'https://www.uhu.es/', email: null, gbif_sandbox_organization_key: null, gbif_production_organization_key: null }],
+    authors: [{ name: 'Jane Doe', affiliation: 'University of Huelva' }],
   },
 }
 
@@ -52,9 +61,13 @@ beforeEach(() => {
     CAMTRAPDP: { ...APP_SETTINGS.CAMTRAPDP, ...update.CAMTRAPDP },
     TRAPPER: { ...APP_SETTINGS.TRAPPER, ...update.TRAPPER, has_user_name: !!update.TRAPPER.user_name, has_user_password: !!update.TRAPPER.user_password },
     HFH: { ...APP_SETTINGS.HFH, ...update.HFH, has_token: !!update.HFH.token },
-    ZENODO: { ...APP_SETTINGS.ZENODO, ...update.ZENODO, has_token: !!update.ZENODO.token },
-    B2SHARE: { ...APP_SETTINGS.B2SHARE, ...update.B2SHARE, has_token: !!update.B2SHARE.token },
-    GBIF: { ...APP_SETTINGS.GBIF, ...update.GBIF, has_username: !!update.GBIF.username, has_password: !!update.GBIF.password },
+    ZENODO: { ...APP_SETTINGS.ZENODO, ...update.ZENODO, has_sandbox_token: !!update.ZENODO.sandbox_token, has_production_token: !!update.ZENODO.production_token },
+    B2SHARE: { ...APP_SETTINGS.B2SHARE, ...update.B2SHARE, has_sandbox_token: !!update.B2SHARE.sandbox_token, has_production_token: !!update.B2SHARE.production_token },
+    GBIF: {
+      ...APP_SETTINGS.GBIF, ...update.GBIF,
+      has_sandbox_username: !!update.GBIF.sandbox_username, has_sandbox_password: !!update.GBIF.sandbox_password,
+      has_production_username: !!update.GBIF.production_username, has_production_password: !!update.GBIF.production_password,
+    },
     S3: {
       ...APP_SETTINGS.S3, ...update.S3,
       remotes: update.S3.remotes.map(({ access_key, secret_key, ...r }) => ({ ...r, has_access_key: !!access_key, has_secret_key: !!secret_key })),
@@ -76,18 +89,22 @@ describe('SettingsPage', () => {
     expect(screen.getByText(/a username is saved — leave it blank to keep it/i)).toBeInTheDocument()
     expect(screen.getByText(/a password is saved — leave it blank to keep it/i)).toBeInTheDocument()
 
-    await section('HuggingFace Hub')
+    await section('Repositories')
     expect(screen.queryByLabelText('Trapper URL')).not.toBeInTheDocument()
+    for (const name of ['HuggingFace Hub', 'Zenodo', 'B2SHARE', 'GBIF']) expect(screen.getByText(name)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Edit HuggingFace Hub' }))
     expect(screen.getByText(/no token saved yet/i)).toBeInTheDocument()
 
     await section('Organizations')
-    expect(screen.getByLabelText('Title')).toHaveValue('University of Huelva')
+    expect(screen.getByText('University of Huelva')).toBeInTheDocument()
+    expect(screen.getByText('https://www.uhu.es/')).toBeInTheDocument()
   })
 
   it('saves the Trapper and Camtrap DP sections, a blank password keeping the saved one', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
     await screen.findByLabelText('Log level')
-    await section('Camtrap DP')
+    await section('Products')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Camtrap DP' }))
     await userEvent.type(screen.getByLabelText('Description'), 'New description')
     await section('Trapper')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -114,7 +131,8 @@ describe('SettingsPage', () => {
 
   it('adds and removes a GBIF installation', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
-    await section('GBIF')
+    await section('Repositories')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit GBIF' }))
     expect(screen.getAllByLabelText('Title')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '+ Add installation' }))
@@ -129,16 +147,137 @@ describe('SettingsPage', () => {
     expect(screen.getAllByLabelText('Title')).toHaveLength(1)
   })
 
-  it('adds an organization and saves it', async () => {
+  it('adds an organization from a dialog, edits another from its gear, and saves them', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
     await section('Organizations')
-    await userEvent.click(screen.getByRole('button', { name: '+ Add organization' }))
-    const titles = screen.getAllByLabelText('Title')
-    await userEvent.type(titles[1], 'New Org')
+    await userEvent.click(screen.getByRole('button', { name: 'Add organization' }))
+    await userEvent.clear(screen.getByLabelText('Title'))
+    await userEvent.type(screen.getByLabelText('Title'), 'New Org')
+    await userEvent.type(screen.getByLabelText('GBIF sandbox organization UUID'), 'abc-123')
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByText('GBIF linked')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit University of Huelva' }))
+    await userEvent.type(screen.getByLabelText('Contact email (publisher role only)'), 'a@uhu.es')
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     const product = mockedApi.saveSettings.mock.calls[0][0].PRODUCT
     expect(product.organizations.map((o) => o.title)).toEqual(['University of Huelva', 'New Org'])
+    expect(product.organizations[0].email).toBe('a@uhu.es')
+    expect(product.organizations[1].gbif_sandbox_organization_key).toBe('abc-123')
+  })
+
+  it('removes an organization from its dialog', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Organizations')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit University of Huelva' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove organization' }))
+    expect(screen.queryByText('University of Huelva')).not.toBeInTheDocument()
+  })
+
+  const CONFIGS = [
+    { id: 'default', name: 'Default config', path: '/home/me/.config/wildintel-publisher/settings.toml', active: true },
+  ]
+
+  it('lists the configs with their folder and download buttons', async () => {
+    mockedApi.configs.mockResolvedValue(CONFIGS)
+    mockedApi.openConfigFolder.mockResolvedValue({ ok: true })
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Config')
+    expect(await screen.findByText('ACTIVE')).toBeInTheDocument()
+    expect(screen.getByLabelText('Default config file location')).toHaveTextContent('/home/me/.config/wildintel-publisher/settings.toml')
+    expect(screen.getByRole('link', { name: 'Download Default config' })).toHaveAttribute('href', '/api/settings/configs/default/download')
+    expect(screen.queryByRole('button', { name: 'Activate Default config' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open Default config folder' }))
+
+    expect(mockedApi.openConfigFolder).toHaveBeenCalledWith('default')
+  })
+
+  it('adds a config from the + button, named by the user', async () => {
+    mockedApi.configs.mockResolvedValue(CONFIGS)
+    mockedApi.addConfig.mockResolvedValue([...CONFIGS, { id: 'project-b', name: 'project-b', path: '/x/configs/project-b.toml', active: false }])
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Config')
+    await userEvent.click(await screen.findByRole('button', { name: 'Add config' }))
+    expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('Config name'), 'Project B')
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    expect(mockedApi.addConfig).toHaveBeenCalledWith('Project B')
+    expect(await screen.findByText('project-b')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('switches to another config and reloads the settings from it', async () => {
+    const other = { id: 'b', name: 'b', path: '/x/configs/b.toml', active: false }
+    mockedApi.configs.mockResolvedValue([...CONFIGS, other])
+    mockedApi.activateConfig.mockResolvedValue([{ ...CONFIGS[0], active: false }, { ...other, active: true }])
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Config')
+    mockedApi.getSettings.mockClear()
+    await userEvent.click(await screen.findByRole('button', { name: 'Activate b' }))
+
+    expect(mockedApi.activateConfig).toHaveBeenCalledWith('b')
+    await waitFor(() => expect(mockedApi.getSettings).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('button', { name: 'Activate b' })).not.toBeInTheDocument()
+  })
+
+  const CHECK = { current: '0.1.0', latest: '0.1.0', update_available: false, release_url: null, download_url: null, error: null }
+
+  it('checks for updates and says when the app is up to date', async () => {
+    mockedApi.checkVersion.mockResolvedValue(CHECK)
+    render(<SettingsPage onClose={vi.fn()} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Check updates' }))
+
+    expect(await screen.findByText(/up to date \(version 0\.1\.0\)/)).toBeInTheDocument()
+  })
+
+  it('offers the download when a newer version exists', async () => {
+    mockedApi.checkVersion.mockResolvedValue({
+      ...CHECK, latest: '0.2.0', update_available: true,
+      release_url: 'https://github.com/x/releases/web-v0.2.0', download_url: 'https://dl/app-0.2.0-linux-x86_64',
+    })
+    render(<SettingsPage onClose={vi.fn()} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Check updates' }))
+
+    expect(await screen.findByRole('link', { name: 'Tap to download 0.2.0' })).toHaveAttribute('href', 'https://dl/app-0.2.0-linux-x86_64')
+  })
+
+  it('offers a retry when the check fails, and recovers on the next try', async () => {
+    mockedApi.checkVersion.mockResolvedValueOnce({ ...CHECK, latest: null, error: 'Could not check for updates: offline' })
+    mockedApi.checkVersion.mockResolvedValueOnce(CHECK)
+    render(<SettingsPage onClose={vi.fn()} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Check updates' }))
+    expect(await screen.findByText(/offline/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Tap to retry' }))
+
+    expect(await screen.findByText(/up to date/)).toBeInTheDocument()
+    expect(screen.queryByText(/offline/)).not.toBeInTheDocument()
+  })
+
+  it('adds, edits and saves authors', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Authors')
+    expect(screen.getByText('Jane Doe')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add author' }))
+    await userEvent.clear(screen.getByLabelText('Name'))
+    await userEvent.type(screen.getByLabelText('Name'), 'John Roe')
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Jane Doe' }))
+    await userEvent.type(screen.getByLabelText('Affiliation'), ' (Spain)')
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const { authors } = mockedApi.saveSettings.mock.calls[0][0].PRODUCT
+    expect(authors).toEqual([
+      { name: 'Jane Doe', affiliation: 'University of Huelva (Spain)' },
+      { name: 'John Roe', affiliation: null },
+    ])
   })
 
   it('saves the log level, showing where the log is', async () => {

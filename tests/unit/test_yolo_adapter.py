@@ -552,3 +552,137 @@ def test_readme_context_reports_sharded_splits_and_still_counts_everything(tmp_p
     assert context["sharded_splits"] == ["train"]
     train = next(s for s in context["split_stats"] if s["split"] == "train")
     assert train == {"split": "train", "images": 22, "labeled_images": 20, "objects": 20}
+
+
+def _add_extras(root: Path) -> None:
+    (root / "additional_info" / "lists").mkdir(parents=True)
+    (root / "additional_info" / "lists" / "README.md").write_text("nested readme", encoding="utf-8")
+    (root / "paper.docx").write_bytes(b"docx")
+    (root / ".~lock.paper.docx#").write_text("lock", encoding="utf-8")
+    (root / "README.md").write_text("the authors' own readme", encoding="utf-8")
+
+
+def test_prepare_gathers_loose_extras_under_additional_info(tmp_path):
+    input_dir = _write_yolo_dataset(tmp_path / "yolo")
+    _add_extras(input_dir)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    YoloAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
+
+    extra = output_dir / "additional_info"
+    assert (extra / "paper.docx").read_bytes() == b"docx"
+    assert (extra / "README.md").read_text(encoding="utf-8") == "the authors' own readme"
+    # _add_extras gives the dataset its own additional_info/ too, nested one level down.
+    assert (extra / "additional_info" / "lists" / "README.md").read_text(encoding="utf-8") == "nested readme"
+    assert not (output_dir / "README.md").exists()  # left free for the generated one
+    assert not (output_dir / "paper.docx").exists()
+    assert not list(output_dir.rglob(".~lock.*"))
+
+
+def test_prepare_leaves_an_existing_additional_info_as_it_is(tmp_path):
+    input_dir = _write_yolo_dataset(tmp_path / "yolo")
+    (input_dir / "additional_info" / "lists").mkdir(parents=True)
+    (input_dir / "additional_info" / "lists" / "a.csv").write_text("a", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    YoloAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
+
+    assert (output_dir / "additional_info" / "lists" / "a.csv").read_text(encoding="utf-8") == "a"
+    assert sorted(p.name for p in output_dir.iterdir()) == ["additional_info", "data.yaml", "images"]
+
+
+def test_prepare_nests_an_existing_additional_info_when_there_are_loose_extras(tmp_path):
+    input_dir = _write_yolo_dataset(tmp_path / "yolo")
+    (input_dir / "additional_info").mkdir()
+    (input_dir / "additional_info" / "a.csv").write_text("a", encoding="utf-8")
+    (input_dir / "paper.docx").write_bytes(b"docx")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    YoloAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
+
+    assert (output_dir / "additional_info" / "paper.docx").is_file()
+    assert (output_dir / "additional_info" / "additional_info" / "a.csv").read_text(encoding="utf-8") == "a"
+    assert not (output_dir / "additional_info" / "a.csv").exists()
+
+
+def test_prepare_ignores_an_empty_additional_info_when_there_are_loose_extras(tmp_path):
+    input_dir = _write_yolo_dataset(tmp_path / "yolo")
+    (input_dir / "additional_info").mkdir()
+    (input_dir / "paper.docx").write_bytes(b"docx")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    YoloAdapter().prepare(input_dir, output_dir, mirror=True, image_timeout=60)
+
+    assert sorted(p.name for p in (output_dir / "additional_info").iterdir()) == ["paper.docx"]
+
+
+def test_check_dataset_warns_about_what_gets_moved_or_replaced(tmp_path):
+    from wildintel_publisher.core.services.yolo_adapter import check_dataset
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    _add_extras(root)
+    (root / "images" / "train" / "metadata.jsonl").write_text("{}", encoding="utf-8")
+
+    warnings = "\n".join(check_dataset(root))
+
+    assert "README.md" in warnings and "paper.docx" in warnings and "inside additional_info/" in warnings
+    assert "images/train/metadata.jsonl already exists" in warnings
+
+
+def test_extract_core_files_carries_extras_but_not_generated_files(tmp_path):
+    output_dir = _write_yolo_dataset(tmp_path / "out")
+    (output_dir / "paper.docx").write_bytes(b"docx")
+    (output_dir / "additional_info").mkdir()
+    (output_dir / "additional_info" / "README.md").write_text("orig", encoding="utf-8")
+    (output_dir / "README.md").write_text("generated", encoding="utf-8")
+
+    YoloAdapter().extract_core_files(output_dir, tmp_path / "chain")
+
+    assert (tmp_path / "chain" / "paper.docx").is_file()
+    assert (tmp_path / "chain" / "additional_info" / "README.md").is_file()
+    assert not (tmp_path / "chain" / "README.md").exists()
+
+
+def test_zip_only_leaves_out_top_level_generated_files(tmp_path):
+    import zipfile
+
+    output_dir = _write_yolo_dataset(tmp_path / "out")
+    (output_dir / "README.md").write_text("generated", encoding="utf-8")
+    (output_dir / "additional_info").mkdir()
+    (output_dir / "additional_info" / "README.md").write_text("theirs", encoding="utf-8")
+
+    zip_path = tmp_path / "x.zip"
+    YoloAdapter().bundle_local_zip(output_dir, output_dir, zip_path, embed_images=True)
+
+    names = zipfile.ZipFile(zip_path).namelist()
+    assert "additional_info/README.md" in names and "README.md" not in names
+
+
+def test_funding_round_trips_through_the_editor_and_reaches_the_readme_context(tmp_path):
+    from wildintel_publisher.core.services.yolo_adapter import (
+        YoloEditableMetadata, read_editable_fields, update_editable_fields,
+    )
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    assert read_editable_fields(root)["funding"] is None
+    assert YoloAdapter().readme_context(root)["funding_extra"] == ""
+
+    update_editable_fields(root, YoloEditableMetadata(funding="Also funded by **Foo**.", authors=[{"name": "Jane"}], license={"id": "MIT"}))
+
+    assert read_editable_fields(root)["funding"] == "Also funded by **Foo**."
+    assert YoloAdapter().readme_context(root)["funding_extra"] == "Also funded by **Foo**."
+    # never leaks into metadata.json's own schema
+    assert "funding" not in YoloAdapter().extract_metadata(root)
+
+
+def test_funding_extra_is_appended_to_the_shared_funding_section():
+    from wildintel_publisher.core.services import common
+
+    render = lambda **kw: common._jinja_env.from_string('{% include "common/_readme-funding.md.j2" %}').render(**kw)
+
+    assert render(funding_extra="Also funded by **Foo**.").rstrip().endswith("(Germany).\n\nAlso funded by **Foo**.")
+    assert render().rstrip().endswith("(Germany).")

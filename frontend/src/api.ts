@@ -1,8 +1,8 @@
 import type {
   AppSettings, AppSettingsUpdate,
   BrowseResult, Organization, ClassificationProject, DatapackageFields, DatapackageSummary, Deployment,
-  YoloDataYamlFields, YoloDataYamlMetadata, PreviousVersion,
-  GBIFInstallation, OutputMode, PublishRepoConfig, ResearchProject, S3Remote, SessionSummary,
+  YoloDataYamlFields, YoloDataYamlMetadata, PreviousVersion, ProductAuthor,
+  ConfigInfo, VersionCheck, GBIFInstallation, OutputMode, PublishRepoConfig, ResearchProject, S3Remote, SessionSummary,
 } from './types'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
@@ -42,13 +42,19 @@ export const api = {
     }
   },
 
-  checkVersion: () =>
-    req<{ current: string; latest: string | null; update_available: boolean; release_url: string | null }>('/api/version'),
+  checkVersion: () => req<VersionCheck>('/api/version'),
 
   getSettings: () => req<AppSettings>('/api/settings'),
   saveSettings: (update: AppSettingsUpdate) => put<AppSettings>('/api/settings', update),
 
   // Deletes the log file and its rotated copies — logging goes on, into a new one.
+  // The settings files the user can switch to (the default settings.toml plus
+  // the ones created with addConfig); each one's file itself is downloaded
+  // straight from /api/settings/configs/<id>/download.
+  configs: () => req<ConfigInfo[]>('/api/settings/configs'),
+  addConfig: (name: string) => post<ConfigInfo[]>('/api/settings/configs', { name }),
+  activateConfig: (id: string) => post<ConfigInfo[]>(`/api/settings/configs/${encodeURIComponent(id)}/activate`, {}),
+  openConfigFolder: (id: string) => post<{ ok: boolean }>(`/api/settings/configs/${encodeURIComponent(id)}/open-folder`, {}),
   clearLog: () => req<{ deleted: number }>('/api/settings/log', { method: 'DELETE' }),
 
   trapperGetConfig: () =>
@@ -209,8 +215,19 @@ export const api = {
   // no frontend code change needed.
   organizations: () => req<Organization[]>('/api/product/organizations'),
 
+  // settings.toml's own PRODUCT.authors — quick-add options for a product's
+  // authors in the metadata step (see YoloMetadataEditor).
+  authors: () => req<ProductAuthor[]>('/api/product/authors'),
+
   openFolder: (path: string) =>
     post<{ ok: boolean }>('/api/camtrapdp/open-folder', { path }),
+
+  // The operating system's own folder dialog (opened by the backend, which
+  // runs on this same machine) — path is null when the user cancels; throws
+  // (501) when this machine has no such dialog, so callers fall back to the
+  // in-page DirectoryPicker.
+  fsPickDirectory: (initialPath?: string, title?: string) =>
+    post<{ path: string | null }>('/api/fs/pick-directory', { initial_path: initialPath || null, title: title || null }),
 
   fsBrowse: (path?: string) =>
     req<BrowseResult>(`/api/fs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
@@ -278,10 +295,12 @@ export const api = {
     req<{
       environment: 'sandbox' | 'production'
       communities: string | null
+      communities_by_environment: Record<'sandbox' | 'production', string | null>
       output_dir: string
       version: string
       timeout: number
       has_token: boolean
+      has_token_by_environment: Record<'sandbox' | 'production', boolean>
     }>('/api/zenodo/config'),
 
   zenodoTestToken: (token: string, environment: string) =>
@@ -343,10 +362,12 @@ export const api = {
     req<{
       environment: 'sandbox' | 'production'
       community_id: string | null
+      community_id_by_environment: Record<'sandbox' | 'production', string | null>
       output_dir: string
       version: string
       timeout: number
       has_token: boolean
+      has_token_by_environment: Record<'sandbox' | 'production', boolean>
     }>('/api/b2share/config'),
 
   b2shareTestToken: (token: string, environment: string) =>
@@ -410,9 +431,14 @@ export const api = {
       environment: 'sandbox' | 'production'
       publishing_organization_key: string | null
       installation_key: string | null
+      keys_by_environment: Record<
+        'sandbox' | 'production',
+        { publishing_organization_key: string | null; installation_key: string | null }
+      >
       registry_language: string | null
       output_dir: string
       has_credentials: boolean
+      has_credentials_by_environment: Record<'sandbox' | 'production', boolean>
     }>('/api/gbif/config'),
 
   gbifTestCredentials: (username: string, password: string, environment: string) =>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { preparedCoreFiles } from '../productFiles'
 import type { OutputMode, ProductType, Publication } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
@@ -114,7 +115,10 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
     status: TestStatus; message: string; results: { id: string; title: string }[]
   }>({ status: 'idle', message: '', results: [] })
   const [minImageEdge, setMinImageEdge] = useState(initialConfig?.minImageEdge?.toString() ?? '640')
-  const [hasSavedToken, setHasSavedToken] = useState(false)
+  // Saved per environment (sandbox/production have their own token and communities).
+  const [savedTokens, setSavedTokens] = useState<Record<'sandbox' | 'production', boolean>>({ sandbox: false, production: false })
+  const [savedCommunities, setSavedCommunities] = useState<Record<string, string | null>>({})
+  const hasSavedToken = savedTokens[form.environment as 'sandbox' | 'production'] ?? false
 
   const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
 
@@ -134,13 +138,15 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
   useEffect(() => {
     api.zenodoGetConfig()
       .then((config) => {
-        setHasSavedToken(config.has_token)
+        setSavedTokens(config.has_token_by_environment)
+        setSavedCommunities(config.communities_by_environment)
         if (initialConfig) return
+        const environment = found?.environment ?? config.environment
         setForm((f) => ({
           ...f,
           outputDir: config.output_dir,
-          environment: found?.environment ?? config.environment,
-          communities: config.communities ?? f.communities,
+          environment,
+          communities: config.communities_by_environment[environment] ?? f.communities,
         }))
       })
       .catch(() => {})
@@ -157,6 +163,8 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
     if (key === 'token') setTest({ status: 'idle', message: '' })
+    // Communities belong to an environment: switching shows the new one's own.
+    if (key === 'environment') setForm((f) => ({ ...f, communities: savedCommunities[value] ?? '' }))
     // A stale result list would no longer reflect the environment it was
     // searched under.
     if (key === 'environment') setDepositionSearch({ status: 'idle', message: '', results: [] })
@@ -189,7 +197,7 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
     setTest({ status: 'testing', message: '' })
     try {
       await api.zenodoTestToken(form.token, form.environment)
-      setHasSavedToken(true) // the backend saves environment/token on a successful test
+      setSavedTokens((t) => ({ ...t, [form.environment]: true })) // the backend saves environment/token on a successful test
       setTest({ status: 'ok', message: 'Token verified.' })
     } catch (e) {
       setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the token.' })
@@ -288,7 +296,7 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
         )}
       </div>
 
-      {publication?.kind !== 'new' && (
+      {(publication?.kind === 'version' || (!publication && form.existingDepositionId.trim() !== '')) && (
         <div className="mb-6">
           <label className={labelClass} htmlFor="zenodo-existing-deposition-id">
             {found ? `Previous version's Zenodo record ID` : 'Zenodo record ID (leave blank to create a new deposition)'}
@@ -465,10 +473,10 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
               checked={outputMode === 'prepared'}
               onChange={() => setOutputMode('prepared')}
             />
-            <span><strong>Prepared package</strong> - just the Camtrap DP files (datapackage.json,
-              deployments.csv, media.csv, observations.csv) with the changes made while preparing
-              and uploading, plus the Zenodo record data (needed to sync the DOI here later) — no
-              README, LICENSE, CITATION.cff, checksums, images or zip.</span>
+            <span><strong>Prepared package</strong> - just {preparedCoreFiles(productType).what} with the
+              changes made while preparing and uploading, plus the Zenodo record data (needed to
+              sync the DOI here later) — no README, LICENSE, CITATION.cff, checksums,{' '}
+              {preparedCoreFiles(productType).imagesSeparate ? 'images or zip' : 'or zip'}.</span>
           </label>
           <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
             <input

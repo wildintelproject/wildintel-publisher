@@ -33,17 +33,17 @@ app.add_typer(build_section_config_app("ZENODO", ZenodoSettings), name="config")
 ZENODO_TOKEN_ENV_VAR = "ZENODO_TOKEN"
 
 
-def _require_token() -> str:
-    token = os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.token
+def _require_token(environment: Optional[str] = None) -> str:
+    token = os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.value_for("token", environment)
     if token:
         return token
-    base_url = "https://sandbox.zenodo.org" if settings.ZENODO.environment == "sandbox" else "https://zenodo.org"
+    base_url = "https://sandbox.zenodo.org" if (environment or settings.ZENODO.environment) == "sandbox" else "https://zenodo.org"
     console.print(
         "[red]✘  No Zenodo token configured.[/red]\n"
         f"   Get one at [bold]{base_url}/account/settings/applications/tokens/new/[/bold] and export it:\n"
         f"   [bold]export {ZENODO_TOKEN_ENV_VAR}='...'[/bold]\n"
         "   or store it permanently: "
-        "[bold]wildintel-publisher zenodo config set token[/bold]"
+        "[bold]wildintel-publisher zenodo config set sandbox_token[/bold] / [bold]production_token[/bold]"
     )
     raise typer.Exit(1)
 
@@ -152,8 +152,8 @@ def upload(
         help="Zenodo environment: 'sandbox' (testing, no real DOI) or 'production'. (ZENODO.environment)",
     ),
     communities: Optional[str] = typer.Option(
-        settings.ZENODO.communities, "--communities",
-        help="Zenodo communities, comma-separated. (ZENODO.communities)",
+        None, "--communities",
+        help="Zenodo communities, comma-separated. Defaults to the one saved for the environment. (ZENODO.sandbox_communities/production_communities)",
     ),
     hfh_repo_id: Optional[str] = typer.Option(
         settings.HFH.repo_id, "--hfh-repo-id",
@@ -170,7 +170,8 @@ def upload(
 ) -> None:
     """Creates (or reuses) a Zenodo deposition and uploads the files of the already-prepared record."""
     resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
-    token = _require_token()
+    token = _require_token(environment)
+    communities = communities or settings.ZENODO.value_for("communities", environment)
 
     try:
         zenodo_service.upload_to_zenodo(

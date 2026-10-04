@@ -33,7 +33,7 @@ from typing import Any
 import httpx
 from dynaconf import loaders
 from huggingface_hub import upload_file
-from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, get_zenodo_output_dir, load_settings
+from wildintel_publisher.core.config import active_config_file, get_zenodo_output_dir, load_settings
 from wildintel_publisher.core.services import product
 from wildintel_publisher.core.services import zenodo as zenodo_service
 
@@ -56,23 +56,33 @@ def get_connection_defaults() -> dict:
     settings = load_settings()
     return {
         "environment": settings.ZENODO.environment,
-        "communities": settings.ZENODO.communities,
+        "communities": settings.ZENODO.value_for("communities"),
+        "communities_by_environment": {
+            env: settings.ZENODO.value_for("communities", env) for env in ("sandbox", "production")
+        },
         "output_dir": str(get_zenodo_output_dir()),
         "version": DEFAULT_VERSION,
         "timeout": DEFAULT_TIMEOUT,
-        "has_token": bool(os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.token),
+        "has_token": bool(os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.value_for("token")),
+        # Per environment — the wizard's own environment selector can differ
+        # from the saved default.
+        "has_token_by_environment": {
+            env: bool(os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.value_for("token", env))
+            for env in ("sandbox", "production")
+        },
     }
 
 
-def resolve_token(token: str | None) -> str:
+def resolve_token(token: str | None, environment: str | None = None) -> str:
     """Mirrors commands/zenodo.py's own _require_token: the ZENODO_TOKEN
-    environment variable takes priority, then whatever's saved in settings.toml.
+    environment variable takes priority, then whatever's saved in settings.toml
+    for `environment` (default: the configured one).
 
     Raises:
         ValueError: if no token is available from any source.
     """
     settings = load_settings()
-    resolved = token or os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.token
+    resolved = token or os.environ.get(ZENODO_TOKEN_ENV_VAR) or settings.ZENODO.value_for("token", environment)
     if not resolved:
         raise ValueError("Missing Zenodo token — provide one, or save it in the configuration first.")
     return resolved
@@ -87,10 +97,10 @@ def save_config(environment: str | None, communities: str | None, token: str | N
     if environment:
         settings.ZENODO.environment = environment
     if communities:
-        settings.ZENODO.communities = communities
+        setattr(settings.ZENODO, f"{settings.ZENODO.environment}_communities", communities)
     if token:
-        settings.ZENODO.token = token
-    loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
+        setattr(settings.ZENODO, f"{settings.ZENODO.environment}_token", token)
+    loaders.toml_loader.write(str(active_config_file()), settings.model_dump(mode="json"), merge=False)
 
 
 def test_token(token: str, environment: str) -> dict:

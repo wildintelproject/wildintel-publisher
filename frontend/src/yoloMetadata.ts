@@ -5,7 +5,7 @@ import type { Organization, ProductAuthor, ProductLicense, ProductPublisher, Yol
 /** An author row the user left completely blank is simply dropped on save;
  * one with an affiliation but no name can't be saved (the backend's
  * YoloAuthor requires a name). */
-function authorIsBlank(author: ProductAuthor): boolean {
+export function authorIsBlank(author: ProductAuthor): boolean {
   return !(author.name ?? '').trim() && !(author.affiliation ?? '').trim()
 }
 

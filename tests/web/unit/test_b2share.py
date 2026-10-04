@@ -346,7 +346,7 @@ def test_publish_falls_back_to_saved_token_and_community_when_blank(tmp_path):
     from dynaconf import loaders
     from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, load_settings
     settings = load_settings()
-    settings.B2SHARE.community_id = "uuid-saved"
+    settings.B2SHARE.sandbox_community_id = "uuid-saved"
     loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
 
     with (

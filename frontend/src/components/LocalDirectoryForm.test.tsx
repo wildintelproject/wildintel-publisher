@@ -9,6 +9,7 @@ vi.mock('../api', () => ({
     generateProductMetadata: vi.fn(),
     resolveLocalSource: vi.fn(),
     fsBrowse: vi.fn(),
+    fsPickDirectory: vi.fn(),
   },
 }))
 
@@ -65,7 +66,30 @@ describe('LocalDirectoryForm', () => {
     expect(onSelectionChange).toHaveBeenLastCalledWith(null)
   })
 
-  it('opens the directory picker when Browse is clicked', async () => {
+  it('opens the operating system\'s own folder dialog when Browse is clicked, and fills in the chosen path', async () => {
+    mockedApi.fsPickDirectory.mockResolvedValue({ path: '/data/yolo' })
+    renderForm()
+
+    await userEvent.click(screen.getByRole('button', { name: /browse/i }))
+
+    await waitFor(() => expect(screen.getByLabelText('Directory')).toHaveValue('/data/yolo'))
+    expect(mockedApi.fsPickDirectory).toHaveBeenCalled()
+    expect(screen.queryByText('Select the directory')).not.toBeInTheDocument()
+  })
+
+  it('leaves the path alone when the native dialog is cancelled', async () => {
+    mockedApi.fsPickDirectory.mockResolvedValue({ path: null })
+    renderForm()
+    await userEvent.type(screen.getByLabelText('Directory'), '/keep/me')
+
+    await userEvent.click(screen.getByRole('button', { name: /browse/i }))
+
+    await waitFor(() => expect(mockedApi.fsPickDirectory).toHaveBeenCalledWith('/keep/me', 'Select the directory'))
+    expect(screen.getByLabelText('Directory')).toHaveValue('/keep/me')
+  })
+
+  it('falls back to the in-page directory picker when this machine has no native dialog', async () => {
+    mockedApi.fsPickDirectory.mockRejectedValue(new Error('No native folder dialog available'))
     mockedApi.fsBrowse.mockResolvedValue({ current: '/home/user', parent: '/home', dirs: [] })
     renderForm()
 

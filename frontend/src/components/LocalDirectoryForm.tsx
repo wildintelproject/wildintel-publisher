@@ -58,9 +58,27 @@ interface Props {
   initialSessionTaskId?: string
 }
 
+const PICKER_TITLE = 'Select the directory'
+
 export default function LocalDirectoryForm({ productType, onSelectionChange, initialPath, initialSessionTaskId }: Props) {
   const [path, setPath] = useState(initialPath ?? '')
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [nativeOpen, setNativeOpen] = useState(false)
+  // Browse opens the operating system's own folder dialog (the backend runs
+  // on this same machine); the in-page DirectoryPicker is only the fallback
+  // for a machine that can't open one.
+  async function handleBrowse() {
+    setNativeOpen(true)
+    try {
+      const { path: chosen } = await api.fsPickDirectory(path || undefined, PICKER_TITLE)
+      if (chosen) setPath(chosen)
+    } catch {
+      setPickerOpen(true)
+    } finally {
+      setNativeOpen(false)
+    }
+  }
+
   const [check, setCheck] = useState<CheckState>({ status: 'idle', summary: null, error: null, workingDir: null })
   // The session minted by this form's own first successful (or failed)
   // resolveLocalSource call — reused for every later call, including
@@ -141,8 +159,8 @@ export default function LocalDirectoryForm({ productType, onSelectionChange, ini
           value={path}
           onChange={(e) => setPath(e.target.value)}
         />
-        <button type="button" className={browseBtn} onClick={() => setPickerOpen(true)}>
-          📁 Browse
+        <button type="button" className={browseBtn} disabled={nativeOpen} onClick={handleBrowse}>
+          {nativeOpen ? 'Choose in the dialog…' : '📁 Browse'}
         </button>
       </div>
 
@@ -166,7 +184,7 @@ export default function LocalDirectoryForm({ productType, onSelectionChange, ini
       {pickerOpen && (
         <DirectoryPicker
           initialPath={path || undefined}
-          title="Select the directory"
+          title={PICKER_TITLE}
           onSelect={setPath}
           onClose={() => setPickerOpen(false)}
         />

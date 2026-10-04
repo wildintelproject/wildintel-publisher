@@ -191,16 +191,16 @@ def register_gbif_dataset(
         raise RuntimeError(f"GBIF.environment must be 'sandbox' or 'production', got: {environment!r}")
     if not publishing_organization_key or not installation_key:
         raise RuntimeError(
-            "GBIF.publishing_organization_key and GBIF.installation_key must both be set — "
+            "The GBIF publishing organization key and installation key of this environment must both be set — "
             "they can't be guessed. Register an organization/installation on gbif.org (or its "
             "sandbox at gbif-test.org) and set them with 'wildintel-publisher gbif config set "
-            "publishing_organization_key=...' / 'installation_key=...'."
+            "<environment>_publishing_organization_key=...' / '<environment>_installation_key=...'."
         )
     if not username or not password:
         raise RuntimeError(
             "No GBIF Registry API credentials found. Set the GBIF_USERNAME/GBIF_PASSWORD "
             "environment variables, or store them with 'wildintel-publisher gbif config set "
-            "username' / 'set password'."
+            "<environment>_username' / '<environment>_password'."
         )
 
     base_url = GBIF_REGISTRY_BASE_URLS[environment]

@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, Settings, load_settings
+from wildintel_publisher.core.config import active_config_file, Settings, load_settings
 
 console = Console()
 
@@ -59,7 +59,7 @@ def _parse_value(annotation: Any, raw: str) -> Any:
 
 
 def _save(settings: Settings) -> None:
-    loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
+    loaders.toml_loader.write(str(active_config_file()), settings.model_dump(mode="json"), merge=False)
 
 
 def build_section_config_app(section: str, model: Type[BaseModel]) -> typer.Typer:
@@ -106,7 +106,7 @@ def build_section_config_app(section: str, model: Type[BaseModel]) -> typer.Type
     def config_show() -> None:
         """Shows the current values of the section in settings.toml (secrets are masked)."""
         section_model = getattr(load_settings(), section)
-        console.print(f"[bold]{DEFAULT_CONFIG_FILE}[/bold]")
+        console.print(f"[bold]{active_config_file()}[/bold]")
         table = Table(title=f"[{section}]")
         table.add_column("Field")
         table.add_column("Value")
@@ -209,6 +209,6 @@ def build_section_config_app(section: str, model: Type[BaseModel]) -> typer.Type
             raise typer.Exit(0)
 
         _save(new_settings)
-        console.print(f"[green]✔  Configuration saved to {DEFAULT_CONFIG_FILE}[/green]")
+        console.print(f"[green]✔  Configuration saved to {active_config_file()}[/green]")
 
     return app

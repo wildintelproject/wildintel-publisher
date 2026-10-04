@@ -26,7 +26,7 @@ from typing import Any
 
 from dynaconf import loaders
 from trapper_client import TrapperClient
-from wildintel_publisher.core.config import DEFAULT_CONFIG_FILE, load_settings
+from wildintel_publisher.core.config import active_config_file, load_settings
 from wildintel_publisher.core.services.trapper import fetch_camtrapdp_package
 
 from wildintel_publisher.web.services import session_store
@@ -103,7 +103,7 @@ def save_credentials(url: str, username: str, password: str) -> None:
     settings.TRAPPER.base_url = url
     settings.TRAPPER.user_name = username
     settings.TRAPPER.user_password = password
-    loaders.toml_loader.write(str(DEFAULT_CONFIG_FILE), settings.model_dump(mode="json"), merge=False)
+    loaders.toml_loader.write(str(active_config_file()), settings.model_dump(mode="json"), merge=False)
 
 
 def test_connection(url: str, username: str, password: str) -> dict:

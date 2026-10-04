@@ -27,7 +27,7 @@ def test_token(req: B2ShareTestTokenRequest) -> dict:
     """Verify a B2SHARE token, and save it (with environment, if given) to
     settings.toml once verified — so it doesn't need to be retyped."""
     try:
-        token = b2share_service.resolve_token(req.token)
+        token = b2share_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -50,7 +50,7 @@ async def publish(req: B2SharePublishRequest) -> dict:
     """Start prepare -> upload -> release as a background task.
     Returns a task_id; poll GET /api/b2share/publish/{task_id} for status."""
     try:
-        token = b2share_service.resolve_token(req.token)
+        token = b2share_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -59,7 +59,7 @@ async def publish(req: B2SharePublishRequest) -> dict:
 
     defaults = b2share_service.get_connection_defaults()
     environment = req.environment or defaults["environment"]
-    community_id = req.community_id or defaults["community_id"]
+    community_id = req.community_id or defaults["community_id_by_environment"][environment]
     if not community_id:
         raise HTTPException(400, "Missing the EUDAT B2SHARE community UUID.")
 
@@ -97,7 +97,7 @@ def records(req: B2ShareRecordsRequest) -> list[dict]:
     "Search existing records" button, so the user can pick an
     existing_record_id from a list instead of typing/tracking one by hand."""
     try:
-        token = b2share_service.resolve_token(req.token)
+        token = b2share_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

@@ -99,7 +99,7 @@ Set these up for whichever repositories you actually plan to use — each is ind
    <div class="termy">
 
    ```console
-   $ wildintel-publisher zenodo config set token
+   $ wildintel-publisher zenodo config set sandbox_token   # or production_token
    Value of token:
    ✔  zenodo.token = ••••••••
    ```
@@ -111,7 +111,7 @@ Set these up for whichever repositories you actually plan to use — each is ind
    <div class="termy">
 
    ```console
-   $ wildintel-publisher zenodo config set communities=camera-traps,biodiversity
+   $ wildintel-publisher zenodo config set production_communities=camera-traps,biodiversity
    ✔  zenodo.communities = camera-traps,biodiversity
    ```
 
@@ -126,7 +126,7 @@ Set these up for whichever repositories you actually plan to use — each is ind
    <div class="termy">
 
    ```console
-   $ wildintel-publisher b2share config set token
+   $ wildintel-publisher b2share config set sandbox_token   # or production_token
    Value of token:
    ✔  b2share.token = ••••••••
    ```
@@ -139,7 +139,7 @@ Set these up for whichever repositories you actually plan to use — each is ind
    <div class="termy">
 
    ```console
-   $ wildintel-publisher b2share config set community_id=e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
+   $ wildintel-publisher b2share config set production_community_id=e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
    ✔  b2share.community_id = e9b9792e-79fb-4b07-b6b4-b9c2bd06d095
    ```
 
@@ -171,9 +171,9 @@ Set these up for whichever repositories you actually plan to use — each is ind
    <div class="termy">
 
    ```console
-   $ wildintel-publisher gbif config set publishing_organization_key=<organization-uuid>
+   $ wildintel-publisher gbif config set production_publishing_organization_key=<organization-uuid>
    ✔  gbif.publishing_organization_key = <organization-uuid>
-   $ wildintel-publisher gbif config set installation_key=<installation-uuid>
+   $ wildintel-publisher gbif config set production_installation_key=<installation-uuid>
    ✔  gbif.installation_key = <installation-uuid>
    ```
 

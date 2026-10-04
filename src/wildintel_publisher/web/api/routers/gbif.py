@@ -34,7 +34,7 @@ def test_credentials(req: GBIFTestCredentialsRequest) -> dict:
     environment, if given) to settings.toml once verified — so they don't
     need to be retyped."""
     try:
-        username, password = gbif_service.resolve_credentials(req.username, req.password)
+        username, password = gbif_service.resolve_credentials(req.username, req.password, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

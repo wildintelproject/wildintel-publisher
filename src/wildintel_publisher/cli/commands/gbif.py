@@ -31,9 +31,9 @@ GBIF_USERNAME_ENV_VAR = "GBIF_USERNAME"
 GBIF_PASSWORD_ENV_VAR = "GBIF_PASSWORD"
 
 
-def _require_credentials() -> tuple:
-    username = os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.username
-    password = os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.password
+def _require_credentials(environment: Optional[str] = None) -> tuple:
+    username = os.environ.get(GBIF_USERNAME_ENV_VAR) or settings.GBIF.value_for("username", environment)
+    password = os.environ.get(GBIF_PASSWORD_ENV_VAR) or settings.GBIF.value_for("password", environment)
     if username and password:
         return username, password
     console.print(
@@ -43,8 +43,8 @@ def _require_credentials() -> tuple:
         f"   [bold]export {GBIF_USERNAME_ENV_VAR}='...'[/bold]\n"
         f"   [bold]export {GBIF_PASSWORD_ENV_VAR}='...'[/bold]\n"
         "   or store them permanently: "
-        "[bold]wildintel-publisher gbif config set username[/bold] / "
-        "[bold]set password[/bold]\n"
+        "[bold]wildintel-publisher gbif config set sandbox_username[/bold] / "
+        "[bold]sandbox_password[/bold] (or production_username / production_password)\n"
         "   Testing against --environment sandbox (gbif-test.org) only? GBIF publishes a "
         "shared demo login for exactly that — no signup needed: username "
         "[bold]ws_client_demo[/bold], password [bold]Demo123[/bold] (pairs with the demo "
@@ -66,17 +66,17 @@ def _require_organization_and_installation(organization_key: Optional[str], inst
         "sandbox equivalent requested separately via gbif-test.org).\n"
         "   2. Once endorsed, find your organization's UUID in its gbif.org page URL "
         "(https://www.gbif.org/publisher/<uuid>) and set it with:\n"
-        "      [bold]wildintel-publisher gbif config set publishing_organization_key=<uuid>[/bold]\n"
+        "      [bold]wildintel-publisher gbif config set sandbox_publishing_organization_key=<uuid>[/bold] (or production_...)\n"
         "   3. From that same organization's admin page, add an installation (any technical "
         "type works, e.g. a plain IPT) and set its UUID (found the same way) with:\n"
-        "      [bold]wildintel-publisher gbif config set installation_key=<uuid>[/bold]\n"
+        "      [bold]wildintel-publisher gbif config set sandbox_installation_key=<uuid>[/bold] (or production_...)\n"
         "   Just want to smoke-test --environment sandbox first, without registering "
         "anything of your own? GBIF's gbif-test.org demo login (username ws_client_demo / "
         "password Demo123) has permission to create datasets under a shared 'Test "
         "Organization #1' / 'Test HTTP installation' pair:\n"
-        "      [bold]wildintel-publisher gbif config set publishing_organization_key="
+        "      [bold]wildintel-publisher gbif config set sandbox_publishing_organization_key="
         "0a16da09-7719-40de-8d4f-56a15ed52fb6[/bold]\n"
-        "      [bold]wildintel-publisher gbif config set installation_key="
+        "      [bold]wildintel-publisher gbif config set sandbox_installation_key="
         "92d76df5-3de1-4c89-be03-7a17abad962a[/bold]\n"
         "   (shared/public — fine for a connectivity smoke test, not for anything you "
         "actually care about keeping)."
@@ -114,12 +114,12 @@ def register(
         help="GBIF environment: 'sandbox' (gbif-test.org, testing) or 'production' (gbif.org). (GBIF.environment)",
     ),
     publishing_organization_key: Optional[str] = typer.Option(
-        settings.GBIF.publishing_organization_key, "--publishing-organization-key",
-        help="UUID of your organization already registered on gbif.org. (GBIF.publishing_organization_key)",
+        None, "--publishing-organization-key",
+        help="UUID of your organization already registered on gbif.org. Defaults to the one saved for the environment. (GBIF.sandbox_publishing_organization_key/production_publishing_organization_key)",
     ),
     installation_key: Optional[str] = typer.Option(
-        settings.GBIF.installation_key, "--installation-key",
-        help="UUID of your installation already registered on gbif.org. (GBIF.installation_key)",
+        None, "--installation-key",
+        help="UUID of your installation already registered on gbif.org. Defaults to the one saved for the environment. (GBIF.sandbox_installation_key/production_installation_key)",
     ),
     registry_language: str = typer.Option(
         settings.GBIF.registry_language, "--registry-language",
@@ -151,9 +151,10 @@ def register(
     resolved_input_dir = Path(input_dir) if input_dir else get_trapper_output_dir()
     resolved_output_dir = Path(output_dir) if output_dir else get_gbif_output_dir()
 
-    username, password = _require_credentials()
+    username, password = _require_credentials(environment)
     organization_key, installation = _require_organization_and_installation(
-        publishing_organization_key, installation_key,
+        publishing_organization_key or settings.GBIF.value_for("publishing_organization_key", environment),
+        installation_key or settings.GBIF.value_for("installation_key", environment),
     )
 
     try:

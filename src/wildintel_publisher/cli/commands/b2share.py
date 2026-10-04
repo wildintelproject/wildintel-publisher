@@ -42,18 +42,18 @@ app.add_typer(build_section_config_app("B2SHARE", B2ShareSettings), name="config
 B2SHARE_TOKEN_ENV_VAR = "B2SHARE_TOKEN"
 
 
-def _require_token() -> str:
-    token = os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.token
+def _require_token(environment: Optional[str] = None) -> str:
+    token = os.environ.get(B2SHARE_TOKEN_ENV_VAR) or settings.B2SHARE.value_for("token", environment)
     if token:
         return token
-    base_url = "https://trng-b2share.eudat.eu" if settings.B2SHARE.environment == "sandbox" else "https://b2share.eudat.eu"
+    base_url = "https://trng-b2share.eudat.eu" if (environment or settings.B2SHARE.environment) == "sandbox" else "https://b2share.eudat.eu"
     console.print(
         "[red]✘  No B2SHARE token configured.[/red]\n"
         f"   Get one at [bold]{base_url}/user/profile[/bold] (Applications -> Personal access tokens) "
         "and export it:\n"
         f"   [bold]export {B2SHARE_TOKEN_ENV_VAR}='...'[/bold]\n"
         "   or store it permanently: "
-        "[bold]wildintel-publisher b2share config set token[/bold]"
+        "[bold]wildintel-publisher b2share config set sandbox_token[/bold] / [bold]production_token[/bold]"
     )
     raise typer.Exit(1)
 
@@ -65,7 +65,7 @@ def _require_community_id(community_id: Optional[str]) -> str:
         "[red]✘  Missing the EUDAT B2SHARE community UUID.[/red]\n"
         "   Request one at https://b2share.eudat.eu if you don't have one yet, and pass it with "
         "--community-id, or store it permanently: "
-        "[bold]wildintel-publisher b2share config set community_id=<uuid>[/bold]"
+        "[bold]wildintel-publisher b2share config set sandbox_community_id=<uuid>[/bold] (or production_community_id)"
     )
     raise typer.Exit(1)
 
@@ -175,8 +175,8 @@ def upload(
         help="B2SHARE environment: 'sandbox' (testing) or 'production'. (B2SHARE.environment)",
     ),
     community_id: Optional[str] = typer.Option(
-        settings.B2SHARE.community_id, "--community-id",
-        help="UUID of the EUDAT B2SHARE community. (B2SHARE.community_id)",
+        None, "--community-id",
+        help="UUID of the EUDAT B2SHARE community. Defaults to the one saved for the environment. (B2SHARE.sandbox_community_id/production_community_id)",
     ),
     hfh_repo_id: Optional[str] = typer.Option(
         settings.HFH.repo_id, "--hfh-repo-id",
@@ -194,8 +194,8 @@ def upload(
     """Creates (or reuses) a B2SHARE draft and uploads the files of the already-prepared record (the
     single camtrapdp.zip in --self-contained mode, or the loose Camtrap DP files otherwise)."""
     resolved_output_dir = Path(output_dir) if output_dir else get_b2share_output_dir()
-    token = _require_token()
-    community_id = _require_community_id(community_id)
+    token = _require_token(environment)
+    community_id = _require_community_id(community_id or settings.B2SHARE.value_for("community_id", environment))
 
     try:
         b2share_service.upload_to_b2share(

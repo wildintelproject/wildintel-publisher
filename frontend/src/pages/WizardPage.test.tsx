@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import type { PreprocessingSession, PublishSessionSummary } from '../types'
@@ -32,6 +32,7 @@ vi.mock('../api', () => ({
     updateDatapackageFields: vi.fn(),
     datapackageSummary: vi.fn(),
     organizations: vi.fn(),
+    authors: vi.fn(),
     datapackageDownloadUrl: vi.fn((path: string) => `/api/camtrapdp/download?path=${path}`),
     openFolder: vi.fn(),
     fsBrowse: vi.fn(),
@@ -108,6 +109,10 @@ beforeEach(() => {
   // wildintel_publisher.config.ProductSettings) — WizardPage defaults
   // dpPublisher/dpRightsHolder to organizationOptions[0]/[1] respectively,
   // so this order matters for tests that rely on those defaults.
+  mockedApi.authors.mockResolvedValue([
+    { name: 'Jane Doe', affiliation: 'Somewhere' },
+    { name: 'Ana Lopez', affiliation: 'University of Huelva' },
+  ])
   mockedApi.organizations.mockResolvedValue([
     { title: 'Institute of Nature Conservation PAS', path: 'https://www.iop.krakow.pl/', email: null },
     { title: 'University of Huelva', path: 'https://www.uhu.es/', email: null },
@@ -119,14 +124,19 @@ beforeEach(() => {
   ])
   mockedApi.hfhGetConfig.mockResolvedValue({ username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false })
   mockedApi.zenodoGetConfig.mockResolvedValue({
-    environment: 'sandbox', communities: null, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false,
+    environment: 'sandbox', communities: null, communities_by_environment: { sandbox: null, production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
   })
   mockedApi.b2shareGetConfig.mockResolvedValue({
-    environment: 'sandbox', community_id: null, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false,
+    environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: null, production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
   })
   mockedApi.gbifGetConfig.mockResolvedValue({
     environment: 'sandbox', publishing_organization_key: null, installation_key: null,
+    keys_by_environment: {
+      sandbox: { publishing_organization_key: null, installation_key: null },
+      production: { publishing_organization_key: null, installation_key: null },
+    },
     registry_language: 'eng', output_dir: '/gbif/output', has_credentials: false,
+    has_credentials_by_environment: { sandbox: false, production: false },
   })
   mockedApi.gbifInstallations.mockResolvedValue([])
 })
@@ -141,7 +151,7 @@ describe('WizardPage', () => {
 
     expect(screen.getByText('Product Type')).toBeInTheDocument()
     expect(screen.getByText('Source')).toBeInTheDocument()
-    expect(screen.getByText('Download')).toBeInTheDocument()
+    expect(screen.getByText('Package')).toBeInTheDocument()
   })
 
   it('shows the six product type options, with Camtrap DP, AI Dataset and Software Application enabled', () => {
@@ -522,17 +532,31 @@ describe('WizardPage YOLO metadata editor', () => {
     expect(screen.getByText(/have no label file/)).toBeInTheDocument()
   })
 
+  it('adds a saved author from settings, offering only the ones not already listed', async () => {
+    await reachYoloMetadataStep()
+    const picker = await screen.findByLabelText('Add a saved author')
+    // Jane Doe is already an author (from data.yaml), so only Ana Lopez is offered
+    expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['+ Add a saved author…', 'Ana Lopez'])
+
+    await userEvent.selectOptions(picker, 'Ana Lopez')
+
+    expect(screen.getByLabelText('Author 2 affiliation')).toHaveValue('University of Huelva')
+    expect(screen.queryByLabelText('Add a saved author')).not.toBeInTheDocument()
+  })
+
   it('saves the edited metadata into the working copy before generating metadata.json', async () => {
     await reachYoloMetadataStep()
     const title = screen.getByLabelText('Title')
     await userEvent.clear(title)
     await userEvent.type(title, 'Edited title')
+    await userEvent.type(screen.getByLabelText('Additional funding text'), 'Also funded by Foo.')
     await userEvent.click(screen.getByRole('button', { name: /add author/i }))
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalled())
     expect(mockedApi.updateYoloDataYaml).toHaveBeenCalledWith('/data/yolo-working', {
       title: 'Edited title', description: '', version: '1.0', homepage: '',
+      funding: 'Also funded by Foo.',
       // data.yaml's bare "MIT" completed with its canonical name/URL
       license: { id: 'MIT', name: 'MIT License', url: 'https://opensource.org/licenses/MIT' },
       authors: [{ name: 'Jane Doe', affiliation: '' }],  // the blank added row is dropped
