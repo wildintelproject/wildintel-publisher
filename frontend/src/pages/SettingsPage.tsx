@@ -612,10 +612,6 @@ function S3RemotesEditor({ items, onChange }: { items: S3RemoteDraft[]; onChange
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <label className={`${labelClass} mb-0`}>Remotes</label>
-        <button type="button" className={iconBtn} aria-label="Add remote" title="Add remote" onClick={add}>+</button>
-      </div>
       <div className="space-y-3">
         {items.length === 0 && <p className={hintClass}>No remote yet — the wizard can&rsquo;t upload images until you add one.</p>}
         {items.map((r) => (
@@ -626,6 +622,7 @@ function S3RemotesEditor({ items, onChange }: { items: S3RemoteDraft[]; onChange
             onEdit={() => setEditingId(r.id)}
           />
         ))}
+        <button type="button" className={btnOutline} aria-label="Add remote" onClick={add}>+ Add remote</button>
       </div>
       {editing && (
         <S3RemoteDialog
@@ -1290,18 +1287,24 @@ export default function SettingsPage({ onClose }: Props) {
         )}
 
         {draft && saved && section === 's3' && (
-          <div className="space-y-4">
-            <p className={hintClass}>
-              S3-compatible buckets (AWS S3, MinIO, or any other provider speaking the same API) the wizard offers to
-              upload a Camtrap DP&rsquo;s own images to, right after its metadata step and before you choose where
-              to publish — once done, media.csv&rsquo;s own filePath points at these public URLs instead of local files.
-              Pick which remote to use in the wizard.
-            </p>
-            <S3RemotesEditor items={draft.s3Remotes} onChange={(v) => set('s3Remotes', v)} />
-            <RetryFields
-              attempts={draft.s3RetryAttempts} wait={draft.s3RetryWaitSeconds}
-              onAttemptsChange={(v) => set('s3RetryAttempts', v)} onWaitChange={(v) => set('s3RetryWaitSeconds', v)}
-            />
+          <div className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
+            <Row
+              label="Remotes"
+              description={<>
+                S3-compatible buckets (AWS S3, MinIO, or any other provider speaking the same API) the wizard offers to
+                upload a Camtrap DP&rsquo;s own images to, right after its metadata step and before you choose where
+                to publish — once done, media.csv&rsquo;s own filePath points at these public URLs instead of local files.
+                Pick which remote to use in the wizard.
+              </>}
+            >
+              <S3RemotesEditor items={draft.s3Remotes} onChange={(v) => set('s3Remotes', v)} />
+            </Row>
+            <Row label="Transfers" description="How each image is fetched from its source and uploaded to the bucket. Each retry waits twice as long as the one before.">
+              <RetryFields
+                attempts={draft.s3RetryAttempts} wait={draft.s3RetryWaitSeconds} attemptsLabel="Attempts per transfer"
+                onAttemptsChange={(v) => set('s3RetryAttempts', v)} onWaitChange={(v) => set('s3RetryWaitSeconds', v)}
+              />
+            </Row>
           </div>
         )}
 
