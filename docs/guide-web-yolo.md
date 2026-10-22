@@ -15,30 +15,66 @@ On the wizard's first screen, pick **AI Dataset**.
 
 ![Choosing what to publish](img/web/product-selection-yolo.png)
 
-## 2. Choose where it comes from
+## 2. Select the folder and check the dataset
 
-Only **Local Directory** is offered — a YOLO dataset is never fetched from Trapper, so
-there's no equivalent of Camtrap DP's "Trapper Instance" source.
+A YOLO dataset is never fetched from Trapper: it is a folder already on this computer. This
+step has three parts, like the folder step of wildintel-uploader.
 
-![Choosing where the dataset comes from](img/web/source-selection-yolo.png)
+1. **Select the folder.** Type the path or use **Browse…**. Your original folder is never
+   modified: the app works on a copy of `data.yaml`, and the images and labels stay where they
+   are. The app then reads the structure and lists each requirement: that `data.yaml` is there
+   and valid, that the splits point to `images/<split>` and the classes are listed, that `nc`
+   matches the declared classes, that the splits have images, and that the label files are well
+   formed. Anything wrong is shown with its reason.
+2. **Choose the checks.** Deeper checks over every image and label file, each one set to
+   **Skip**, **Warn** (shows the problems but lets you continue) or **Must pass** (blocks you
+   until it passes):
+    - every image has a label file;
+    - every label file has an image (no orphan labels);
+    - every declared class appears in the labels;
+    - every label uses a declared class.
+3. **Results.** How each check went, with the list of what failed it, and a link to download
+   the report. **Continue** goes on to the description of the dataset.
 
 ## 3. Confirm the package and its description
 
-**New dataset or new version?** The metadata step first asks whether this is a brand new
-dataset or a new version of one already published. For a new version, pick it from what
-you already published on one repository (**List what I published here**, using the saved
-credentials), or give one identifier you know — a Hugging Face Hub dataset, a Zenodo or B2SHARE record (its id, URL or
-DOI) — and the wizard finds the rest through the links the earlier publish left between
-them, always picking each record's latest version. It then suggests the next version
-number (and refuses one that isn't newer than the last published one), and pre-fills
-every repository's form: the same Hugging Face Hub repository, and the Zenodo/B2SHARE
-record to create the new version from. For a new dataset, those fields are hidden
-instead, and the Hugging Face Hub form warns if the repository you type already exists.
+The metadata step is made of steps, like the folder step: **1. What are you publishing?**
+and, last, **Review metadata**. Each stays locked until the one before it is done; once it is,
+it shows a summary of what you answered and a pencil to change it.
 
-Once the wizard has read the local directory, it shows where it lives. If its common
-description is missing something required (title, description, version, license,
-authors), a form prompts for exactly what's missing; once complete, a summary card shows
-the title, version, license, authors, and homepage.
+**New dataset or new version?** The first step asks it with two cards: *New dataset* (a new
+record is created in each repository) and *New version of an existing dataset* (the existing
+records are linked to their new versions). **Continue** goes on.
+
+For a **new dataset** the next step is the metadata. For a **new version** there is one more,
+**2. Find the previous publication**: choose the repository where it was published (Hugging Face
+Hub, Zenodo or B2SHARE), type its identifier — or pick it from what you already published there
+(**List what I published here**, using the saved credentials) — and press **Find previous
+publication**. The wizard finds the rest through the links the earlier publish left between the
+repositories, always picking each record's latest version, and lists what it found with a
+*Found* badge. It then suggests the next version number (and refuses one that isn't newer than
+the last published one), and pre-fills every repository's form: the same Hugging Face Hub
+repository, and the Zenodo/B2SHARE record to create the new version from. For a new dataset,
+those fields are hidden instead, and the Hugging Face Hub form warns if the repository you type
+already exists.
+
+The last step, **Describe your dataset**, is a form in cards. *What we found in your dataset*
+is read from your files (classes and images per split) and can't be changed. The rest is
+yours: *About the dataset* (title, description, version, homepage), *License*, *Authors*,
+*Publisher and rights holder* and, optionally, *Funding and acknowledgements*. Each card gets
+a green tick once it is complete. Title and description are required to continue, together with
+a license, a version and at least one author.
+
+The name of an author, the publisher and the rights holder are text fields that suggest the
+known ones as you type (those saved in the settings), but accept anything. Picking a known
+author fills in their organization; picking a known organization fills in its website and
+email. Authors can be reordered by dragging them or with the arrows: they are cited in that
+order.
+
+A row of chips above each step's heading recalls what was chosen in the steps before it.
+There is no separate "package" step for an AI dataset: **Continue** saves the metadata to the
+working copy and goes straight on to choosing the repositories. The images and labels are
+copied only when you publish.
 
 ![Confirming the dataset's description](img/web/confirm-package-yolo.png)
 
@@ -56,6 +92,14 @@ together with `data.yaml` — there's no external repository for them to link to
 the way Camtrap DP can, so the repository forms don't offer a Mirror/Link choice at all:
 Hugging Face Hub gets `data.yaml`, `images/` and `labels/` as loose files, and Zenodo and
 B2SHARE get them bundled into a single `yolo.zip`.
+
+A YOLO publication works like a pipe: each repository hands the next one what it needs, and the
+last one hands nothing on — it gets no output folder. The DOI and the record's address are in the
+publication's report (*Reports*). Between repositories nothing is copied: the images stay in your
+dataset's folder, and what travels is just `data.yaml`, the extra files and the folder to read the
+images from. The "Sync DOI"/"Sync PID" forms of the last screen don't need an output folder either:
+they read the DOI or PID from the Zenodo/B2SHARE record itself (you give the environment and the
+record id, or pick it from the list of what you published there).
 
 This is the same mandatory-repo mechanic used for [Software
 Application](guide-web-software.md#4-choose-repositories) (Zenodo there too), just with
@@ -85,8 +129,8 @@ with a single live progress view showing every repository's status as it goes.
 ## 8. When it's done
 
 The wizard confirms which repositories were published, but doesn't print each one's
-resulting URL/DOI/PID directly on this screen — check the repository itself, or the
-record file its own output directory holds (`zenodo_record.json`, `b2share_record.json`).
+resulting URL/DOI/PID directly on this screen — check the repository itself or the
+publication's report (*Reports*).
 If Zenodo and/or B2SHARE were published without Hugging Face Hub in the same run, you
 can also use the **Sync DOI**/**Sync PID** sections shown here — besides reflecting the DOI/PID into an already-published Hugging
 Face Hub export, they confirm success with a direct link back to it (see

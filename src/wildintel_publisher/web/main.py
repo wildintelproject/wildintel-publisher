@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from wildintel_publisher.web.settings import configure_logging, settings
 from wildintel_publisher.web.api.routers import (
     app_settings, b2share, camtrapdp, camtrapdp_source, fs, gbif, health, hfh, product, publish, s3, software,
-    trapper, yolo, zenodo,
+    reports, trapper, yolo, zenodo,
 )
 
 configure_logging()
@@ -50,6 +50,7 @@ for _router in [
     software.router,
     yolo.router,
     s3.router,
+    reports.router,
 ]:
     app.include_router(_router)
 

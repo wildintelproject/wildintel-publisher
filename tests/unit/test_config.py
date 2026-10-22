@@ -1,6 +1,8 @@
 """Unit tests for wildintel_publisher.core.config (Settings/TrapperSettings/etc)."""
 from pathlib import Path
 
+import pytest
+
 from wildintel_publisher.core.config import (
     B2ShareSettings,
     CamtrapDPSettings,
@@ -36,7 +38,7 @@ def test_camtrapdp_settings_keeps_explicit_dataset_name():
 
 
 def test_trapper_settings_secret_fields_are_marked():
-    assert TrapperSettings.model_fields["user_name"].json_schema_extra == {"secret": True}
+    assert TrapperSettings.model_fields["user_name"].json_schema_extra is None  # shown, like the uploader's
     assert TrapperSettings.model_fields["user_password"].json_schema_extra == {"secret": True}
     assert TrapperSettings.model_fields["base_url"].json_schema_extra is None
 
@@ -311,7 +313,7 @@ def test_product_authors_default_to_the_dataset_authors_and_round_trip(tmp_path:
     config_file = tmp_path / "settings.toml"
     settings = load_settings(config_file)
     assert [a.name for a in settings.PRODUCT.authors][:2] == ["Javier Calzada Samperio", "Santiago Gutiérrez-Zapata"]
-    assert len(settings.PRODUCT.authors) == 7
+    assert len(settings.PRODUCT.authors) == 20
     assert "Norway" in settings.PRODUCT.authors[2].affiliation  # Simone Santoro: two affiliations joined
 
     settings.PRODUCT.authors.append(Author(name="New Author"))
@@ -319,4 +321,24 @@ def test_product_authors_default_to_the_dataset_authors_and_round_trip(tmp_path:
     reloaded = load_settings(config_file)
 
     assert reloaded.PRODUCT.authors[-1].name == "New Author" and reloaded.PRODUCT.authors[-1].affiliation is None
-    assert len(reloaded.PRODUCT.authors) == 8
+    assert len(reloaded.PRODUCT.authors) == 21
+
+
+def test_the_sessions_go_to_the_documents_folder_unless_the_settings_say_otherwise():
+    from wildintel_publisher.core import config
+
+    settings = config.Settings()
+    assert config.get_sessions_dir(settings) == config.get_app_documents_dir() / "sessions"
+    settings.GENERAL.sessions_dir = "/big-disk/sessions"
+    assert config.get_sessions_dir(settings) == Path("/big-disk/sessions")
+    with pytest.raises(ValueError):
+        config.GeneralSettings(sessions_dir="relative/folder")
+
+
+def test_zenodo_and_b2share_limits_default_to_each_repositorys_own():
+    from wildintel_publisher.core.config import B2ShareSettings, ZenodoSettings
+
+    zenodo, b2share = ZenodoSettings(), B2ShareSettings()
+
+    assert (zenodo.max_record_size_gb, zenodo.max_files, zenodo.max_file_size_gb) == (50, 100, None)
+    assert (b2share.max_record_size_gb, b2share.max_files, b2share.max_file_size_gb) == (None, 100, 20)

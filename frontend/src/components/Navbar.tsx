@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 
+export const DOCS_URL = 'https://wildintelproject.github.io/wildintel-publisher/'
+export const REPO_URL = 'https://github.com/wildintelproject/wildintel-publisher'
+
 interface Props {
   version: string | null
   /** Opens the settings page (settings.toml — see SettingsPage). */
@@ -31,7 +34,7 @@ export default function Navbar({ version, onOpenSettings, settingsOpen }: Props)
         <div className="ml-auto flex items-center gap-2">
           <a
             className={`${btnOutline} no-underline`}
-            href="https://wildintelproject.github.io/wildintel-publisher/"
+            href={DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
           >

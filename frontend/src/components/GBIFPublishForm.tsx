@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Organization, GBIFInstallation, Publication } from '../types'
+import { Section } from './FormSection'
+import InstancePicker from './InstancePicker'
 
 // This organization's own UUID for `environment` — sandbox and production
 // are separate GBIF Registry systems, each with its own UUID for the same
@@ -121,6 +123,8 @@ interface Props {
    * publish order (see WizardPage), which has nothing to go back to. */
   onBack?: () => void
   backLabel?: string
+  /** Text of the button that confirms this form — "Looks good" on the wizard's settings check. */
+  continueLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
@@ -135,19 +139,20 @@ type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 export default function GBIFPublishForm({
   dryRun, suggestedArchiveUrl, archiveUrlLocked, archiveNotPublishedYet, standaloneRegistration,
-  pendingFromOtherRepo, initialConfig, onBack, backLabel, onConfigured, publication,
+  pendingFromOtherRepo, initialConfig, onBack, backLabel, continueLabel = 'Continue', onConfigured, publication,
 }: Props) {
   const found = publication?.kind === 'version' ? publication.previous?.gbif ?? null : null
-  const [form, setForm] = useState(() => initialConfig ?? {
-    outputDir: '', archiveUrl: '', environment: found?.environment ?? 'sandbox',
-    publishingOrganizationKey: '', installationKey: '', registryLanguage: 'eng',
-    username: '', password: '', datasetKey: found?.dataset_key ?? '',
-  })
+  const [form, setForm] = useState(() => ({
+    outputDir: initialConfig?.outputDir ?? '', archiveUrl: initialConfig?.archiveUrl ?? '',
+    environment: initialConfig?.environment ?? found?.environment ?? 'sandbox',
+    datasetKey: initialConfig?.datasetKey ?? found?.dataset_key ?? '',
+  }))
+  // The organization, installation, language and account of each environment come from the settings.
+  const [registryLanguage, setRegistryLanguage] = useState(initialConfig?.registryLanguage ?? 'eng')
   // Saved per environment (sandbox/production have their own account, organization and installation).
   const [savedCredentials, setSavedCredentials] = useState<Record<'sandbox' | 'production', boolean>>({ sandbox: false, production: false })
   const [savedKeys, setSavedKeys] = useState<Record<string, { publishing_organization_key: string | null; installation_key: string | null }>>({})
   const hasSavedCredentials = savedCredentials[form.environment as 'sandbox' | 'production'] ?? false
-  const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
   const [archiveCheck, setArchiveCheck] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
   // Results of the "Search existing datasets" button below (see
   // handleSearchDatasets) — datasets already published by
@@ -165,24 +170,11 @@ export default function GBIFPublishForm({
   // organizations actually have a key configured for the CURRENT
   // environment (see gbifOrgOptions below).
   const [organizationOptions, setOrganizationOptions] = useState<Organization[]>([])
-  // Which organizationOptions entry (if any) is currently backing
-  // publishingOrganizationKey — '' means "typed by hand, or nothing
-  // selected", never shown as a real option. Tracked separately from the
-  // raw key itself so switching `environment` can look up THIS SAME
-  // organization's own key for the new environment (see the effect below),
-  // instead of leaving a stale sandbox key in place after switching to
-  // production, or vice versa.
-  const [selectedOrgTitle, setSelectedOrgTitle] = useState('')
   // settings.toml's own GBIF.installations — same idea as
   // organizationOptions above, for "Installation UUID" instead of
   // "Publishing organization UUID" (see installationKeyForEnv/
   // gbifInstallationOptions below).
   const [installationOptions, setInstallationOptions] = useState<GBIFInstallation[]>([])
-  // Which installationOptions entry (if any) is currently backing
-  // installationKey — same role as selectedOrgTitle above, for the
-  // installation field instead.
-  const [selectedInstallationTitle, setSelectedInstallationTitle] = useState('')
-
   // Prefill from settings.toml — the same file 'gbif config' reads/writes on
   // the CLI. The credentials themselves are never sent to the frontend;
   // leaving them blank later reuses whatever is already saved. Form fields
@@ -201,15 +193,8 @@ export default function GBIFPublishForm({
         setSavedKeys(config.keys_by_environment)
         if (initialConfig) return
         const environment = found?.environment ?? config.environment
-        const keys = config.keys_by_environment[environment]
-        setForm((f) => ({
-          ...f,
-          outputDir: config.output_dir,
-          environment,
-          publishingOrganizationKey: keys?.publishing_organization_key ?? f.publishingOrganizationKey,
-          installationKey: keys?.installation_key ?? f.installationKey,
-          registryLanguage: config.registry_language ?? f.registryLanguage,
-        }))
+        setForm((f) => ({ ...f, outputDir: config.output_dir, environment }))
+        setRegistryLanguage(config.registry_language ?? 'eng')
       })
       .catch(() => {})
   }, [initialConfig])
@@ -233,90 +218,22 @@ export default function GBIFPublishForm({
     api.gbifInstallations().then(setInstallationOptions).catch(() => { /* quick-fill just stays unavailable */ })
   }, [])
 
-  // Keeps publishingOrganizationKey in sync with `environment`, but only
-  // for an organization actually picked from the dropdown (see
-  // handleSelectOrganization) — typing a key by hand (see the input's own
-  // onChange) clears selectedOrgTitle first, so a manual entry is never
-  // silently replaced by switching environment afterward. Also makes the
-  // very first match, once organizationOptions has loaded: if the current
-  // key (e.g. from settings.toml or an earlier step's own initialConfig)
-  // already equals one organization's own key for THIS environment, the
-  // dropdown starts pre-selected on it instead of blank.
-  useEffect(() => {
-    if (organizationOptions.length === 0) return
-    if (selectedOrgTitle) {
-      const org = organizationOptions.find((o) => o.title === selectedOrgTitle)
-      const key = org ? gbifKeyForEnv(org, form.environment) : null
-      if (key) setForm((f) => ({ ...f, publishingOrganizationKey: key }))
-      return
-    }
-    if (!form.publishingOrganizationKey) return
-    const matched = organizationOptions.find((o) => gbifKeyForEnv(o, form.environment) === form.publishingOrganizationKey)
-    if (matched) setSelectedOrgTitle(matched.title)
-    // form.publishingOrganizationKey deliberately excluded — this effect
-    // reacts to the environment/organizationOptions changing, not to every
-    // keystroke in the UUID field itself.
-  }, [organizationOptions, form.environment])
-
-  const gbifOrgOptions = organizationOptions.filter((o) => gbifKeyForEnv(o, form.environment))
-
-  function handleSelectOrganization(title: string) {
-    setSelectedOrgTitle(title)
-    const org = organizationOptions.find((o) => o.title === title)
-    const key = org ? gbifKeyForEnv(org, form.environment) : null
-    if (key) setField('publishingOrganizationKey', key)
-  }
-
-  // Same as the organizationOptions effect above, for installationKey/
-  // selectedInstallationTitle instead.
-  useEffect(() => {
-    if (installationOptions.length === 0) return
-    if (selectedInstallationTitle) {
-      const installation = installationOptions.find((i) => i.title === selectedInstallationTitle)
-      const key = installation ? installationKeyForEnv(installation, form.environment) : null
-      if (key) setForm((f) => ({ ...f, installationKey: key }))
-      return
-    }
-    if (!form.installationKey) return
-    const matched = installationOptions.find((i) => installationKeyForEnv(i, form.environment) === form.installationKey)
-    if (matched) setSelectedInstallationTitle(matched.title)
-  }, [installationOptions, form.environment])
-
-  const gbifInstallationOptions = installationOptions.filter((i) => installationKeyForEnv(i, form.environment))
-
-  function handleSelectInstallation(title: string) {
-    setSelectedInstallationTitle(title)
-    const installation = installationOptions.find((i) => i.title === title)
-    const key = installation ? installationKeyForEnv(installation, form.environment) : null
-    if (key) setField('installationKey', key)
-  }
+  const organizationKey = savedKeys[form.environment]?.publishing_organization_key ?? ''
+  const installationKey = savedKeys[form.environment]?.installation_key ?? ''
+  const organizationName = organizationOptions.find((o) => gbifKeyForEnv(o, form.environment) === organizationKey)?.title ?? organizationKey
+  const installationName = installationOptions.find((i) => installationKeyForEnv(i, form.environment) === installationKey)?.title ?? installationKey
 
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
-    if (key === 'username' || key === 'password') setTest({ status: 'idle', message: '' })
     if (key === 'archiveUrl') setArchiveCheck({ status: 'idle', message: '' })
-    // Organization and installation belong to an environment: switching shows the new one's own
-    // saved one, if any (a hand-typed value is kept, one picked from a dropdown is re-resolved by
-    // the effects above instead).
-    if (key === 'environment') {
-      const keys = savedKeys[value]
-      setForm((f) => ({
-        ...f,
-        publishingOrganizationKey: selectedOrgTitle ? f.publishingOrganizationKey : keys?.publishing_organization_key ?? f.publishingOrganizationKey,
-        installationKey: selectedInstallationTitle ? f.installationKey : keys?.installation_key ?? f.installationKey,
-      }))
-    }
-    // A stale result list would no longer reflect the org/environment it
-    // was searched under.
-    if (key === 'publishingOrganizationKey' || key === 'environment') {
-      setDatasetSearch({ status: 'idle', message: '', results: [] })
-    }
+    // A stale result list would no longer reflect the environment it was searched under.
+    if (key === 'environment') setDatasetSearch({ status: 'idle', message: '', results: [] })
   }
 
   async function handleSearchDatasets() {
     setDatasetSearch({ status: 'testing', message: '', results: [] })
     try {
-      const results = await api.gbifOrganizationDatasets(form.publishingOrganizationKey, form.environment)
+      const results = await api.gbifOrganizationDatasets(organizationKey, form.environment)
       setDatasetSearch({
         status: 'ok',
         message: results.length === 0 ? 'No datasets found for this organization yet.' : '',
@@ -330,13 +247,9 @@ export default function GBIFPublishForm({
     }
   }
 
-  const hasTypedCredentials = form.username !== '' && form.password !== ''
-  const canTest = hasTypedCredentials || hasSavedCredentials
-  const isTesting = test.status === 'testing'
   const canContinue = (dryRun
     ? true
-    : form.archiveUrl !== '' && form.publishingOrganizationKey !== '' && form.installationKey !== ''
-      && (hasTypedCredentials || hasSavedCredentials))
+    : form.archiveUrl !== '' && organizationKey !== '' && installationKey !== '' && hasSavedCredentials)
     // A new version updates the previous version's own GBIF dataset.
     && !(found && form.datasetKey.trim() === '')
 
@@ -353,22 +266,11 @@ export default function GBIFPublishForm({
     }
   }
 
-  async function handleTestCredentials() {
-    setTest({ status: 'testing', message: '' })
-    try {
-      await api.gbifTestCredentials(form.username, form.password, form.environment)
-      setSavedCredentials((c) => ({ ...c, [form.environment]: true })) // the backend saves environment/username/password on a successful test
-      setTest({ status: 'ok', message: 'Credentials verified.' })
-    } catch (e) {
-      setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the credentials.' })
-    }
-  }
-
   function handleContinue() {
     onConfigured({
       archiveUrl: form.archiveUrl, environment: form.environment,
-      publishingOrganizationKey: form.publishingOrganizationKey, installationKey: form.installationKey,
-      registryLanguage: form.registryLanguage, username: form.username, password: form.password,
+      publishingOrganizationKey: organizationKey, installationKey,
+      registryLanguage, username: '', password: '',
       outputDir: form.outputDir, datasetKey: form.datasetKey,
     })
   }
@@ -381,7 +283,97 @@ export default function GBIFPublishForm({
         Hugging Face Hub repository published earlier in this run).
       </p>
 
-      <div className="mb-4">
+      <Section title="Where to publish">
+        <InstancePicker
+          name="gbif-environment" repository="GBIF" credential="account"
+          value={form.environment} onChange={(env) => setField('environment', env)}
+          hasToken={savedCredentials} communities={{}} dryRun={dryRun}
+          subject={organizationKey && installationKey ? (
+            <>
+              Registered under <strong className="text-zinc-800 dark:text-zinc-200">{organizationName}</strong>, installation{' '}
+              <strong className="text-zinc-800 dark:text-zinc-200">{installationName}</strong>
+            </>
+          ) : (
+            <span className="text-amber-600 dark:text-amber-400">
+              No publishing organization and installation are saved for {form.environment === 'sandbox' ? 'Sandbox' : 'Production'} yet
+            </span>
+          )}
+        />
+      {(publication?.kind === 'version' || (!publication && form.datasetKey.trim() !== '')) && (
+        <div className="mt-6">
+          <label className={labelClass} htmlFor="gbif-dataset-key">
+            {found ? "Previous version's GBIF dataset UUID" : 'Dataset UUID (leave blank to create a new dataset)'}
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="gbif-dataset-key"
+              className={inputClass}
+              placeholder="UUID — leave blank to create a new dataset"
+              value={form.datasetKey}
+              onChange={(e) => setField('datasetKey', e.target.value)}
+            />
+            <button
+              type="button" className={btnOutline}
+              disabled={!organizationKey || datasetSearch.status === 'testing'}
+              onClick={handleSearchDatasets}
+            >
+              {datasetSearch.status === 'testing' && <SmallSpinner />}
+              {datasetSearch.status === 'testing' ? 'Searching…' : 'Search existing datasets'}
+            </button>
+          </div>
+          <p className={hintClass}>
+            Publishing this run updates that exact dataset instead of creating a new one — takes priority
+            over whatever this app already remembers locally. Search looks up datasets already published
+            by the organization above, on the selected environment.
+          </p>
+          {datasetSearch.status === 'error' && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{datasetSearch.message}</p>
+          )}
+          {datasetSearch.status === 'ok' && datasetSearch.message && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{datasetSearch.message}</p>
+          )}
+          {datasetSearch.status === 'ok' && datasetSearch.results.length > 0 && (
+            <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
+              {datasetSearch.results.map((d) => (
+                <li key={d.key}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setField('datasetKey', d.key)
+                      setDatasetSearch({ status: 'idle', message: '', results: [] })
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  >
+                    <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.key}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        {found && (
+          <p className={hintClass}>
+            Pre-filled from the previous version: this run updates that same GBIF dataset (GBIF datasets have no
+            versions of their own).
+          </p>
+        )}
+        {publication?.kind === 'version' && !found && (
+          <p className={hintClass}>
+            No GBIF dataset was found for the previous version — leave this blank to register the dataset's first one.
+          </p>
+        )}
+        {found && form.environment !== found.environment && (
+          <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+            ⚠ The previous version is on GBIF's {found.environment} environment, not {form.environment}.
+          </p>
+        )}
+        </div>
+      )}
+
+      </Section>
+
+      <Section title="What gets registered">
+      <div>
         <label className={labelClass} htmlFor="gbif-archive-url">Archive URL</label>
         <input
           id="gbif-archive-url"
@@ -447,222 +439,16 @@ export default function GBIFPublishForm({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div>
-          <label className={labelClass} htmlFor="gbif-environment">Environment</label>
-          <select
-            id="gbif-environment"
-            className={inputClass}
-            value={form.environment}
-            onChange={(e) => setField('environment', e.target.value)}
-          >
-            <option value="sandbox">Sandbox (gbif-test.org, testing)</option>
-            <option value="production">Production (gbif.org)</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="gbif-registry-language">Registry language</label>
-          <input
-            id="gbif-registry-language"
-            className={inputClass}
-            value={form.registryLanguage}
-            onChange={(e) => setField('registryLanguage', e.target.value)}
-          />
-        </div>
-      </div>
+      </Section>
 
-      <div className="grid grid-cols-2 gap-4 mb-1">
-        <div>
-          <label className={labelClass} htmlFor="gbif-org-key">Publishing organization UUID</label>
-          {gbifOrgOptions.length > 0 && (
-            <select
-              aria-label="Publishing organization"
-              value={selectedOrgTitle}
-              onChange={(e) => handleSelectOrganization(e.target.value)}
-              className={inputClass + ' mb-1.5'}
-            >
-              <option value="">— pick a configured organization, or type a UUID below —</option>
-              {gbifOrgOptions.map((option) => (
-                <option key={option.title} value={option.title}>{option.title}</option>
-              ))}
-            </select>
-          )}
-          <input
-            id="gbif-org-key"
-            className={inputClass}
-            placeholder="UUID"
-            value={form.publishingOrganizationKey}
-            onChange={(e) => { setSelectedOrgTitle(''); setField('publishingOrganizationKey', e.target.value) }}
-          />
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="gbif-installation-key">Installation UUID</label>
-          {gbifInstallationOptions.length > 0 && (
-            <select
-              aria-label="Installation"
-              value={selectedInstallationTitle}
-              onChange={(e) => handleSelectInstallation(e.target.value)}
-              className={inputClass + ' mb-1.5'}
-            >
-              <option value="">— pick a configured installation, or type a UUID below —</option>
-              {gbifInstallationOptions.map((option) => (
-                <option key={option.title} value={option.title}>{option.title}</option>
-              ))}
-            </select>
-          )}
-          <input
-            id="gbif-installation-key"
-            className={inputClass}
-            placeholder="UUID"
-            value={form.installationKey}
-            onChange={(e) => { setSelectedInstallationTitle(''); setField('installationKey', e.target.value) }}
-          />
-        </div>
-      </div>
-      <p className={hintClass + ' mb-6'}>
-        Both come from an organization endorsed by a GBIF Participant Node, and an installation
-        registered under it — created by hand at{' '}
-        <a href="https://www.gbif.org/become-a-publisher" target="_blank" rel="noreferrer" className="underline">
-          gbif.org/become-a-publisher
-        </a>{' '}
-        (manual review, cannot be automated).
-      </p>
-
-      {(publication?.kind === 'version' || (!publication && form.datasetKey.trim() !== '')) && (
-        <div className="mb-6">
-          <label className={labelClass} htmlFor="gbif-dataset-key">
-            {found ? "Previous version's GBIF dataset UUID" : 'Dataset UUID (leave blank to create a new dataset)'}
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="gbif-dataset-key"
-              className={inputClass}
-              placeholder="UUID — leave blank to create a new dataset"
-              value={form.datasetKey}
-              onChange={(e) => setField('datasetKey', e.target.value)}
-            />
-            <button
-              type="button" className={btnOutline}
-              disabled={!form.publishingOrganizationKey || datasetSearch.status === 'testing'}
-              onClick={handleSearchDatasets}
-            >
-              {datasetSearch.status === 'testing' && <SmallSpinner />}
-              {datasetSearch.status === 'testing' ? 'Searching…' : 'Search existing datasets'}
-            </button>
-          </div>
-          <p className={hintClass}>
-            Publishing this run updates that exact dataset instead of creating a new one — takes priority
-            over whatever this app already remembers locally. Search looks up datasets already published
-            by the organization above, on the selected environment.
-          </p>
-          {datasetSearch.status === 'error' && (
-            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{datasetSearch.message}</p>
-          )}
-          {datasetSearch.status === 'ok' && datasetSearch.message && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{datasetSearch.message}</p>
-          )}
-          {datasetSearch.status === 'ok' && datasetSearch.results.length > 0 && (
-            <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
-              {datasetSearch.results.map((d) => (
-                <li key={d.key}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setField('datasetKey', d.key)
-                      setDatasetSearch({ status: 'idle', message: '', results: [] })
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                  >
-                    <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.key}</div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        {found && (
-          <p className={hintClass}>
-            Pre-filled from the previous version: this run updates that same GBIF dataset (GBIF datasets have no
-            versions of their own).
-          </p>
-        )}
-        {publication?.kind === 'version' && !found && (
-          <p className={hintClass}>
-            No GBIF dataset was found for the previous version — leave this blank to register the dataset's first one.
-          </p>
-        )}
-        {found && form.environment !== found.environment && (
-          <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-            ⚠ The previous version is on GBIF's {found.environment} environment, not {form.environment}.
-          </p>
-        )}
-        </div>
-      )}
-
-      <div className="mb-6">
-        <div className="grid grid-cols-2 gap-4 mb-1">
-          <div>
-            <label className={labelClass} htmlFor="gbif-username">GBIF username</label>
-            <input
-              id="gbif-username"
-              className={inputClass}
-              value={form.username}
-              onChange={(e) => setField('username', e.target.value)}
-              autoComplete="username"
-            />
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="gbif-password">GBIF password</label>
-            <input
-              id="gbif-password"
-              type="password"
-              className={inputClass}
-              placeholder="••••••••"
-              value={form.password}
-              onChange={(e) => setField('password', e.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
-        </div>
-        {hasSavedCredentials && !hasTypedCredentials && (
-          <p className={hintClass}>Already saved — leave blank to reuse them.</p>
-        )}
-        <p className={hintClass}>
-          Sign up at{' '}
-          <a href="https://www.gbif.org/user/profile" target="_blank" rel="noreferrer" className="underline">
-            gbif.org/user/profile
-          </a>{' '}
-          (or gbif-test.org for the sandbox — a separate account).
-        </p>
-
-        {dryRun ? (
-          <p className={hintClass + ' text-right'}>Not required for a dry run.</p>
-        ) : (
-          <>
-            <div className="flex justify-end mt-2">
-              <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestCredentials}>
-                {isTesting && <SmallSpinner />}
-                {isTesting ? 'Testing…' : 'Test connection'}
-              </button>
-            </div>
-            {test.status === 'ok' && (
-              <p className="text-sm text-emerald-600 dark:text-emerald-400 text-right mt-2">{test.message}</p>
-            )}
-            {test.status === 'error' && (
-              <p className="text-sm text-red-600 dark:text-red-400 text-right mt-2">{test.message}</p>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-end'}>
+      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-start'}>
         {onBack && (
           <button type="button" className={btnOutline} onClick={onBack}>
             {backLabel ?? '← Back'}
           </button>
         )}
-        <button type="button" className={btnPrimary} disabled={!canContinue} onClick={handleContinue}>
-          Continue
+        <button type="button" className={btnOutline} disabled={!canContinue} onClick={handleContinue}>
+          {continueLabel}
         </button>
       </div>
     </div>

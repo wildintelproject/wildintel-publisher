@@ -73,10 +73,13 @@ def test_zenodo_prepare_without_self_contained_still_bundles_the_whole_dataset(t
     assert result.exit_code == 0, result.output
     _assert_yolo_readme(output_dir)
     assert "self-contained" in (output_dir / "README.md").read_text(encoding="utf-8").lower()
-    assert (output_dir / "yolo.zip").is_file()
-    assert sorted(p.name for p in output_dir.iterdir()) == [
-        "CITATION.cff", "LICENSE", "README.md", "checksums-sha256.txt", "metadata.json", "yolo.zip",
-    ]
+    zips = sorted(p.name for p in output_dir.glob("*.zip"))
+    assert zips == ["yolo.zip"]
+    assert sorted(p.name for p in output_dir.iterdir()) == sorted(
+        ["CITATION.cff", "LICENSE", "README.md", "checksums-sha256.txt", "metadata.json", "yolo-source.json", *zips],
+    )
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
+    assert all(f"`{name}`" in readme for name in zips)  # the README lists every archive
 
 
 def test_b2share_prepare_self_contained_renders_the_yolo_readme(tmp_path):
@@ -91,7 +94,7 @@ def test_b2share_prepare_self_contained_renders_the_yolo_readme(tmp_path):
     assert result.exit_code == 0, result.output
     _assert_yolo_readme(output_dir)
     assert "self-contained" in (output_dir / "README.md").read_text(encoding="utf-8").lower()
-    assert not (output_dir / "images").exists()  # bundled inside yolo.zip, loose copy removed
+    assert not (output_dir / "images").exists()  # bundled inside the zip, loose copy removed
     assert (output_dir / "yolo.zip").is_file()
 
 
@@ -191,3 +194,45 @@ def test_hfh_prepare_shards_a_split_over_the_per_folder_limit(tmp_path, monkeypa
     assert [p.name for p in (output_dir / "images" / "train").iterdir() if p.is_file()] == ["metadata.jsonl"]
     assert "hash-named subfolders" in (output_dir / "README.md").read_text(encoding="utf-8")
     assert (input_dir / "images" / "train" / "img1.jpg").is_file()  # the source is never touched
+
+
+def test_zenodo_prepare_refuses_a_yolo_file_over_the_per_file_limit(tmp_path):
+    input_dir = _write_yolo_dataset(tmp_path / "yolo_dataset")
+    _generate_metadata(input_dir)
+
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(tmp_path / "out"),
+        "--max-zip-file", "0.000001",
+    ])
+
+    assert result.exit_code != 0
+    assert "per file" in " ".join(result.output.split())
+
+
+def test_zenodo_prepare_zips_the_dataset_where_it_is_and_leaves_it_untouched(tmp_path):
+    import zipfile
+
+    input_dir = _write_yolo_dataset(tmp_path / "yolo_dataset")
+    _generate_metadata(input_dir)
+    before = sorted(p.relative_to(input_dir).as_posix() for p in input_dir.rglob("*"))
+    output_dir = tmp_path / "out"
+
+    result = runner.invoke(app, ["zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    with zipfile.ZipFile(output_dir / "yolo.zip") as zf:
+        assert {"data.yaml", "images/train/img0.jpg", "images/val/img0.jpg"} <= set(zf.namelist())
+    assert sorted(p.relative_to(input_dir).as_posix() for p in input_dir.rglob("*")) == before
+
+
+def test_zenodo_prepare_does_not_build_the_zip_of_a_yolo_dataset_that_cannot_fit(tmp_path):
+    input_dir = _write_yolo_dataset(tmp_path / "yolo_dataset")
+    _generate_metadata(input_dir)
+    output_dir = tmp_path / "out"
+
+    result = runner.invoke(app, [
+        "zenodo", "prepare", "--input-dir", str(input_dir), "--output-dir", str(output_dir), "--max-zip-file", "0.000001",
+    ])
+
+    assert result.exit_code != 0
+    assert not (output_dir / "yolo.zip").exists()

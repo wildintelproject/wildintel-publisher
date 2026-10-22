@@ -21,11 +21,15 @@ class NativeDialogUnavailable(RuntimeError):
     pass
 
 
-def _start_dir(initial_path: str | None) -> Path:
-    p = Path(initial_path).expanduser() if initial_path else Path.home()
+def _start_dir(initial_path: str | None) -> Path | None:
+    """The nearest existing folder of `initial_path`; None when there's no
+    path — the dialog then opens wherever the operating system decides."""
+    if not initial_path:
+        return None
+    p = Path(initial_path).expanduser()
     while not p.is_dir():
         if p.parent == p:
-            return Path.home()
+            return None
         p = p.parent
     return p
 
@@ -34,26 +38,26 @@ def _applescript_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _command(title: str, start: Path) -> list[str]:
+def _command(title: str, start: Path | None) -> list[str]:
     if sys.platform == "darwin":
-        script = (
-            f"POSIX path of (choose folder with prompt {_applescript_string(title)} "
-            f"default location (POSIX file {_applescript_string(str(start))}))"
-        )
+        location = f" default location (POSIX file {_applescript_string(str(start))})" if start else ""
+        script = f"POSIX path of (choose folder with prompt {_applescript_string(title)}{location})"
         return ["osascript", "-e", script]
     if sys.platform == "win32":
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
             f"$d.Description = '{title.replace(chr(39), chr(39) * 2)}'; "
-            f"$d.SelectedPath = '{str(start).replace(chr(39), chr(39) * 2)}'; "
+            + (f"$d.SelectedPath = '{str(start).replace(chr(39), chr(39) * 2)}'; " if start else "")
+            +
             "if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }"
         )
         return ["powershell", "-NoProfile", "-STA", "-Command", script]
     if shutil.which("zenity"):
-        return ["zenity", "--file-selection", "--directory", f"--title={title}", f"--filename={start}/"]
+        command = ["zenity", "--file-selection", "--directory", f"--title={title}"]
+        return command + [f"--filename={start}/"] if start else command
     if shutil.which("kdialog"):
-        return ["kdialog", "--getexistingdirectory", str(start), "--title", title]
+        return ["kdialog", "--getexistingdirectory", str(start or "."), "--title", title]
     raise NativeDialogUnavailable("Neither zenity nor kdialog is installed.")
 
 
@@ -69,3 +73,17 @@ def pick_directory(initial_path: str | None = None, title: str = "Select the dir
         return None  # cancelled
     # osascript ends a folder's path with "/".
     return chosen[:-1] if len(chosen) > 1 and chosen.endswith("/") else chosen
+
+
+def open_directory(path: str) -> None:
+    """Shows a folder in the operating system's file manager — the same machine as the browser, see the module docstring."""
+    if sys.platform == "darwin":
+        command = ["open", path]
+    elif sys.platform.startswith("win"):
+        command = ["explorer", path]
+    else:
+        command = ["xdg-open", path]
+    try:
+        subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError as exc:
+        raise NativeDialogUnavailable(str(exc)) from exc

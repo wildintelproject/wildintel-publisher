@@ -114,13 +114,13 @@ def sync_pid(req: B2ShareSyncPidRequest) -> dict:
     given HuggingFace Hub repo."""
     try:
         hfh_token = hfh_service.resolve_token(req.hfh_token)
+        token = b2share_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
     try:
         return b2share_service.sync_pid_to_hfh(
-            b2share_output_dir=Path(req.b2share_output_dir),
-            hfh_output_dir=Path(req.hfh_output_dir),
+            environment=req.environment, record_id=req.record_id, token=token,
             hfh_repo_id=req.hfh_repo_id,
             hfh_token=hfh_token,
         )

@@ -38,7 +38,8 @@ metadata.json (not part of the YOLO spec itself, but harmless extra keys
 that YOLO training scripts simply ignore): title, description, version,
 license (a string treated as the license id, or a {id, name, url} mapping),
 authors (a list of {name, affiliation}), homepage, funding (extra text
-appended to the README's Funding section), publisher (a {name,
+appended to the README's Funding section), acknowledgements (same, for
+the Acknowledgements section), publisher (a {name,
 website, email} mapping) and copyright_holders (a list of names).
 
 Unlike Camtrap DP, a YOLO dataset's images are already local, plain files —
@@ -51,10 +52,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, NamedTuple, Optional
 
 import yaml
 from PIL import Image
@@ -79,7 +81,7 @@ MAX_REPORTED_PROBLEMS = 10
 # Written into a web-wizard session's working copy (see
 # create_working_copy) — points at the user's own dataset directory, where
 # images/ and labels/ keep being read from, so only data.yaml needs copying.
-SOURCE_POINTER_FILENAME = "yolo-source.json"
+SOURCE_POINTER_FILENAME = product.SOURCE_POINTER_FILENAME
 
 # Top-level names that are never "extra files": handled on their own
 # (data.yaml, images/, labels/), pipeline bookkeeping (the source pointer), or
@@ -95,9 +97,21 @@ def _data_yaml_path(directory: Path) -> Path:
     return directory / DATA_YAML_FILENAME
 
 
+def _link_or_copy(source: str, target: str) -> str:
+    """Hardlinks `target` to `source`, so the (possibly huge) images take no extra disk space nor
+    time; copies instead when a hardlink is not possible (another filesystem, say). Nothing in this
+    pipeline rewrites an image or a label in place — a file is only ever renamed or deleted — so
+    the user's own dataset stays untouched either way."""
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+    return target
+
+
 def _copy_splits(source_dir: Path, target_dir: Path, dirname: str) -> None:
-    """Copies each existing split (train/val/test) of `dirname` (images or
-    labels) from source_dir/dirname/<split> to target_dir/dirname/<split> —
+    """Hardlinks (or copies, see _link_or_copy) each existing split (train/val/test) of `dirname`
+    (images or labels) from source_dir/dirname/<split> to target_dir/dirname/<split> —
     a no-op for a split that doesn't exist in source_dir (e.g. no labels/ at
     all, or no optional test/ split)."""
     source_root = source_dir / dirname
@@ -105,7 +119,7 @@ def _copy_splits(source_dir: Path, target_dir: Path, dirname: str) -> None:
     for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
         split_dir = source_root / split
         if split_dir.is_dir():
-            shutil.copytree(split_dir, target_root / split, dirs_exist_ok=True)
+            shutil.copytree(split_dir, target_root / split, dirs_exist_ok=True, copy_function=_link_or_copy)
 
 
 def _is_extra_entry(entry: Path) -> bool:
@@ -331,6 +345,7 @@ class YoloMetadata(BaseModel):
     version: YamlText = None
     homepage: YamlText = None
     funding: YamlText = None
+    acknowledgements: YamlText = None
 
 
 def _resolve_publisher(value) -> Optional[dict]:
@@ -446,7 +461,9 @@ def _summarize(problems: list[str]) -> str:
     return "\n  - " + "\n  - ".join(shown) + (f"\n  ... and {rest} more" if rest else "")
 
 
-def _validate_labels(dataset_root: Path, config: YoloDataYaml, images_by_split: dict[str, dict]) -> list[str]:
+def _validate_labels(
+    dataset_root: Path, config: YoloDataYaml, images_by_split: dict[str, dict], *, enforce_class_range: bool = True,
+) -> list[str]:
     labels_root = dataset_root / LABELS_DIRNAME
     if not labels_root.is_dir():
         return []
@@ -459,7 +476,7 @@ def _validate_labels(dataset_root: Path, config: YoloDataYaml, images_by_split: 
         for label_path in labels.values():
             line_numbers, rows = _label_rows(label_path)
             try:
-                _LABEL_FILE_ADAPTER.validate_python(rows, context={"num_classes": config.num_classes})
+                _LABEL_FILE_ADAPTER.validate_python(rows, context={"num_classes": config.num_classes if enforce_class_range else None})
             except ValidationError as exc:
                 rel = label_path.relative_to(dataset_root).as_posix()
                 for error in exc.errors():
@@ -562,6 +579,202 @@ def check_dataset(directory: Path) -> list[str]:
             warnings.append(f"{other_files} non-image file(s) under {split_dir} will be published as-is.")
 
     return [*warnings, *source_conflicts(directory), *_validate_labels(root, config, images_by_split)]
+
+
+def _parse_ignoring_nc(directory: Path) -> tuple[YoloDataYaml, str | None]:
+    """parse_data_yaml, but an nc that disagrees with names is not an error of the whole file: it comes back as a
+    message, with the config read without it — so the checks that do not depend on it can still run."""
+    try:
+        return parse_data_yaml(directory), None
+    except RuntimeError as first:
+        data = _load_data_yaml(directory)
+        try:
+            config = YoloDataYaml.model_validate({**data, "nc": None})
+        except ValidationError:
+            raise first from None
+        return config, f"nc is {data.get('nc')} but names lists {config.num_classes} classes."
+
+
+def _check(check: str, label: str, ok: bool, message: str) -> dict:
+    return {"check": check, "label": label, "ok": ok, "message": message}
+
+
+def structure_checks(directory: Path) -> list[dict]:
+    """Whether the dataset at `directory` has the structure a YOLO dataset needs, one requirement at a time —
+    where check_dataset stops at the first problem, this says how each requirement stands, for the wizard to
+    show: [{"check", "label", "ok", "message"}]. A requirement that cannot be told because one before it
+    failed is reported as not ok, saying so."""
+    labels = {
+        "data_yaml": "data.yaml found and readable",
+        "config": "Splits and class names in data.yaml",
+        "classes": "nc matches the declared classes",
+        "images": "Images in the splits",
+        "labels": "Label files well formed",
+    }
+    checks: list[dict] = []
+
+    def blocked(after: str) -> None:
+        for check in list(labels)[len(checks):]:
+            checks.append(_check(check, labels[check], False, f"Not checked: {labels[after]} failed."))
+
+    try:
+        _load_data_yaml(directory)
+    except RuntimeError as exc:
+        checks.append(_check("data_yaml", labels["data_yaml"], False, str(exc)))
+        blocked("data_yaml")
+        return checks
+    checks.append(_check("data_yaml", labels["data_yaml"], True, "data.yaml found and valid YAML."))
+
+    try:
+        config, nc_error = _parse_ignoring_nc(directory)
+        root = dataset_root(directory)
+    except RuntimeError as exc:
+        checks.append(_check("config", labels["config"], False, str(exc)))
+        blocked("config")
+        return checks
+    splits = [s for s in (*REQUIRED_SPLITS, *OPTIONAL_SPLITS) if s != "test" or config.test]
+    checks.append(_check(
+        "config", labels["config"], True,
+        f"{', '.join(splits)} point to {IMAGES_DIRNAME}/<split>; {config.num_classes} class name{'s' if config.num_classes != 1 else ''}.",
+    ))
+    if nc_error:
+        checks.append(_check("classes", labels["classes"], False, nc_error))
+    elif config.nc is None:
+        checks.append(_check("classes", labels["classes"], True, f"data.yaml has no nc; it declares {config.num_classes} classes."))
+    else:
+        checks.append(_check("classes", labels["classes"], True, f"nc is {config.nc} and {config.num_classes} classes are declared."))
+
+    images_by_split: dict[str, dict] = {}
+    missing = []
+    for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]:
+        images = _split_files(root / IMAGES_DIRNAME / split, suffixes=IMAGE_SUFFIXES)
+        if images:
+            images_by_split[split] = images
+        elif split in REQUIRED_SPLITS or (split == "test" and config.test):
+            missing.append(split)
+    if missing:
+        checks.append(_check(
+            "images", labels["images"], False,
+            f"No images in {', '.join(f'{IMAGES_DIRNAME}/{s}' for s in missing)} — a YOLO dataset needs at least one image "
+            f"({', '.join(sorted(IMAGE_SUFFIXES))}) in each of its splits.",
+        ))
+    else:
+        checks.append(_check(
+            "images", labels["images"], True,
+            " · ".join(f"{split}: {len(images):,}" for split, images in images_by_split.items()) + " images.",
+        ))
+
+    if not (root / LABELS_DIRNAME).is_dir():
+        checks.append(_check("labels", labels["labels"], True, f"There is no {LABELS_DIRNAME}/ folder: every image is a background image."))
+    else:
+        try:
+            _validate_labels(root, config, images_by_split, enforce_class_range=False)
+        except RuntimeError as exc:
+            checks.append(_check("labels", labels["labels"], False, str(exc)))
+        else:
+            label_files = sum(len(_split_files(root / LABELS_DIRNAME / s, suffixes={".txt"})) for s in images_by_split)
+            checks.append(_check("labels", labels["labels"], True, f"{label_files:,} label files read, no problems."))
+    return checks
+
+
+# The deeper checks the wizard offers, each one looking over every image: {id: label}. See run_deep_checks.
+DEEP_CHECKS = {
+    "image_labels": "Every image has a label file",
+    "orphan_labels": "Every label file has an image",
+    "class_use": "Every declared class appears in the labels",
+    "class_ids": "Every label uses a declared class",
+}
+MAX_LISTED_FAILURES = 1000
+
+
+def _scan_class_use(root: Path, config: YoloDataYaml, splits: list[str]) -> tuple[list[int], list[str], int]:
+    """How many boxes each declared class has in the label files, and the lines using a class that is not declared
+    ("labels/train/a.txt:3 (class 20)"): (counts, undeclared, label files read)."""
+    counts = [0] * config.num_classes
+    undeclared: list[str] = []
+    read = 0
+    for split in splits:
+        for path in _split_files(root / LABELS_DIRNAME / split, suffixes={".txt"}).values():
+            read += 1
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                tokens = line.split()
+                if not tokens or not tokens[0].isdigit():
+                    continue
+                class_id = int(tokens[0])
+                if class_id < config.num_classes:
+                    counts[class_id] += 1
+                else:
+                    undeclared.append(f"{path.relative_to(root).as_posix()}:{number} (class {class_id})")
+    return counts, undeclared, read
+
+
+def _deep_result(check: str, ok: bool, message: str, failures: list[str], failure_message: str) -> dict:
+    return {
+        "check": check, "label": DEEP_CHECKS[check], "ok": ok, "message": message, "total": len(failures),
+        "failures": failures[:MAX_LISTED_FAILURES], "truncated": len(failures) > MAX_LISTED_FAILURES,
+        "failure_message": failure_message,
+    }
+
+
+def run_deep_checks(directory: Path, checks: list[str]) -> list[dict]:
+    """Runs the deeper `checks` (ids of DEEP_CHECKS) over the dataset at `directory`:
+    [{"check", "label", "ok", "message", "total", "failures", "truncated", "failure_message"}] — failures lists
+    at most MAX_LISTED_FAILURES of the `total` (an image, a class or a label line, as the check says).
+
+    Raises:
+        RuntimeError: the dataset is not readable (see check_dataset), or a check is unknown.
+    """
+    unknown = [c for c in checks if c not in DEEP_CHECKS]
+    if unknown:
+        raise RuntimeError(f"Unknown check(s): {', '.join(unknown)}.")
+    config, _ = _parse_ignoring_nc(directory)
+    root = dataset_root(directory)
+    splits = [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]
+    results = []
+    if "image_labels" in checks or "orphan_labels" in checks:
+        # Both only compare the names of the files of each split — none is opened.
+        unlabeled: list[str] = []
+        orphans: list[str] = []
+        total_images = total_labels = 0
+        for split in splits:
+            images = _split_files(root / IMAGES_DIRNAME / split, suffixes=IMAGE_SUFFIXES)
+            labels = _split_files(root / LABELS_DIRNAME / split, suffixes={".txt"})
+            total_images += len(images)
+            total_labels += len(labels)
+            unlabeled += sorted(images[key].relative_to(root).as_posix() for key in images.keys() - labels.keys())
+            orphans += sorted(labels[key].relative_to(root).as_posix() for key in labels.keys() - images.keys())
+        if "image_labels" in checks:
+            results.append(_deep_result(
+                "image_labels", not unlabeled,
+                f"All {total_images:,} images have a label file." if not unlabeled
+                else f"{len(unlabeled):,} of {total_images:,} images have no label file (fine only if they are meant as background images).",
+                unlabeled, "No label file.",
+            ))
+        if "orphan_labels" in checks:
+            results.append(_deep_result(
+                "orphan_labels", not orphans,
+                f"All {total_labels:,} label files have an image." if not orphans
+                else f"{len(orphans):,} of {total_labels:,} label files have no image.",
+                orphans, "No image with this name in the same split.",
+            ))
+    if "class_use" in checks or "class_ids" in checks:
+        counts, undeclared, read = _scan_class_use(root, config, splits)
+        if "class_use" in checks:
+            unused = [f"{name} (class {i})" for i, (name, n) in enumerate(zip(config.names, counts)) if n == 0]
+            results.append(_deep_result(
+                "class_use", not unused,
+                f"All {config.num_classes} declared classes appear in the labels." if not unused
+                else f"{len(unused)} of {config.num_classes} declared classes never appear in the {read:,} label files.",
+                unused, "Declared in data.yaml but never used in the labels.",
+            ))
+        if "class_ids" in checks:
+            results.append(_deep_result(
+                "class_ids", not undeclared,
+                f"Every label of the {read:,} label files uses a declared class." if not undeclared
+                else f"{len(undeclared):,} label line(s) use a class that data.yaml does not declare.",
+                undeclared, "Uses a class id that data.yaml does not declare.",
+            ))
+    return results
 
 
 def dataset_statistics(directory: Path, config: YoloDataYaml) -> dict:
@@ -749,6 +962,70 @@ def write_hf_metadata_jsonl(output_dir: Path) -> None:
         jsonl_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+# A self-contained record (Zenodo, B2SHARE) holds the whole dataset in a single zip: the repositories
+# only host files, not folders. The images are already compressed, so the size of the files is the
+# size of the zip.
+ZIP_FILENAME = "yolo.zip"
+
+
+class ZipPart(NamedTuple):
+    name: str  # "yolo.zip"
+    contents: str  # what is in it, for the README
+    files: list[tuple[Path, str]]  # (where the file is, its path inside the zip)
+    size: int  # bytes
+
+
+def _media_files(root: Path) -> list[Path]:
+    """The images and labels of the dataset at `root` (the splits _copy_splits knows)."""
+    return [
+        path
+        for dirname in (IMAGES_DIRNAME, LABELS_DIRNAME)
+        for split in [*REQUIRED_SPLITS, *OPTIONAL_SPLITS]
+        if (root / dirname / split).is_dir()
+        for path in sorted((root / dirname / split).rglob("*"))
+        if path.is_file()
+    ]
+
+
+def plan_zip_parts(root: Path) -> list[ZipPart]:
+    """The zip archive `root` is packed into (see bundle_local_zip): a single one holding data.yaml,
+    images/, labels/ and the extra files. The files generated at the top level (README.md, LICENSE...)
+    and zips already there stay out. When `root` only points at the dataset (see
+    media_in_place), its images and labels are zipped from where they are. A list, for the
+    README's table of archives."""
+    files = [
+        (path, path.relative_to(root).as_posix()) for path in sorted(root.rglob("*"))
+        if path.is_file()
+        and not (
+            path.parent == root
+            and (path.name in product.GENERATED_FILENAMES or path.name in product.BOOKKEEPING_FILENAMES or path.suffix == ".zip")
+        )
+    ]
+    source = dataset_root(root)
+    if source != root:
+        files += [(path, path.relative_to(source).as_posix()) for path in _media_files(source)]
+    contents = (
+        f"`{DATA_YAML_FILENAME}`, `{IMAGES_DIRNAME}/`, `{LABELS_DIRNAME}/` and the extra files (`{ADDITIONAL_INFO_DIRNAME}/`)"
+    )
+    return [ZipPart(ZIP_FILENAME, contents, files, sum(path.stat().st_size for path, _ in files))]
+
+
+def _human_size(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if value < 1024 or unit == "GiB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} B"
+
+
+def _copy_source_pointer(source_dir: Path, target_dir: Path) -> None:
+    """Hands on the pointer to where the images and labels are, if `source_dir` has one."""
+    pointer = source_dir / SOURCE_POINTER_FILENAME
+    if pointer.is_file():
+        shutil.copy2(pointer, target_dir / SOURCE_POINTER_FILENAME)
+
+
 class YoloAdapter:
     product_type = product.YOLO
     always_mirror = True  # see product.ProductAdapter.always_mirror
@@ -793,7 +1070,11 @@ class YoloAdapter:
     def prepare(
         self, input_dir: Path, output_dir: Path, *, mirror: bool, image_timeout: int,
         media_dir: Optional[Path] = None, media_cache_dir: Optional[Path] = None,
+        media_in_place: bool = False,
     ) -> None:
+        # media_in_place: output_dir gets no images/labels — just data.yaml, the extras and a pointer
+        # to where they are (see SOURCE_POINTER_FILENAME): a build that ends in a zip packs them
+        # straight from there (see plan_zip_parts), with no copy or link of each one first.
         # image_timeout, media_dir and media_cache_dir are accepted for
         # interface parity with CamtrapDPAdapter but unused: the images are
         # already local files — alongside input_dir itself, or wherever its
@@ -803,8 +1084,12 @@ class YoloAdapter:
         # the images/ (and labels/, if present) tree is always copied.
         shutil.copy2(_data_yaml_path(input_dir), _data_yaml_path(output_dir))
         root = dataset_root(input_dir)
-        _copy_splits(root, output_dir, IMAGES_DIRNAME)
-        _copy_splits(root, output_dir, LABELS_DIRNAME)
+        if media_in_place:
+            pointer = YoloSourcePointer(root=root.resolve())
+            (output_dir / SOURCE_POINTER_FILENAME).write_text(pointer.model_dump_json(), encoding="utf-8")
+        else:
+            _copy_splits(root, output_dir, IMAGES_DIRNAME)
+            _copy_splits(root, output_dir, LABELS_DIRNAME)
         copy_extra_files(root, output_dir, own_metadata_json=root.resolve() == input_dir.resolve())
         self.validate(output_dir)
 
@@ -834,6 +1119,21 @@ class YoloAdapter:
             # repo in the chain, the user's own output_dir) the original
             # layout instead.
             unshard_splits(target_dir)
+            _copy_source_pointer(output_dir, target_dir)
+            return
+
+        if (output_dir / SOURCE_POINTER_FILENAME).is_file():
+            # Built in place (see prepare): the images and labels were never copied, they are
+            # still where the pointer says — hand on just the small files, out of the zip.
+            for zip_path in sorted(output_dir.glob("*.zip")):
+                with zipfile.ZipFile(zip_path) as zf:
+                    for name in zf.namelist():
+                        if name == DATA_YAML_FILENAME or name.startswith(f"{ADDITIONAL_INFO_DIRNAME}/"):
+                            if not name.endswith("/"):
+                                destination = target_dir / name
+                                destination.parent.mkdir(parents=True, exist_ok=True)
+                                destination.write_bytes(zf.read(name))
+            _copy_source_pointer(output_dir, target_dir)
             return
 
         # --self-contained mode already bundled data.yaml/images/labels into a
@@ -843,16 +1143,14 @@ class YoloAdapter:
         # (output_mode='prepared') and whatever repo comes next in the
         # publish order (see services.publish_orchestrator's chaining) still
         # get something usable.
-        zip_path = next(output_dir.glob("*.zip"), None)
-        if zip_path is None:
-            return
-        with zipfile.ZipFile(zip_path) as zf:
-            for name in zf.namelist():
-                if name.endswith("/"):
-                    continue
-                destination = target_dir / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(zf.read(name))
+        for zip_path in sorted(output_dir.glob("*.zip")):
+            with zipfile.ZipFile(zip_path) as zf:
+                for name in zf.namelist():
+                    if name.endswith("/"):
+                        continue
+                    destination = target_dir / name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(zf.read(name))
 
     def link_media_to_hfh(self, output_dir: Path, hfh_repo_id: str) -> int:
         return 0  # nothing to rewrite — images/ has no remote-URL references
@@ -861,7 +1159,10 @@ class YoloAdapter:
         # embed_images is always true in practice here: the images/ tree IS
         # the dataset, there's no "loose alongside the zip" mode like
         # Camtrap DP's camtrapdp-local.zip.
-        product.zip_directory(output_dir, zip_path, exclude_names=product.GENERATED_FILENAMES)
+        for part in plan_zip_parts(output_dir):
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for file_path, arcname in part.files:
+                    zf.write(file_path, arcname)
 
     def readme_context(self, output_dir: Path) -> dict:
         config = parse_data_yaml(output_dir)  # names already normalized to a list
@@ -875,6 +1176,11 @@ class YoloAdapter:
             "num_classes": config.num_classes, "class_names": config.names,
             **stats,
             "sharded_splits": sharded_splits(output_dir),
+            # The zip archive a self-contained record (Zenodo, B2SHARE) is made of — see plan_zip_parts.
+            "zip_parts": [
+                {"name": part.name, "contents": part.contents, "size": _human_size(part.size)}
+                for part in plan_zip_parts(output_dir)
+            ],
             # The dataset's own homepage, if data.yaml gives one — where the
             # README's "Contributing" section points (omitted otherwise).
             "contributing_url": homepage,
@@ -882,6 +1188,9 @@ class YoloAdapter:
             # templates/common/_readme-funding.md.j2), from data.yaml's own
             # "funding" key — the wizard's metadata editor writes it there.
             "funding_extra": (_read_funding(output_dir) or "").strip(),
+            # Same for the README's "Acknowledgements" section (see
+            # templates/common/_readme-acknowledgements.md.j2).
+            "acknowledgements_extra": (_read_text_key(output_dir, "acknowledgements") or "").strip(),
             # Hugging Face Hub Dataset Card discovery fields (see
             # README-yolo-body.md.j2's frontmatter) — size_category is
             # computed from what's actually on disk (common.hf_size_category),
@@ -907,6 +1216,9 @@ class YoloEditableMetadata(BaseModel):
     # Free text (Markdown) appended to the README's "Funding" section, after
     # the standard WildINTEL text — see readme_context's funding_extra.
     funding: Optional[str] = None
+    # Same, for the "Acknowledgements" section — see readme_context's
+    # acknowledgements_extra.
+    acknowledgements: Optional[str] = None
     license: Optional[YoloLicense] = None
     authors: list[YoloAuthor] = Field(default_factory=list)
     # Same meaning as metadata.json's own publisher/copyright_holders —
@@ -915,20 +1227,28 @@ class YoloEditableMetadata(BaseModel):
     copyright_holders: list[NonBlankText] = Field(default_factory=list)
 
 
-def _read_funding(directory: Path) -> Optional[str]:
+def _read_text_key(directory: Path, key: str) -> Optional[str]:
     try:
-        return YoloMetadata.model_validate(_load_data_yaml(directory)).funding
+        return getattr(YoloMetadata.model_validate(_load_data_yaml(directory)), key)
     except (ValidationError, RuntimeError):
         return None
+
+
+def _read_funding(directory: Path) -> Optional[str]:
+    return _read_text_key(directory, "funding")
 
 
 def read_editable_fields(directory: Path) -> dict:
     """Best-effort, same as extract_metadata: a missing or malformed key
     just comes back empty, for the user to fill in."""
     fields = YoloAdapter().extract_metadata(directory)
-    # funding only feeds the README (see readme_context), so it never goes
-    # through extract_metadata/metadata.json — read straight from data.yaml.
-    return {**fields, "funding": _read_funding(directory)}
+    # funding/acknowledgements only feed the README (see readme_context), so
+    # they never go through extract_metadata/metadata.json — read straight
+    # from data.yaml.
+    return {
+        **fields, "funding": _read_funding(directory),
+        "acknowledgements": _read_text_key(directory, "acknowledgements"),
+    }
 
 
 def update_editable_fields(directory: Path, fields: YoloEditableMetadata) -> None:

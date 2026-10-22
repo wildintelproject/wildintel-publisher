@@ -13,8 +13,14 @@ def test_health_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
-def test_version_returns_expected_shape():
+def test_version_returns_only_the_current_version():
     response = _client().get("/api/version")
+    assert response.status_code == 200
+    assert set(response.json().keys()) == {"current"}
+
+
+def test_version_check_returns_expected_shape():
+    response = _client().get("/api/version/check")
     assert response.status_code == 200
     body = response.json()
     assert set(body.keys()) == {"current", "latest", "update_available", "release_url", "download_url", "error"}
@@ -52,7 +58,7 @@ def _check(monkeypatch, *, current="0.1.0", payload=None, error=None, system="Li
         return _FakeResponse(payload)
 
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
-    return _client().get("/api/version").json()
+    return _client().get("/api/version/check").json()
 
 
 def test_version_offers_the_newest_web_release_not_a_cli_one(monkeypatch):

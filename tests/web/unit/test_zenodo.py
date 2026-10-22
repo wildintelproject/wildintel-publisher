@@ -3,6 +3,7 @@ HuggingFace Hub calls are mocked out (no real network), but settings.toml
 reads/writes go through the real wildintel_publisher.core.config
 machinery, isolated to a throwaway HOME by conftest.py."""
 import time
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -207,41 +208,6 @@ def test_publish_output_mode_passthrough_reports_input_dir_as_output(tmp_path):
     assert body["output_dir"] == "/tmp/camtrapdp"
 
 
-def test_publish_output_mode_downloaded_fetches_files_from_zenodo(tmp_path):
-    from wildintel_publisher.web.main import app
-    fake_output_dir = tmp_path / "zenodo"
-    fake_deposition = {"files": [{"filename": "README.md", "links": {"download": "https://zenodo.org/download/readme"}}]}
-    fake_file_response = MagicMock(status_code=200, content=b"# hello")
-    fake_file_response.raise_for_status.return_value = None
-
-    def fake_prepare(*, input_dir, output_dir, **kwargs):
-        _write_fake_metadata_json(output_dir)
-        return output_dir
-
-    with (
-        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.prepare_zenodo_export", side_effect=fake_prepare),
-        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.upload_to_zenodo", return_value={"deposition_id": 123}),
-        patch(
-            "wildintel_publisher.web.services.zenodo_service.zenodo_service.release_on_zenodo",
-            return_value={"doi": "d", "record_url": "u", "deposition_id": 123},
-        ),
-        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.get_deposition", return_value=fake_deposition),
-        patch("wildintel_publisher.web.services.zenodo_service.httpx.get", return_value=fake_file_response) as mock_get,
-    ):
-        with TestClient(app) as client:
-            start = client.post("/api/zenodo/publish", json={
-                "input_dir": "/tmp/camtrapdp", "output_dir": str(fake_output_dir), "token": "zen_x",
-                "output_mode": "downloaded",
-            })
-            task_id = start.json()["task_id"]
-            body = _poll_publish(client, task_id)
-
-    expected_download_dir = fake_output_dir.parent / f"{fake_output_dir.name}-downloaded"
-    assert body["output_dir"] == str(expected_download_dir)
-    assert (expected_download_dir / "README.md").read_bytes() == b"# hello"
-    mock_get.assert_called_once()
-
-
 def test_publish_reports_error_status_on_failure(tmp_path):
     from wildintel_publisher.web.main import app
 
@@ -304,65 +270,122 @@ def test_depositions_maps_runtime_error_to_400():
     assert response.status_code == 400
 
 
-def test_sync_doi_success(tmp_path):
+PUBLISHED_DEPOSITION = {
+    "id": 123, "submitted": True, "state": "done", "doi": "10.5281/zenodo.123",
+    "links": {"record_html": "https://sandbox.zenodo.org/records/123"},
+}
+
+SYNC_BODY = {
+    "environment": "sandbox", "deposition_id": 123, "token": "zen_x",
+    "hfh_repo_id": "alice/dataset", "hfh_token": "hf_x",
+}
+
+
+def _fake_hub_download(files: dict[str, str]):
+    """hf_hub_download stand-in: writes the repo's `files` into local_dir, or raises EntryNotFoundError."""
+    from huggingface_hub.utils import EntryNotFoundError
+
+    def download(*, filename, local_dir, **kwargs):
+        if filename not in files:
+            raise EntryNotFoundError(filename)
+        (Path(local_dir) / filename).write_text(files[filename], encoding="utf-8")
+    return download
+
+
+def test_sync_doi_success():
     with (
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.get_deposition", return_value=PUBLISHED_DEPOSITION),
         patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.sync_doi_to_hfh", return_value="10.5281/zenodo.123") as mock_sync,
-        patch("wildintel_publisher.web.services.zenodo_service.upload_file") as mock_upload_file,
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff"})),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file") as mock_upload_file,
     ):
-        response = _client().post("/api/zenodo/sync-doi", json={
-            "zenodo_output_dir": str(tmp_path / "zenodo"),
-            "hfh_output_dir": str(tmp_path / "hfh"),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
+        response = _client().post("/api/zenodo/sync-doi", json=SYNC_BODY)
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json() == {"doi": "10.5281/zenodo.123", "repo_url": "https://huggingface.co/datasets/alice/dataset"}
-    mock_sync.assert_called_once_with(zenodo_output_dir=tmp_path / "zenodo", hfh_output_dir=tmp_path / "hfh")
-    mock_upload_file.assert_not_called()  # no CITATION.cff/checksums exist under tmp_path in this test
+    mock_sync.assert_called_once()
+    assert {c.kwargs["path_in_repo"] for c in mock_upload_file.call_args_list} == {"CITATION.cff"}
 
 
-def test_sync_doi_uploads_the_changed_files_when_present(tmp_path):
-    hfh_output_dir = tmp_path / "hfh"
-    hfh_output_dir.mkdir()
-    (hfh_output_dir / "CITATION.cff").write_text("cff", encoding="utf-8")
-    (hfh_output_dir / "README.md").write_text("readme", encoding="utf-8")
-    (hfh_output_dir / "checksums-sha256.txt").write_text("sums", encoding="utf-8")
+def test_sync_doi_edits_the_files_in_the_hub_repo_and_keeps_its_other_checksums():
+    """No local export folder: the three files come from the Hub repo, the
+    changed ones go back, and the repo's checksums keep every other line."""
+    repo_files = {
+        "CITATION.cff": "old cff", "README.md": "old readme",
+        "checksums-sha256.txt": "aaa  data.yaml\nbbb  CITATION.cff\nccc  README.md\n",
+    }
+    uploaded = {}
+
+    def fake_core_sync(*, zenodo_output_dir, hfh_output_dir):
+        (hfh_output_dir / "CITATION.cff").write_text("new cff", encoding="utf-8")
+        (hfh_output_dir / "README.md").write_text("new readme", encoding="utf-8")
+        return "10.5281/zenodo.123"
+
+    def fake_upload(*, path_or_fileobj, path_in_repo, **kwargs):
+        uploaded[path_in_repo] = Path(path_or_fileobj).read_text(encoding="utf-8")
 
     with (
-        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.sync_doi_to_hfh", return_value="10.5281/zenodo.123"),
-        patch("wildintel_publisher.web.services.zenodo_service.upload_file") as mock_upload_file,
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.get_deposition", return_value=PUBLISHED_DEPOSITION),
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.sync_doi_to_hfh", side_effect=fake_core_sync),
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download(repo_files)),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file", side_effect=fake_upload),
     ):
-        response = _client().post("/api/zenodo/sync-doi", json={
-            "zenodo_output_dir": str(tmp_path / "zenodo"),
-            "hfh_output_dir": str(hfh_output_dir),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
+        response = _client().post("/api/zenodo/sync-doi", json=SYNC_BODY)
 
-    assert response.status_code == 200
-    assert mock_upload_file.call_count == 3
-    uploaded_names = {call.kwargs["path_in_repo"] for call in mock_upload_file.call_args_list}
-    assert uploaded_names == {"CITATION.cff", "README.md", "checksums-sha256.txt"}
+    assert response.status_code == 200, response.text
+    assert uploaded["CITATION.cff"] == "new cff" and uploaded["README.md"] == "new readme"
+    from wildintel_publisher.core.services.common import sha256_file
+    lines = uploaded["checksums-sha256.txt"].splitlines()
+    assert lines[0] == "aaa  data.yaml"
+    assert lines[1].endswith("  CITATION.cff") and not lines[1].startswith("bbb")
+    assert lines[2].endswith("  README.md") and not lines[2].startswith("ccc")
 
 
-def test_sync_doi_maps_runtime_error_to_400(tmp_path):
-    with patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.sync_doi_to_hfh", side_effect=RuntimeError("not published yet")):
-        response = _client().post("/api/zenodo/sync-doi", json={
-            "zenodo_output_dir": str(tmp_path / "zenodo"),
-            "hfh_output_dir": str(tmp_path / "hfh"),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
+def test_sync_doi_does_not_invent_checksums_when_the_repo_has_none():
+    uploaded = []
+
+    def fake_core_sync(*, zenodo_output_dir, hfh_output_dir):
+        (hfh_output_dir / "checksums-sha256.txt").write_text("only two files", encoding="utf-8")  # what write_checksums would leave
+        return "10.5281/zenodo.123"
+
+    with (
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.get_deposition", return_value=PUBLISHED_DEPOSITION),
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.sync_doi_to_hfh", side_effect=fake_core_sync),
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff"})),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file", side_effect=lambda **kw: uploaded.append(kw["path_in_repo"])),
+    ):
+        response = _client().post("/api/zenodo/sync-doi", json=SYNC_BODY)
+
+    assert response.status_code == 200, response.text
+    assert "checksums-sha256.txt" not in uploaded
+
+
+def test_sync_doi_fails_when_the_hub_repo_has_no_citation():
+    with (
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.get_deposition", return_value=PUBLISHED_DEPOSITION),
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({})),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file") as mock_upload_file,
+    ):
+        response = _client().post("/api/zenodo/sync-doi", json=SYNC_BODY)
+
+    assert response.status_code == 400
+    assert "CITATION.cff" in response.json()["detail"]
+    mock_upload_file.assert_not_called()
+
+
+def test_sync_doi_maps_runtime_error_to_400():
+    with (
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.get_deposition", return_value=PUBLISHED_DEPOSITION),
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff"})),
+        patch("wildintel_publisher.web.services.zenodo_service.zenodo_service.sync_doi_to_hfh", side_effect=RuntimeError("not published yet")),
+    ):
+        response = _client().post("/api/zenodo/sync-doi", json=SYNC_BODY)
 
     assert response.status_code == 400
     assert "not published yet" in response.json()["detail"]
 
 
-def test_sync_doi_requires_hfh_token_when_none_saved(tmp_path):
-    response = _client().post("/api/zenodo/sync-doi", json={
-        "zenodo_output_dir": str(tmp_path / "zenodo"),
-        "hfh_output_dir": str(tmp_path / "hfh"),
-        "hfh_repo_id": "alice/dataset",
-    })
+def test_sync_doi_requires_hfh_token_when_none_saved():
+    body = {k: v for k, v in SYNC_BODY.items() if k != "hfh_token"}
+    response = _client().post("/api/zenodo/sync-doi", json=body)
     assert response.status_code == 400

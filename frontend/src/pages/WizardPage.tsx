@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import B2SharePublishForm, { SyncPidSection } from '../components/B2SharePublishForm'
 import type { B2SharePublishConfig } from '../components/B2SharePublishForm'
 import CamtrapDPArchiveForm from '../components/CamtrapDPArchiveForm'
@@ -7,12 +8,17 @@ import GBIFPublishForm, { GBIFSyncDoiSection } from '../components/GBIFPublishFo
 import type { GBIFPublishConfig } from '../components/GBIFPublishForm'
 import GitCloneForm from '../components/GitCloneForm'
 import HFHPublishForm from '../components/HFHPublishForm'
-import PublicationKindPicker from '../components/PublicationKindPicker'
+import PublicationKindPicker, { PreviousPublicationFinder } from '../components/PublicationKindPicker'
 import type { LookupRepo } from '../components/PublicationKindPicker'
 import S3ImageUploadPicker, { EMPTY_S3_CONFIG } from '../components/S3ImageUploadPicker'
 import type { S3Config } from '../components/S3ImageUploadPicker'
 import type { HfhPublishConfig } from '../components/HFHPublishForm'
 import LocalDirectoryForm from '../components/LocalDirectoryForm'
+import YoloFolderSteps from '../components/YoloFolderSteps'
+import ChoiceCards from '../components/ChoiceCards'
+import RepoPanel from '../components/RepoPanel'
+import ReorderList from '../components/ReorderList'
+import WizardStep from '../components/WizardStep'
 import type { LocalSourceSelection } from '../components/LocalDirectoryForm'
 import TrapperConnectionForm from '../components/TrapperConnectionForm'
 import YoloMetadataEditor from '../components/YoloMetadataEditor'
@@ -22,6 +28,9 @@ import { api } from '../api'
 import type { S3UploadStatus } from '../api'
 import { initialLicense } from '../licenses'
 import { isNewerVersion, nextVersion } from '../versions'
+import Notice from '../components/Notice'
+import { titlesUnrelated } from '../titles'
+import StepChips from '../components/StepChips'
 import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
@@ -217,6 +226,11 @@ interface RepoProgress {
   doiSyncedToHfh: boolean | null
 }
 
+/** The record id a repository's URL ends with (".../records/1234"), to prefill the Sync forms. */
+function recordIdFromUrl(url: string | null | undefined): string {
+  return url?.replace(/\/+$/, '').split('/').pop() ?? ''
+}
+
 const IDLE_PROGRESS: RepoProgress = {
   status: 'pending', stage: '', error: null, repoUrl: null, doi: null, pid: null, doiSyncedToHfh: null,
 }
@@ -321,6 +335,8 @@ function initialStepForPhase(phase: SessionSummary['phase'] | undefined): number
 }
 
 interface Props {
+  /** "Done" on the final screen — back to the start page. */
+  onFinish?: () => void
   /** A session an earlier interruption left on disk — when given, the
    * wizard lands on whichever step that session's own phase was reached at
    * (see initialStepForPhase), pre-filled with whatever it had already
@@ -342,12 +358,21 @@ interface Props {
   resumeSession?: SessionSummary
 }
 
-export default function WizardPage({ resumeSession }: Props) {
-  const [step, setStep] = useState(initialStepForPhase(resumeSession?.phase))
+export default function WizardPage({ resumeSession, onFinish }: Props) {
+  // A YOLO dataset has no "Package" step: its metadata is all there is to review, so the step after
+  // the metadata is where to publish (see skipsPackageStep).
+  const [step, setStep] = useState(() => {
+    const initial = initialStepForPhase(resumeSession?.phase)
+    return resumeSession?.product_type === 'yolo' && initial === 3 ? 4 : initial
+  })
   const [productType, setProductType] = useState<ProductType | null>(resumeSession?.product_type ?? null)
   const [sourceType, setSourceType] = useState<SourceType | null>((resumeSession?.source_type ?? null) as SourceType | null)
   const [trapperSelection, setTrapperSelection] = useState<TrapperDownloadSelection | null>(null)
   const [localSelection, setLocalSelection] = useState<LocalSourceSelection | null>(null)
+  // The metadata step of a Camtrap DP or a YOLO dataset has two parts: what is being published, then its metadata.
+  // For a new version there is one more in between: finding the publication it follows.
+  const [metadataPart, setMetadataPart] = useState<'kind' | 'find' | 'review'>('kind')
+  const [metadataReached, setMetadataReached] = useState<'kind' | 'find' | 'review'>('kind')
   const [gitUrl, setGitUrl] = useState<string | null>(null)
   // The URL used to fetch a Camtrap DP directly (sourceType === 'archive')
   // — kept around (not just used to fetch) so it can be suggested straight
@@ -470,6 +495,7 @@ export default function WizardPage({ resumeSession }: Props) {
   // Read by the editors' own loaders (effects that shouldn't re-run just
   // because a lookup finished) to apply the version suggestion themselves.
   const publicationReady = publication !== null && (publication.kind === 'new' || publication.previous !== null)
+  const previousTitle = publication?.kind === 'version' ? publication.previous?.title ?? null : null
   const previousVersionRef = useRef<string | null>(null)
   previousVersionRef.current = previousVersion
   // The version the editors should start from: the one already there if
@@ -531,7 +557,18 @@ export default function WizardPage({ resumeSession }: Props) {
   // step 4 (pick repos, configure each) like a fresh run, it just starts
   // from an already-fetched/preprocessed source instead of from scratch.
   const [publishStarted, setPublishStarted] = useState(resumeSession?.phase === 'publishing')
-  const [configureIndex, setConfigureIndex] = useState(0)
+  // The settings check: which repositories the user has reviewed ("Looks good"), and which card is open.
+  // The running publication: its task (for Stop) and when it began and ended (for "took 3 min").
+  const [publishTaskId, setPublishTaskId] = useState<string | null>(null)
+  const [stopping, setStopping] = useState(false)
+  const [openFolderError, setOpenFolderError] = useState<string | null>(null)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const [stoppedNotice, setStoppedNotice] = useState(false)
+  const [publishTimes, setPublishTimes] = useState<{ start: number; end: number | null } | null>(null)
+  const [reviewedRepos, setReviewedRepos] = useState<RepoId[]>([])
+  const [openRepo, setOpenRepo] = useState<RepoId | null>(resumeSession?.phase === 'publishing' ? publishOrder[0] ?? null : null)
+  // Step 4's two parts: which repositories, then in what order.
+  const [repoPart, setRepoPart] = useState<'where' | 'order'>('where')
   const [repoConfigs, setRepoConfigs] = useState<RepoConfigs>(
     () => resumeSession?.phase === 'publishing' ? repoConfigsFromSession(resumeSession) : {},
   )
@@ -614,7 +651,7 @@ export default function WizardPage({ resumeSession }: Props) {
   // editor's, or — for Software — its own CITATION.cff's) must be newer
   // than the last published one, or every repository would refuse it.
   const versionIsNewer = isNewerVersion(summary?.version, previousVersion)
-  const allConfigured = publishStarted && configureIndex >= publishOrder.length
+  const allConfigured = publishStarted && publishOrder.every((repo) => reviewedRepos.includes(repo))
   // Camtrap DP only — for every other product type, HFH's primary DOI is
   // always Zenodo's if selected, else B2SHARE's (decided by the backend,
   // see publish_orchestrator._default_primary_doi_source).
@@ -627,17 +664,33 @@ export default function WizardPage({ resumeSession }: Props) {
   // UI below takes over instead (toggleRepo still keeps HFH ahead of GBIF
   // within it).
   const hfhGbifOrderLocked = publishOrder.length === 2 && publishOrder.includes('hfh') && publishOrder.includes('gbif')
-  // Rendered by each PublishForm itself, next to its own Continue button —
-  // spread as-is (empty object for the first repository in the order,
-  // which has nothing to go back to) rather than a separate button placed
-  // above the form, so Back and Continue end up in the same row instead of
-  // at very different heights on the page.
-  const backProps = configureIndex > 0
-    ? {
-        onBack: () => setConfigureIndex((i) => i - 1),
-        backLabel: `← Back to ${REPO_OPTIONS.find((o) => o.value === publishOrder[configureIndex - 1])?.title}`,
-      }
-    : {}
+  // One line for a repository's card: where it publishes and what comes back — from what the user confirmed.
+  function repoSummary(repo: RepoId): string | null {
+    const config = repoConfigs[repo]
+    if (!config || !reviewedRepos.includes(repo)) return null
+    const back = 'outputMode' in config
+      ? (config.outputMode === 'prepared' ? 'you get back the prepared package' : 'you get back an unchanged copy')
+      : null
+    const where = repo === 'hfh' ? (config as HfhPublishConfig).repoId
+      : repo === 'gbif' ? `GBIF ${(config as GBIFPublishConfig).environment}`
+      : (config as ZenodoPublishConfig | B2SharePublishConfig).environment === 'production' ? 'Production' : 'Sandbox'
+    return back ? `${where} · ${back}` : where
+  }
+
+  // The steps of one repository's publication, from the stage the backend reports (see publish_orchestrator).
+  function publishSteps(repo: RepoId, title: string, repoProgress: RepoProgress) {
+    const labels = repo === 'hfh' ? ['Prepare the files', `Upload to ${title}`, 'Publish the repository']
+      : repo === 'gbif' ? ['Prepare the files', 'Send it to GBIF', 'Get the result']
+      : ['Prepare the files', `Upload to ${title}`, 'Get the DOI']
+    const reached = { preparing: 0, downloading: 0, hashing: 0, rewriting: 0, uploading: 1, uploaded: 1, finalizing: 2, finalized: 2, releasing: 2, done: 3 }[repoProgress.stage as string] ?? 0
+    return labels.map((label, i) => {
+      const state = i < reached ? 'done' : i === reached ? 'active' : 'pending'
+      const detail = state === 'done' ? 'Done'
+        : state === 'active' ? (STAGE_LABELS[repoProgress.stage] ?? 'Working…')
+        : 'Starts when the step before ends.'
+      return { label, state, detail } as const
+    })
+  }
 
   function toggleRepo(repo: RepoId) {
     if (productType && MANDATORY_REPOS_BY_PRODUCT_TYPE[productType]?.includes(repo)) return
@@ -672,15 +725,28 @@ export default function WizardPage({ resumeSession }: Props) {
     })
   }
 
+  function moveOrderTo(from: number, to: number) {
+    setPublishOrder((prev) => {
+      if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev
+      const next = [...prev]
+      next.splice(to, 0, next.splice(from, 1)[0])
+      return next
+    })
+  }
+
   function startConfiguring() {
-    setConfigureIndex(0)
+    setReviewedRepos([])
+    setOpenRepo(publishOrder[0] ?? null)
     setRepoConfigs({})
     setPublishStarted(true)
   }
 
   function handleConfigured(repo: RepoId, config: HfhPublishConfig | ZenodoPublishConfig | B2SharePublishConfig | GBIFPublishConfig) {
     setRepoConfigs((c) => ({ ...c, [repo]: config }))
-    setConfigureIndex((i) => i + 1)
+    const reviewed = reviewedRepos.includes(repo) ? reviewedRepos : [...reviewedRepos, repo]
+    setReviewedRepos(reviewed)
+    // On to the next card that still needs a look.
+    setOpenRepo(publishOrder.find((r) => !reviewed.includes(r)) ?? null)
   }
 
   // Resets every piece of wizard state back to its initial value, so
@@ -721,7 +787,9 @@ export default function WizardPage({ resumeSession }: Props) {
     setOutputDirs({})
     setDryRun(false)
     setPublishStarted(false)
-    setConfigureIndex(0)
+    setReviewedRepos([])
+    setOpenRepo(null)
+    setRepoPart('where')
     setRepoConfigs({})
     setPrimaryDoiSource(null)
     setExecuting(false)
@@ -787,6 +855,9 @@ export default function WizardPage({ resumeSession }: Props) {
   async function publish(repos: RepoId[], inputDir: string, mediaDir?: string) {
     setExecuting(true)
     setExecutionError(null)
+    setStopping(false)
+    setStoppedNotice(false)
+    setPublishTimes({ start: Date.now(), end: null })
     // Resuming an interrupted session (see resumeTaskId) always replays the
     // FULL publishOrder — the backend's resume_publish_all_task validates
     // the resumed repo list against the original session as a whole and
@@ -810,6 +881,7 @@ export default function WizardPage({ resumeSession }: Props) {
             sessionTaskId: sessionTaskId ?? undefined,
           })
 
+      setPublishTaskId(task_id)
       while (true) {
         await sleep(2000)
         const status = await api.publishAllStatus(task_id)
@@ -844,6 +916,13 @@ export default function WizardPage({ resumeSession }: Props) {
           const allDone = publishOrder.every((repo) => progressAfterThisPoll[repo]?.status === 'done')
           setExecutionDone(allDone)
           if (!allDone) setExecuting(false)
+          setPublishTimes((t) => (t ? { ...t, end: Date.now() } : t))
+          return
+        }
+        if (status.status === 'cancelled') {
+          // Stopped by the user: back to the settings check, with a note.
+          setStoppedNotice(true)
+          setExecuting(false)
           return
         }
         if (status.status === 'error') {
@@ -853,6 +932,16 @@ export default function WizardPage({ resumeSession }: Props) {
       }
     } catch (e) {
       setExecutionError(e instanceof Error ? e.message : 'Could not start publishing.')
+    }
+  }
+
+  async function stopPublishing() {
+    if (!publishTaskId) return
+    setStopping(true)
+    try {
+      await api.publishCancel(publishTaskId)
+    } catch {
+      setStopping(false)
     }
   }
 
@@ -978,7 +1067,7 @@ export default function WizardPage({ resumeSession }: Props) {
       .then((fields) => {
         const { metadata, warnings } = withOrganizationDefaults({
           title: fields.title ?? '', description: fields.description ?? '', version: fields.version ?? '',
-          homepage: fields.homepage ?? '', funding: fields.funding ?? '', license: initialLicense(fields.license),
+          homepage: fields.homepage ?? '', funding: fields.funding ?? '', acknowledgements: fields.acknowledgements ?? '', license: initialLicense(fields.license),
           authors: fields.authors.length > 0 ? fields.authors : [{ name: '', affiliation: '' }],
           publisher: fields.publisher ?? null, copyright_holders: fields.copyright_holders ?? [],
         }, organizationOptions)
@@ -1074,7 +1163,7 @@ export default function WizardPage({ resumeSession }: Props) {
         }
       }
       setSummary(newSummary)
-      setStep(3)
+      setStep(skipsPackageStep ? 4 : 3)
     } catch (e) {
       setSummary(null)
       setMetadataError(e instanceof Error ? e.message : 'Could not read this package.')
@@ -1245,33 +1334,78 @@ export default function WizardPage({ resumeSession }: Props) {
     }
   }
 
+  const skipsPackageStep = productType === 'yolo'
+  const stepLabels = skipsPackageStep ? STEP_LABELS.filter((label) => label !== 'Package') : STEP_LABELS
+  // The position of the current step in the bar, which has one step fewer when "Package" is skipped.
+  const barStep = skipsPackageStep && step > 3 ? step - 1 : step
+  const productLabel = PRODUCT_OPTIONS.find((o) => o.value === productType)?.title
+  const folderName = (localSelection?.sourcePath ?? download.sourcePath ?? '').split(/[\\/]/).filter(Boolean).pop()
+  const metadataContinueDisabled = preprocessing
+    || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid || organizationOptions.length === 0))
+    || (productType === 'yolo' && (!yoloDataset || !yoloMetadataValid(yoloMetadata) || organizationOptions.length === 0))
+    || !publicationReady
+    || (productType === 'yolo' && (!yoloMetadata.title?.trim() || !yoloMetadata.description?.trim()))
+    || (productType === 'yolo' && !isNewerVersion(yoloMetadata.version, previousVersion))
+    || (productType === 'camtrapdp' && previousVersion !== null && !isNewerVersion(dpVersion, previousVersion))
+    || (productType === 'camtrapdp' && (s3Wanted === null || (s3Wanted === true && !s3Config.remoteId)))
+  // Camtrap DP and YOLO: the metadata step is two steps of its own — what is published, then its metadata.
+  const metadataSteps = productType === 'camtrapdp' || productType === 'yolo'
+  const publicationSummary = publication?.kind === 'version'
+    ? <>A new version{publication.previous?.title ? <> of {publication.previous.title}</> : null}{previousVersion ? <> (last published: {previousVersion})</> : null}</>
+    : 'A new dataset'
+  const isVersion = publication?.kind === 'version'
+  const partRank = { kind: 0, find: 1, review: 2 } as const
+  const goToPart = (part: 'kind' | 'find' | 'review') => {
+    setMetadataPart(part)
+    setMetadataReached((reached) => (partRank[part] > partRank[reached] ? part : reached))
+  }
+  const partStatus = (part: 'kind' | 'find' | 'review') =>
+    partRank[part] > partRank[metadataReached] ? 'locked' : metadataPart === part ? 'open' : 'done'
+  const reviewMetadata = (content: ReactNode) => !metadataSteps ? content : (
+    <WizardStep n={isVersion ? 3 : 2} title={productType === 'yolo' ? 'Describe your dataset' : 'Review metadata'} status={!publicationReady ? 'locked' : partStatus('review')} canEdit={!preprocessing} onEdit={() => goToPart('review')}
+                description={productType === 'camtrapdp'
+                  ? "Review the package's own fields and choose any preprocessing, before continuing."
+                  : 'Check what we found and fill in the rest. Everything marked Required is needed to publish.'}>
+      {content}
+      <div className="flex items-center justify-between gap-3 mt-6">
+        <button type="button" className={btnOutline} disabled={preprocessing} onClick={() => goToPart(isVersion ? 'find' : 'kind')}><span aria-hidden="true">← </span>Back</button>
+        <button type="button" className={`${btnPrimary} flex items-center gap-2`} disabled={metadataContinueDisabled} onClick={handleContinueToPreprocessing}>
+          {preprocessing && <SmallSpinner />}
+          {preprocessing ? (s3Progress?.status === 'running' ? 'Uploading images…' : 'Processing…') : 'Continue'}
+        </button>
+      </div>
+    </WizardStep>
+  )
+
   return (
-    <div className="mx-auto px-4 py-4" style={{ maxWidth: 700 }}>
+    <div className="mx-auto max-w-[900px] px-4 py-8">
 
       {/* Step indicator */}
       <div className="flex items-start mb-10">
-        {STEP_LABELS.map((label, i) => (
-          <div key={i} className="flex items-start flex-1">
+        {stepLabels.map((label, i) => (
+          // The last step has no connector after it, so it must not stretch: it would leave the bar
+          // empty to its right and push the steps off-centre.
+          <div key={i} className={`flex items-start ${i < stepLabels.length - 1 ? 'flex-1' : ''}`}>
             <div className="flex flex-col items-center" style={{ minWidth: 56 }}>
               <div
                 className={`w-9 h-9 rounded-full flex items-center justify-center font-bold mb-1 text-sm ${
-                  i < step
+                  i < barStep
                     ? 'bg-emerald-600 text-white'
-                    : i === step
+                    : i === barStep
                     ? 'bg-blue-600 text-white'
                     : 'bg-zinc-700 text-zinc-400'
                 }`}
               >
-                {i < step ? '✓' : i + 1}
+                {i < barStep ? '✓' : i + 1}
               </div>
               <small className={`text-xs whitespace-nowrap ${
-                i === step ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'
+                i === barStep ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'
               }`}>
                 {label}
               </small>
             </div>
-            {i < STEP_LABELS.length - 1 && (
-              <div className={`flex-1 border-t mx-1 mt-[18px] ${i < step ? 'border-emerald-500' : 'border-zinc-700'}`} />
+            {i < stepLabels.length - 1 && (
+              <div className={`flex-1 border-t mx-1 mt-[18px] ${i < barStep ? 'border-emerald-500' : 'border-zinc-700'}`} />
             )}
           </div>
         ))}
@@ -1376,7 +1510,29 @@ export default function WizardPage({ resumeSession }: Props) {
         </div>
       )}
 
-      {step === 1 && !resumingFetch && (
+      {step === 1 && !resumingFetch && productType === 'yolo' && (
+        <div>
+          <h4 className="text-lg font-semibold mb-1 text-zinc-900 dark:text-zinc-100">AI dataset</h4>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+            Select the folder with the YOLO dataset, check its structure and its labels, and go on to describe it.
+          </p>
+          <YoloFolderSteps
+            onSelectionChange={(selection) => { setSourceType('local'); setLocalSelection(selection) }}
+            onContinue={handleNext}
+            onBack={() => setStep(0)}
+            initialPath={
+              localSelection?.sourcePath
+              ?? (resumeSession?.source_type === 'local' ? String(sessionFetch(resumeSession)?.params.path ?? '') : undefined)
+            }
+            initialSessionTaskId={
+              localSelection?.sessionTaskId
+              ?? (resumeSession?.source_type === 'local' ? resumeSession.task_id : undefined)
+            }
+          />
+        </div>
+      )}
+
+      {step === 1 && !resumingFetch && productType !== 'yolo' && (
         <div>
           <h4 className="text-lg font-semibold mb-1">Where is it located?</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">Choose where to fetch the package from.</p>
@@ -1455,6 +1611,14 @@ export default function WizardPage({ resumeSession }: Props) {
       {/* ── Step 2: metadata review + anonymize/randomize, before preprocessing ── */}
       {step === 2 && download.status === 'done' && (
         <div>
+          <StepChips chips={[
+            { key: 'product', label: productLabel },
+            ...(productType === 'yolo' && yoloDataset ? [
+              { key: 'images', label: `${Object.values(yoloDataset.split_image_counts).reduce((a, b) => a + b, 0).toLocaleString('en-US')} images` },
+              { key: 'classes', label: `${yoloDataset.class_names.length} ${yoloDataset.class_names.length === 1 ? 'class' : 'classes'}` },
+            ] : []),
+            ...(folderName ? [{ key: 'folder', label: folderName, mono: true }] : []),
+          ]} />
           <h4 className="text-lg font-semibold mb-1">Metadata</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
             First choose whether you're publishing a new dataset or a new version of one already published — for a
@@ -1466,25 +1630,65 @@ export default function WizardPage({ resumeSession }: Props) {
                 : 'continue: this product\'s metadata comes from its own CITATION.cff.'}
           </p>
 
-          {productType === 'camtrapdp' && (
-            <S3ImageUploadPicker
-              wanted={s3Wanted} onWantedChange={setS3Wanted}
-              config={s3Config} onConfigChange={setS3Config}
-            />
-          )}
-
-          <PublicationKindPicker
-            value={publication} onChange={setPublication}
-            repos={REPOS_BY_PRODUCT_TYPE[productType ?? 'camtrapdp'].filter(
+          {(() => {
+            if (!metadataSteps) {
+              return (
+                <>
+                  <PublicationKindPicker value={publication} onChange={setPublication} />
+                  {isVersion && (
+                    <div className="mt-6">
+                      <PreviousPublicationFinder
+                        value={publication} onChange={setPublication}
+                        repos={REPOS_BY_PRODUCT_TYPE[productType ?? 'camtrapdp'].filter(
+                          (r): r is LookupRepo => r === 'hfh' || r === 'zenodo' || r === 'b2share' || r === 'gbif',
+                        )}
+                      />
+                    </div>
+                  )}
+                </>
+              )
+            }
+            const lookupRepos = REPOS_BY_PRODUCT_TYPE[productType ?? 'camtrapdp'].filter(
               (r): r is LookupRepo => r === 'hfh' || r === 'zenodo' || r === 'b2share' || r === 'gbif',
-            )}
-          />
+            )
+            return (
+              <>
+                <div className="border-t border-zinc-200 dark:border-zinc-700" />
+                <WizardStep n={1} title="What are you publishing?" status={partStatus('kind')} canEdit={!preprocessing} onEdit={() => goToPart('kind')}
+                            description="A new dataset, or a new version of one already published." summary={publicationSummary}>
+                  {productType === 'camtrapdp' && (
+                    <S3ImageUploadPicker
+                      wanted={s3Wanted} onWantedChange={setS3Wanted}
+                      config={s3Config} onConfigChange={setS3Config}
+                    />
+                  )}
+                  <PublicationKindPicker value={publication} onChange={setPublication} />
+                  <div className="flex items-center justify-between gap-3 mt-4">
+                    <button type="button" className={btnOutline} onClick={() => setStep(1)}><span aria-hidden="true">← </span>Back</button>
+                    <button type="button" aria-label={isVersion ? 'Continue to find the previous publication' : 'Continue to review the metadata'}
+                            className={btnPrimary} disabled={!publication} onClick={() => goToPart(isVersion ? 'find' : 'review')}>
+                      Continue<span aria-hidden="true"> →</span>
+                    </button>
+                  </div>
+                </WizardStep>
+                {isVersion && (
+                  <WizardStep n={2} title="Find the previous publication" status={partStatus('find')} canEdit={!preprocessing} onEdit={() => goToPart('find')}
+                              description="The repository and the identifier of the dataset this is a new version of."
+                              summary={<>{publication?.previous?.title ?? 'Previous publication found'}{previousVersion ? <><br />Last published version {previousVersion}</> : null}</>}>
+                    <PreviousPublicationFinder value={publication} onChange={setPublication} repos={lookupRepos} currentTitle={productType === 'yolo' ? yoloMetadata.title : null} />
+                    <div className="flex items-center justify-between gap-3 mt-6">
+                      <button type="button" className={btnOutline} onClick={() => goToPart('kind')}><span aria-hidden="true">← </span>Back</button>
+                      <button type="button" aria-label="Continue to review the metadata" className={btnPrimary} disabled={!publicationReady} onClick={() => goToPart('review')}>
+                        Continue<span aria-hidden="true"> →</span>
+                      </button>
+                    </div>
+                  </WizardStep>
+                )}
+              </>
+            )
+          })()}
 
-          {publicationReady && (<>
-          {(productType === 'camtrapdp' || productType === 'yolo') && (
-            <h5 className="text-base font-semibold mb-3 text-zinc-800 dark:text-zinc-200">2. Review metadata</h5>
-          )}
-
+          {(publicationReady || metadataSteps) && reviewMetadata(<>
           {productType === 'yolo' && yoloDatasetError && (
             <p className="text-sm text-red-600 dark:text-red-400">{yoloDatasetError}</p>
           )}
@@ -1802,6 +2006,13 @@ export default function WizardPage({ resumeSession }: Props) {
             </p>
           )}
 
+          {summary && metadataComplete && productType !== 'yolo' && previousTitle && titlesUnrelated(summary.title, previousTitle) && (
+            <Notice kind="warning" role="status" className="mt-6">
+              The title «{summary.title}» looks nothing like the previous publication's («{previousTitle}»). Check that
+              this really is a new version of it.
+            </Notice>
+          )}
+
           {summary && metadataComplete && (
             <div className="mt-6 p-4 rounded-lg border border-zinc-200 dark:border-zinc-700">
               <h5 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
@@ -1869,11 +2080,17 @@ export default function WizardPage({ resumeSession }: Props) {
       {/* ── Step 4: repository selection ── */}
       {step === 4 && !publishStarted && (
         <div>
-          <h4 className="text-lg font-semibold mb-1">Where do you want to publish it?</h4>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            Choose one or more repositories to publish the package to.
-          </p>
-
+          <StepChips chips={[
+            { key: 'product', label: productLabel },
+            ...((productType === 'yolo' ? yoloMetadata.title : summary?.title) ? [{ key: 'title', label: productType === 'yolo' ? yoloMetadata.title : summary?.title }] : []),
+            ...((productType === 'yolo' ? yoloMetadata.version : summary?.version) ? [{ key: 'version', label: `Version ${productType === 'yolo' ? yoloMetadata.version : summary?.version}`, mono: true }] : []),
+            ...(publication?.kind === 'version' ? [{ key: 'kind', label: 'New version' }] : []),
+          ]} />
+          <WizardStep
+            n={1} title="Where do you want to publish it?" description="Choose one or more repositories to publish the package to."
+            status={repoPart === 'where' ? 'open' : 'done'} canEdit onEdit={() => setRepoPart('where')}
+            summary={publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}
+          >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {REPO_OPTIONS.map((option) => {
               const available = option.implemented && supportedRepos.includes(option.value)
@@ -1918,282 +2135,199 @@ export default function WizardPage({ resumeSession }: Props) {
             })}
           </div>
 
-          {hfhGbifOrderLocked && (
-            <div className="mt-8">
-              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
-              <h5 className="text-base font-semibold mb-1 text-zinc-700 dark:text-zinc-300">Publish order</h5>
+            <div className="flex justify-end mt-4">
+              <button type="button" aria-label="Continue to the publish order" className={btnPrimary} disabled={selectedRepos.size === 0} onClick={() => setRepoPart('order')}>
+                Continue<span aria-hidden="true"> →</span>
+              </button>
+            </div>
+          </WizardStep>
+
+          <WizardStep
+            n={2} title="In what order?"
+            description="The first one publishes your dataset as it is. Each next one continues from what the one before it produced, for example with the DOI that Zenodo just created."
+            status={repoPart === 'order' ? 'open' : 'locked'} canEdit onEdit={() => setRepoPart('order')}
+          >
+            {hfhGbifOrderLocked ? (
               <p className="text-zinc-500 dark:text-zinc-400 text-sm">
                 Hugging Face Hub always publishes first, then GBIF — its archive URL is derived from
                 where Hugging Face Hub ends up, so there's nothing to reorder here.
               </p>
-            </div>
-          )}
-
-          {publishOrder.length > 1 && !hfhGbifOrderLocked && (
-            <div className="mt-8">
-              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
-              <h5 className="text-base font-semibold mb-1 text-zinc-700 dark:text-zinc-300">Publish order</h5>
-              <p className="text-zinc-500 dark:text-zinc-400 mb-4 text-sm">
-                The first repository publishes the downloaded package itself; each next one publishes
-                whatever the previous one wrote to its own output directory.
-              </p>
-              <ol className="flex flex-col gap-2">
-                {publishOrder.map((repoId, i) => {
+            ) : publishOrder.length > 1 ? (
+              <ReorderList
+                onMove={moveOrderTo}
+                items={publishOrder.flatMap((repoId) => {
                   const option = REPO_OPTIONS.find((o) => o.value === repoId)
-                  if (!option) return null
-                  return (
-                    <li
-                      key={repoId}
-                      className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700"
-                    >
-                      <span className="text-sm text-zinc-800 dark:text-zinc-200">
-                        <span className="font-semibold">{i + 1}.</span> {option.emoji} {option.title}
-                      </span>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          className={btnOutline + ' px-2 py-1'}
-                          disabled={i === 0}
-                          onClick={() => moveInOrder(repoId, -1)}
-                          aria-label={`Move ${option.title} up`}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className={btnOutline + ' px-2 py-1'}
-                          disabled={i === publishOrder.length - 1}
-                          onClick={() => moveInOrder(repoId, 1)}
-                          aria-label={`Move ${option.title} down`}
-                        >
-                          ↓
-                        </button>
-                      </div>
-                    </li>
-                  )
+                  return option ? [{ key: repoId, name: option.title, content: <>{option.emoji} {option.title}</> }] : []
                 })}
-              </ol>
-            </div>
-          )}
-
-          {selectedRepos.size > 0 && (
-            <div className="mt-8">
-              <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={dryRun}
-                  onChange={(e) => setDryRun(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm">
-                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">Dry run</span>
-                  <span className="block text-zinc-500 dark:text-zinc-400">
-                    Simulates the whole flow — nothing is actually uploaded to or created on Hugging
-                    Face Hub, Zenodo, B2SHARE, or GBIF. Zenodo/B2SHARE's DOI is faked, and the DOI
-                    cross-referencing step still runs against it, so you can preview exactly how
-                    every repository's CITATION.cff would end up. No token/credentials are required
-                    in this mode.
-                  </span>
-                </span>
-              </label>
-            </div>
-          )}
-
+              />
+            ) : (
+              <p className="text-zinc-500 dark:text-zinc-400 text-sm">Only one repository is selected, so there is nothing to order.</p>
+            )}
+          </WizardStep>
         </div>
       )}
 
-      {/* ── Step 4 (continued): collecting configuration, one repository at a time ── */}
-      {step === 4 && publishStarted && !allConfigured && !executing && !executionDone && (
+      {/* ── Step 4 (continued): check every repository's settings, then publish ── */}
+      {step === 4 && publishStarted && !executing && !executionDone && (
         <div>
-          <div className="flex items-center gap-4 mb-6 flex-wrap">
-            {publishOrder.map((repoId, i) => {
-              const option = REPO_OPTIONS.find((o) => o.value === repoId)
-              if (!option) return null
-              const label = (
-                <>
-                  <span>{i < configureIndex ? '✓' : `${i + 1}.`}</span> {option.emoji} {option.title}
-                </>
-              )
-              // Already-configured steps (and the current one) jump back
-              // directly, same as the current step's own "Back to X"
-              // button — steps not reached yet aren't clickable, since
-              // there's nothing configured there to jump to.
-              if (i <= configureIndex) {
-                return (
-                  <button
-                    key={repoId}
-                    type="button"
-                    onClick={() => setConfigureIndex(i)}
-                    className={`flex items-center gap-1.5 text-sm hover:underline ${
-                      i === configureIndex
-                        ? 'text-zinc-900 dark:text-zinc-100 font-semibold'
-                        : 'text-emerald-600 dark:text-emerald-400'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                )
-              }
-              return (
-                <div key={repoId} className="flex items-center gap-1.5 text-sm text-zinc-400 dark:text-zinc-600">
-                  {label}
-                </div>
-              )
-            })}
-          </div>
-
-          <h4 className="text-lg font-semibold mb-1">
-            Configure {REPO_OPTIONS.find((o) => o.value === publishOrder[configureIndex])?.title}
-          </h4>
+          <h4 className="text-lg font-semibold mb-1">Check the settings</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            Step {configureIndex + 1} of {publishOrder.length}. Nothing is published yet — once every
-            repository is configured, you'll get a chance to review before anything actually happens.
+            We filled in the usual choices, in the order you picked. Change only what you need.
+            Nothing is published until you press the button at the bottom.
           </p>
+          {stoppedNotice && (
+            <p className="mb-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+              You stopped the run. What was already published stays published, and the repositories that hadn't started were not touched.
+            </p>
+          )}
 
-          {publishOrder[configureIndex] === 'hfh' && (
-            <HFHPublishForm
-              productType={productType}
-              publication={publication}
-              productTitle={summary?.title}
-              productVersion={summary?.version}
-              dryRun={dryRun}
-              onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, hfh: dir }))}
-              initialConfig={repoConfigs.hfh}
-              {...backProps}
-              onConfigured={(config) => handleConfigured('hfh', config)}
-            />
-          )}
-          {publishOrder[configureIndex] === 'zenodo' && (
-            <ZenodoPublishForm
-              dryRun={dryRun}
-              publication={publication}
-              productType={productType}
-              onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, zenodo: dir }))}
-              initialConfig={repoConfigs.zenodo}
-              {...backProps}
-              onConfigured={(config) => handleConfigured('zenodo', config)}
-            />
-          )}
-          {publishOrder[configureIndex] === 'b2share' && (
-            <B2SharePublishForm
-              dryRun={dryRun}
-              publication={publication}
-              productType={productType}
-              onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
-              initialConfig={repoConfigs.b2share}
-              {...backProps}
-              onConfigured={(config) => handleConfigured('b2share', config)}
-            />
-          )}
-          {(() => {
-            // camtrapdp-remote.zip is now generated by HFH's own
-            // upload_to_huggingface regardless of Mirror/Link mode (see
-            // hfh.py) — the zip's own HFH URL is permanent either way, only
-            // its internal filePath entries differ (real HFH URLs in Mirror,
-            // whatever the original source gave it in Link). toggleRepo
-            // always forces HFH before GBIF whenever both are selected, so
-            // repoConfigs.hfh is already collected by the time GBIF's own
-            // form renders. Zenodo/B2SHARE also produce a camtrapdp-remote.zip
-            // of their own now (Link mode) or a GBIF-ready camtrapdp.zip
-            // (--self-contained) — but unlike HFH's user-chosen repo_id,
-            // their own deposition/record id (and so the file's own public
-            // URL) is only assigned by Zenodo/B2SHARE once THEY actually
-            // upload, which hasn't happened yet at this configure step — so
-            // there's nothing to suggest/lock from them here, only from HFH.
-            const hfhWillProduceRemoteZip = publishOrder.includes('hfh')
-            const zenodoOrB2shareWithoutHfh = !hfhWillProduceRemoteZip
-              && (publishOrder.includes('zenodo') || publishOrder.includes('b2share'))
-            return publishOrder[configureIndex] === 'gbif' && (
+          {publishOrder.map((repoId, i) => {
+            const option = REPO_OPTIONS.find((o) => o.value === repoId)
+            if (!option) return null
+            const reviewed = reviewedRepos.includes(repoId)
+            // GBIF registers the archive Hugging Face Hub ends up with, so it waits for HFH's own review.
+            const locked = repoId === 'gbif' && publishOrder.includes('hfh') && !reviewedRepos.includes('hfh')
+            return (
+              <RepoPanel
+                key={repoId}
+                n={i + 1} title={option.title}
+                summary={locked ? 'Review Hugging Face Hub first.' : repoSummary(repoId) ?? 'Not reviewed yet.'}
+                reviewed={reviewed} locked={locked} open={openRepo === repoId}
+                onToggle={() => setOpenRepo(openRepo === repoId ? null : repoId)}
+              >
+                {repoId === 'hfh' && (
+                  <HFHPublishForm
+                    productType={productType}
+                    publication={publication}
+                    productTitle={summary?.title}
+                    productVersion={summary?.version}
+                    dryRun={dryRun}
+                    onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, hfh: dir }))}
+                    initialConfig={repoConfigs.hfh}
+                    continueLabel="Looks good"
+                    onConfigured={(config) => handleConfigured('hfh', config)}
+                  />
+                )}
+                {repoId === 'zenodo' && (
+                  <ZenodoPublishForm
+                    dryRun={dryRun}
+                    publication={publication}
+                    productType={productType}
+                    onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, zenodo: dir }))}
+                    initialConfig={repoConfigs.zenodo}
+                    continueLabel="Looks good"
+                    onConfigured={(config) => handleConfigured('zenodo', config)}
+                  />
+                )}
+                {repoId === 'b2share' && (
+                  <B2SharePublishForm
+                    dryRun={dryRun}
+                    publication={publication}
+                    productType={productType}
+                    onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
+                    initialConfig={repoConfigs.b2share}
+                    continueLabel="Looks good"
+                    onConfigured={(config) => handleConfigured('b2share', config)}
+                  />
+                )}
+                {repoId === 'gbif' && (() => {
+                  const hfhWillProduceRemoteZip = publishOrder.includes('hfh')
+                        const zenodoOrB2shareWithoutHfh = !hfhWillProduceRemoteZip
+                    && (publishOrder.includes('zenodo') || publishOrder.includes('b2share'))
+                  return (
               <GBIFPublishForm
-                dryRun={dryRun}
-                publication={publication}
-                {...backProps}
-                suggestedArchiveUrl={
-                  hfhWillProduceRemoteZip
-                    ? `https://huggingface.co/datasets/${repoConfigs.hfh!.repoId}/resolve/main/camtrapdp-remote.zip`
-                    // No HFH in this run at all — if the source itself was a
-                    // public archive URL (see CamtrapDPArchiveForm), that URL
-                    // is already confirmed public and a valid Camtrap DP (the
-                    // fetch step validates it the same way GBIF itself would
-                    // need it to be), so it's directly reusable here as-is.
-                    : sourceType === 'archive' && archiveSourceUrl
-                      ? archiveSourceUrl
-                      : undefined
-                }
-                archiveUrlLocked={hfhWillProduceRemoteZip}
-                archiveNotPublishedYet={hfhWillProduceRemoteZip}
-                // The "this isn't the local copy" note only makes sense for a
-                // local/Trapper source — a Public URL source IS already the
-                // real archive, nothing to clarify.
-                standaloneRegistration={!hfhWillProduceRemoteZip && !zenodoOrB2shareWithoutHfh && sourceType !== 'archive'}
-                pendingFromOtherRepo={zenodoOrB2shareWithoutHfh}
-                initialConfig={repoConfigs.gbif}
-                onConfigured={(config) => handleConfigured('gbif', config)}
-              />
+                  dryRun={dryRun}
+                  publication={publication}
+                  continueLabel="Looks good"
+                  suggestedArchiveUrl={
+                    hfhWillProduceRemoteZip
+                      ? `https://huggingface.co/datasets/${repoConfigs.hfh?.repoId}/resolve/main/camtrapdp-remote.zip`
+                      // No HFH in this run at all — if the source itself was a
+                      // public archive URL (see CamtrapDPArchiveForm), that URL
+                      // is already confirmed public and a valid Camtrap DP (the
+                      // fetch step validates it the same way GBIF itself would
+                      // need it to be), so it's directly reusable here as-is.
+                      : sourceType === 'archive' && archiveSourceUrl
+                        ? archiveSourceUrl
+                        : undefined
+                  }
+                  archiveUrlLocked={hfhWillProduceRemoteZip}
+                  archiveNotPublishedYet={hfhWillProduceRemoteZip}
+                  // The "this isn't the local copy" note only makes sense for a
+                  // local/Trapper source — a Public URL source IS already the
+                  // real archive, nothing to clarify.
+                  standaloneRegistration={!hfhWillProduceRemoteZip && !zenodoOrB2shareWithoutHfh && sourceType !== 'archive'}
+                  pendingFromOtherRepo={zenodoOrB2shareWithoutHfh}
+                  initialConfig={repoConfigs.gbif}
+                  onConfigured={(config) => handleConfigured('gbif', config)}
+                />
+                  )
+                })()}
+              </RepoPanel>
             )
-          })()}
-        </div>
-      )}
+          })}
 
-      {/* ── Step 4 (continued): hfh + zenodo + b2share all selected — choose which DOI is primary for HFH ── */}
-      {step === 4 && allConfigured && needsPrimaryDoiChoice && primaryDoiSource === null && !executing && !executionDone && (
-        <div>
-          <h4 className="text-lg font-semibold mb-1">Which DOI should Hugging Face Hub cite as primary?</h4>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            Hugging Face Hub doesn't mint its own DOI — once Zenodo and B2SHARE each reserve
-            theirs, both get cross-referenced into every repository's citation, but Hugging Face
-            Hub needs one of them picked as the main one.
-          </p>
-          <div className="flex flex-col gap-2 mb-8">
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio" name="primary-doi-source" className="mt-0.5"
-                checked={primaryDoiSource === ('zenodo' as const)}
-                onChange={() => setPrimaryDoiSource('zenodo')}
-              />
-              <span><strong>Zenodo</strong></span>
-            </label>
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio" name="primary-doi-source" className="mt-0.5"
-                checked={primaryDoiSource === ('b2share' as const)}
-                onChange={() => setPrimaryDoiSource('b2share')}
-              />
-              <span><strong>B2SHARE (EUDAT)</strong></span>
-            </label>
-          </div>
-        </div>
-      )}
+          <section className="rounded-xl border border-zinc-200 dark:border-zinc-700 px-5 py-5 mt-6">
+            <h5 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Ready to publish</h5>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">Nothing is published until you press the button below.</p>
+            <ol className="space-y-2">
+              {publishOrder.map((repoId, i) => {
+                const option = REPO_OPTIONS.find((o) => o.value === repoId)
+                if (!option) return null
+                return (
+                  <li key={repoId} className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-4 py-3 text-sm">
+                    <span className="font-semibold text-blue-600 dark:text-blue-400 mr-2">{i + 1}.</span>
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">{option.title}</span>
+                    <span className="block ml-6 text-zinc-500 dark:text-zinc-400">{repoSummary(repoId) ?? 'Not reviewed yet.'}</span>
+                  </li>
+                )
+              })}
+            </ol>
 
-      {/* ── Step 4 (continued): all configured — confirm before publishing ── */}
-      {step === 4 && readyToConfirm && !executing && !executionDone && (
-        <div>
-          <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
-            Ready to publish
-            {dryRun && <DryRunBadge />}
-          </h4>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            {dryRun
-              ? 'All the information needed has been collected. This is a dry run — nothing will actually be uploaded or created for:'
-              : 'All the information needed has been collected. Publishing will now start for:'}{' '}
-            {publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}.
-          </p>
-          <div className="flex justify-between items-center">
-            {/* Same "← Back to X" pattern each PublishForm's own backProps
-                already offers mid-configuration (see backProps above) — this
-                screen is otherwise a dead end: the page-level Back button
-                stays hidden for the whole step === 4 && publishStarted
-                stretch (see its own condition below), on purpose, so there
-                has to be an explicit way back from here too. */}
-            <button
-              type="button" className={btnOutline}
-              onClick={() => setConfigureIndex(publishOrder.length - 1)}
-            >
-              ← Back to {REPO_OPTIONS.find((o) => o.value === publishOrder[publishOrder.length - 1])?.title}
+            {needsPrimaryDoiChoice && (
+              <div className="mt-5">
+                <h6 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Which DOI should Hugging Face Hub cite as primary?</h6>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2">
+                  Hugging Face Hub doesn't mint its own DOI. Both DOIs are cross-referenced in every
+                  repository's citation, but it needs one of them as the main one.
+                </p>
+                <ChoiceCards
+                  name="primary-doi-source" label="Primary DOI" layout="row"
+                  value={primaryDoiSource}
+                  onChoose={setPrimaryDoiSource}
+                  options={[
+                    { value: 'zenodo', title: 'Zenodo', description: "Hugging Face Hub cites Zenodo's DOI." },
+                    { value: 'b2share', title: 'B2SHARE (EUDAT)', description: "Hugging Face Hub cites B2SHARE's DOI." },
+                  ]}
+                />
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-between gap-6 rounded-xl border border-zinc-200 dark:border-zinc-700 px-5 py-4">
+              <div className="text-sm">
+                <p id="practice-run-label" className="font-semibold text-zinc-900 dark:text-zinc-100">Practice run</p>
+                <p className="mt-1 text-zinc-500 dark:text-zinc-400">
+                  {dryRun
+                    ? 'On. Nothing is uploaded or created, the DOIs are made up, and no tokens are needed.'
+                    : 'Off. Turn it on to try the process without publishing anything.'}
+                </p>
+              </div>
+              <button
+                type="button" role="switch" aria-checked={dryRun} aria-labelledby="practice-run-label"
+                onClick={() => setDryRun(!dryRun)}
+                className={`relative h-7 w-12 flex-shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${dryRun ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-700'}`}
+              >
+                <span className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white transition-transform ${dryRun ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+          </section>
+
+          <div className="flex justify-between items-center mt-8">
+            <button type="button" className={btnOutline} onClick={() => setPublishStarted(false)}>
+              <span aria-hidden="true">← </span>Back
             </button>
-            <button type="button" className={btnPrimary} onClick={runPublishSequence}>
-              {dryRun ? 'Start dry run now' : 'Start publishing now'}
+            <button type="button" className={btnPrimary} disabled={!readyToConfirm} onClick={runPublishSequence}>
+              {dryRun ? 'Start practice run' : 'Start publishing'}
             </button>
           </div>
         </div>
@@ -2203,46 +2337,102 @@ export default function WizardPage({ resumeSession }: Props) {
       {step === 4 && executing && !executionDone && (
         <div>
           <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
-            {dryRun ? 'Simulating…' : 'Publishing…'}
+            {dryRun ? 'Practice run…' : 'Publishing…'}
             {dryRun && <DryRunBadge />}
           </h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-            Each repository {dryRun ? 'is simulated' : 'publishes automatically'}, one after another.
+            One repository after another, in the order you chose. You can leave this page open and come back.
           </p>
-          <ul className="flex flex-col gap-3">
-            {publishOrder.map((repoId) => {
+
+          {(() => {
+            const current = publishOrder.find((repoId) => (progress[repoId] ?? IDLE_PROGRESS).status === 'running')
+              ?? publishOrder.find((repoId) => (progress[repoId] ?? IDLE_PROGRESS).status === 'pending')
+            if (!current || executionError) return null
+            const currentIndex = publishOrder.indexOf(current)
+            const next = publishOrder[currentIndex + 1]
+            return (
+              <div className="flex items-center gap-4 rounded-xl border border-blue-500/40 bg-blue-50 dark:bg-blue-950/30 px-5 py-4 mb-4">
+                <span className="w-10 h-10 flex-shrink-0 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center"><SmallSpinner /></span>
+                <div>
+                  <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    Publishing to {REPO_OPTIONS.find((o) => o.value === current)?.title} ({currentIndex + 1} of {publishOrder.length})
+                  </p>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    {next ? `Next: ${REPO_OPTIONS.find((o) => o.value === next)?.title}.` : 'This is the last one.'}
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
+
+          <ul className="rounded-xl border border-zinc-200 dark:border-zinc-700 divide-y divide-zinc-200 dark:divide-zinc-700 overflow-hidden">
+            {publishOrder.map((repoId, i) => {
               const option = REPO_OPTIONS.find((o) => o.value === repoId)
               if (!option) return null
               const repoProgress = progress[repoId] ?? IDLE_PROGRESS
+              const where = repoSummary(repoId)?.split(' · ')[0]
+              const pill = 'text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0'
+              const steps = publishSteps(repoId, option.title, repoProgress)
               return (
-                <li key={repoId} className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm flex-wrap">
-                  <span>{option.emoji}</span>
-                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">{option.title}</span>
-                  <span className="flex-1" />
-                  {repoProgress.status === 'pending' && <span className="text-zinc-400 dark:text-zinc-600">Waiting…</span>}
+                <li key={repoId} className={`px-5 py-4 ${repoProgress.status === 'running' ? 'bg-blue-50/60 dark:bg-blue-950/20' : ''}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={`text-base font-semibold ${repoProgress.status === 'pending' ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
+                        {i + 1}. {option.title}
+                      </p>
+                      {where && <p className="text-sm text-zinc-500 dark:text-zinc-400 font-mono break-all">{where}</p>}
+                    </div>
+                    {repoProgress.status === 'pending' && <span className={`${pill} bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300`}>Waiting</span>}
+                    {repoProgress.status === 'running' && <span className={`${pill} bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300`}>Working…</span>}
+                    {repoProgress.status === 'done' && <span className={`${pill} bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400`}>✓ Done</span>}
+                    {repoProgress.status === 'error' && <span className={`${pill} bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400`}>Failed</span>}
+                  </div>
                   {repoProgress.status === 'running' && (
-                    <span className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                      <SmallSpinner /> {STAGE_LABELS[repoProgress.stage] ?? 'Publishing…'}
-                    </span>
+                    <ol className="mt-4 space-y-3">
+                      {steps.map((step) => (
+                        <li key={step.label} className="flex items-start gap-3">
+                          <span className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center ${
+                            step.state === 'done' ? 'bg-emerald-700 text-white'
+                              : step.state === 'active' ? 'bg-blue-600' : 'bg-zinc-200 dark:bg-zinc-700'}`}>
+                            {step.state === 'done' && (
+                              <svg aria-hidden="true" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                            )}
+                            {step.state === 'active' && <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                          </span>
+                          <span className="min-w-0">
+                            <span className={`block text-sm font-semibold ${step.state === 'pending' ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-900 dark:text-zinc-100'}`}>{step.label}</span>
+                            <span className="block text-sm text-zinc-500 dark:text-zinc-400">{step.detail}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
                   )}
-                  {repoProgress.status === 'done' && (
-                    <span className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                      ✓ Done
-                      {repoProgress.repoUrl && (
-                        <a
-                          href={repoProgress.repoUrl} target="_blank" rel="noreferrer"
-                          className="text-blue-600 dark:text-blue-400 hover:underline break-all font-normal"
-                        >
-                          {repoProgress.repoUrl}
-                        </a>
-                      )}
-                    </span>
+                  {repoProgress.status === 'done' && repoProgress.repoUrl && (
+                    <a
+                      href={repoProgress.repoUrl} target="_blank" rel="noreferrer"
+                      className="mt-2 block text-sm text-blue-600 dark:text-blue-400 hover:underline break-all"
+                    >
+                      {repoProgress.repoUrl}
+                    </a>
                   )}
-                  {repoProgress.status === 'error' && <span className="text-red-600 dark:text-red-400">✘ {repoProgress.error}</span>}
+                  {repoProgress.status === 'error' && <p className="mt-2 text-sm text-red-600 dark:text-red-400">✘ {repoProgress.error}</p>}
                 </li>
               )
             })}
           </ul>
+          {!executionError && (
+            <div className="mt-6">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                If you stop, what is already published stays published. The repositories that haven't started won't be touched.
+              </p>
+              <div className="mt-8 flex items-center justify-end gap-4">
+                <span className="text-sm text-blue-600 dark:text-blue-400">{stopping ? 'Stopping after this step…' : dryRun ? 'Practice run…' : 'Publishing…'}</span>
+                <button type="button" className={btnOutline} disabled={stopping || !publishTaskId} onClick={stopPublishing}>
+                  Stop
+                </button>
+              </div>
+            </div>
+          )}
           {executionError && (
             <div className="mt-6">
               <p className="text-sm text-red-600 dark:text-red-400 mb-3">{executionError}</p>
@@ -2260,104 +2450,183 @@ export default function WizardPage({ resumeSession }: Props) {
       )}
 
       {/* ── Step 4 (continued): all repositories published ── */}
-      {step === 4 && executionDone && (
-        <div>
-          <h4 className="text-lg font-semibold mb-1 flex items-center gap-2">
-            {dryRun ? 'Dry run complete!' : 'All done!'}
-            {dryRun && <DryRunBadge />}
-          </h4>
-          <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-sm">
-            <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <span>
-              {dryRun ? 'Simulated for' : 'Published to'}: {publishOrder.map((repoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title).join(', ')}.
-              {dryRun && ' Nothing real was created — check each repo\'s output_dir below to inspect the generated files.'}
-            </span>
+      {step === 4 && executionDone && (() => {
+        const titleOf = (repoId: RepoId) => REPO_OPTIONS.find((o) => o.value === repoId)?.title ?? repoId
+        const titles = publishOrder.map(titleOf)
+        const joined = titles.length > 1 ? `${titles.slice(0, -1).join(', ')} and ${titles[titles.length - 1]}` : titles[0] ?? ''
+        // A repository that published before Hugging Face Hub already gave it its DOI.
+        const hfhIndex = publishOrder.indexOf('hfh')
+        const doiSource = publishOrder.slice(0, Math.max(hfhIndex, 0)).find((r) => r === 'zenodo' || r === 'b2share')
+        const subtitle = dryRun
+          ? "Nothing real was created — the generated files are in the folders below."
+          : doiSource && hfhIndex > 0
+            ? `${titleOf(doiSource)} went first, so its DOI is already in the Hugging Face citation.`
+            : publishOrder.length > 1 ? 'Each repository continued from the one before it.' : null
+        const finished = publishTimes?.end ?? null
+        const tookSeconds = publishTimes && finished ? Math.max(0, Math.round((finished - publishTimes.start) / 1000)) : null
+        const when = finished
+          ? `${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(finished)} UTC`
+          : null
+        const took = tookSeconds === null ? null : tookSeconds >= 60 ? `${Math.floor(tookSeconds / 60)} min ${tookSeconds % 60} s` : `${tookSeconds} s`
+        const lastRepo = publishOrder[publishOrder.length - 1]
+        const packageDir = outputDirs[lastRepo] ?? null
+        const shortDir = packageDir ? `…/${packageDir.split('/').filter(Boolean).slice(-3).join('/')}` : null
+        const where = (repoId: RepoId) => repoSummary(repoId)?.split(' · ')[0] ?? null
+        const chip = 'text-xs font-medium px-2 py-0.5 rounded-full'
+        const smallBtn = 'px-3 py-1.5 text-sm font-semibold rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors'
+        const linkBtn = 'px-3 py-1.5 text-sm font-semibold rounded-lg border border-blue-400/50 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/70 transition-colors'
+        const hasLaterSync = !dryRun && (
+          (publishOrder.includes('zenodo') && !publishOrder.includes('hfh'))
+          || (publishOrder.includes('b2share') && !publishOrder.includes('hfh'))
+          || (publishOrder.includes('gbif') && !!progress.gbif?.doi)
+        )
+        return (
+          <div>
+            <h4 className="text-xl font-semibold flex items-center gap-2">
+              {dryRun ? 'Practice run complete!' : 'All done!'}
+              {dryRun && <DryRunBadge />}
+            </h4>
+            {(when || took) && <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1 mb-5">{[when, took && `took ${took}`].filter(Boolean).join(' · ')}</p>}
+
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-5 py-4">
+              <span className="w-9 h-9 flex-shrink-0 rounded-full bg-emerald-700 text-white flex items-center justify-center">
+                <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+              </span>
+              <div>
+                <p className="text-base font-semibold text-emerald-900 dark:text-emerald-200">{dryRun ? 'Simulated for' : 'Published to'} {joined}</p>
+                {subtitle && <p className="text-sm text-emerald-800/80 dark:text-emerald-300/80">{subtitle}</p>}
+              </div>
+            </div>
+
+            <section className="mt-5 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+              <h5 className="px-5 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800/60">Where it is now</h5>
+              <ul className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                {publishOrder.map((repoId) => {
+                  const option = REPO_OPTIONS.find((o) => o.value === repoId)
+                  if (!option) return null
+                  const repoProgress = progress[repoId]
+                  const repoUrl = repoProgress?.repoUrl ?? null
+                  const identifier = repoProgress?.doi ?? repoProgress?.pid ?? null
+                  return (
+                    <li key={repoId} className="px-5 py-4">
+                      <div className="flex items-start gap-3">
+                        <span className="w-9 h-9 flex-shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-lg">{option.emoji}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-2 flex-wrap text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                            {option.title}
+                            <span className={`${chip} bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400`}>{dryRun ? 'Simulated' : 'Published'}</span>
+                            {where(repoId) && <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">{where(repoId)}</span>}
+                          </p>
+                          {!dryRun && repoUrl && <p className="mt-1 text-sm font-mono text-blue-600 dark:text-blue-400 break-all">{repoUrl}</p>}
+                          {!dryRun && identifier && (
+                            <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{repoProgress?.doi ? 'DOI' : 'PID'} <span className="font-mono">{identifier}</span></p>
+                          )}
+                          {dryRun && outputDirs[repoId] && <p className="mt-1 text-sm font-mono text-zinc-500 dark:text-zinc-400 break-all">{outputDirs[repoId]}</p>}
+                          {!dryRun && repoUrl && (
+                            <div className="mt-3 flex gap-2 flex-wrap">
+                              <button type="button" className={smallBtn} onClick={() => { void navigator.clipboard?.writeText(repoUrl) }}>Copy link</button>
+                              <a href={repoUrl} target="_blank" rel="noreferrer" className={linkBtn}>Open in {option.title}</a>
+                            </div>
+                          )}
+                          {repoId === 'gbif' && !dryRun && (
+                            <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                              GBIF crawls new/updated endpoints within a few hours, not instantly — the dataset page
+                              above is live now, but the images/occurrences themselves will only show up there once
+                              that crawl finishes.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+
+            {packageDir && (
+              <section className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-zinc-200 dark:border-zinc-700 px-5 py-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{dryRun ? 'The files of the practice run' : 'Your copy of the prepared package'}</p>
+                  <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 break-all" title={packageDir}>{shortDir}</p>
+                  {openFolderError && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{openFolderError}</p>}
+                </div>
+                <button
+                  type="button" className={btnPrimary}
+                  onClick={() => {
+                    setOpenFolderError(null)
+                    api.openDirectory(packageDir).catch(() => setOpenFolderError("This computer can't open the folder from here — it is at the path above."))
+                  }}
+                >
+                  Open folder
+                </button>
+              </section>
+            )}
+
+            {dryRun && (
+              <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+                Adding a DOI to a dataset published earlier isn't available for a practice run (it would perform a real
+                Hugging Face Hub upload) — the DOI cross-referencing already ran, simulated, as part of it.
+              </p>
+            )}
+
+            {hasLaterSync && (
+              <section className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                <button
+                  type="button" aria-expanded={syncOpen} onClick={() => setSyncOpen((o) => !o)}
+                  className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
+                >
+                  <span>
+                    <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">Add this DOI to a dataset published earlier</span>
+                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">For a Hugging Face dataset that went online before this {doiSource ? titleOf(doiSource) : 'record'} record existed.</span>
+                  </span>
+                  <svg aria-hidden="true" className={`w-4 h-4 flex-shrink-0 text-zinc-500 transition-transform ${syncOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                <div hidden={!syncOpen} className="px-5 pb-5">
+                  {/* Only for a Hugging Face Hub dataset published in some OTHER
+                      run: when HFH is part of this one, the backend's own DOI
+                      populate step already wrote Zenodo's DOI/B2SHARE's PID into
+                      its CITATION.cff/README.md before tagging it — this manual
+                      form would instead push to "main" after the tag, leaving
+                      the two out of sync. */}
+                  {publishOrder.includes('zenodo') && !publishOrder.includes('hfh') && (
+                    <SyncDoiSection initialRecordId={recordIdFromUrl(progress.zenodo?.repoUrl)} />
+                  )}
+                  {publishOrder.includes('b2share') && !publishOrder.includes('hfh') && (
+                    <SyncPidSection initialRecordId={recordIdFromUrl(progress.b2share?.repoUrl)} />
+                  )}
+                  {/* Unlike Zenodo/B2SHARE, GBIF doesn't always have a DOI to
+                      sync — most organizations don't get one automatically (see
+                      gbif.register_gbif_dataset) — so this only shows up when
+                      this run's registration actually came back with one. When
+                      Hugging Face Hub published in the same run, the backend
+                      already synced it automatically (see publish_orchestrator's
+                      own post-lock step) — this then just confirms it happened
+                      instead of asking again for directory/repo/token already
+                      known from this same run. */}
+                  {publishOrder.includes('gbif') && progress.gbif?.doi && (
+                    <GBIFSyncDoiSection
+                      gbifOutputDir={outputDirs.gbif ?? ''}
+                      alreadySyncedRepoUrl={progress.gbif.doiSyncedToHfh ? progress.hfh?.repoUrl : null}
+                    />
+                  )}
+                </div>
+              </section>
+            )}
+
+            <div className="flex justify-between items-center mt-8">
+              <button type="button" className={btnOutline} onClick={handlePublishAgain}>Publish again</button>
+              <button type="button" className={btnPrimary} onClick={onFinish ?? handlePublishAgain}>Done</button>
+            </div>
           </div>
-
-          {!dryRun && (
-            <ul className="flex flex-col gap-2 mt-4">
-              {publishOrder.map((repoId) => {
-                const option = REPO_OPTIONS.find((o) => o.value === repoId)
-                const repoUrl = progress[repoId]?.repoUrl
-                if (!option || !repoUrl) return null
-                return (
-                  <li key={repoId} className="flex flex-col gap-1 text-sm">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span>{option.emoji}</span>
-                      <span className="font-semibold text-zinc-800 dark:text-zinc-200">{option.title}:</span>
-                      <a
-                        href={repoUrl} target="_blank" rel="noreferrer"
-                        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
-                      >
-                        {repoUrl}
-                      </a>
-                    </div>
-                    {repoId === 'gbif' && (
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 pl-6">
-                        GBIF crawls new/updated endpoints within a few hours, not instantly — the dataset page
-                        above is live now, but the images/occurrences themselves will only show up there once
-                        that crawl finishes.
-                      </p>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-
-          {dryRun ? (
-            <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
-              DOI/PID sync isn't available for a dry run (it would perform a real Hugging Face Hub
-              upload) — the DOI cross-referencing already ran, simulated, as part of this dry run.
-            </p>
-          ) : (
-            <>
-              {/* Only for a Hugging Face Hub dataset published in some OTHER
-                  run: when HFH is part of this one, the backend's own DOI
-                  populate step already wrote Zenodo's DOI/B2SHARE's PID into
-                  its CITATION.cff/README.md before tagging it — this manual
-                  form would instead push to "main" after the tag, leaving
-                  the two out of sync. */}
-              {publishOrder.includes('zenodo') && !publishOrder.includes('hfh') && (
-                <SyncDoiSection zenodoOutputDir={outputDirs.zenodo ?? ''} />
-              )}
-              {publishOrder.includes('b2share') && !publishOrder.includes('hfh') && (
-                <SyncPidSection b2shareOutputDir={outputDirs.b2share ?? ''} />
-              )}
-              {/* Unlike Zenodo/B2SHARE, GBIF doesn't always have a DOI to
-                  sync — most organizations don't get one automatically (see
-                  gbif.register_gbif_dataset) — so this only shows up when
-                  this run's registration actually came back with one. When
-                  Hugging Face Hub published in the same run, the backend
-                  already synced it automatically (see publish_orchestrator's
-                  own post-lock step) — this then just confirms it happened
-                  instead of asking again for directory/repo/token already
-                  known from this same run. */}
-              {publishOrder.includes('gbif') && progress.gbif?.doi && (
-                <GBIFSyncDoiSection
-                  gbifOutputDir={outputDirs.gbif ?? ''}
-                  alreadySyncedRepoUrl={progress.gbif.doiSyncedToHfh ? progress.hfh?.repoUrl : null}
-                />
-              )}
-            </>
-          )}
-
-          <button
-            type="button"
-            className="w-full mt-8 px-6 py-4 text-base font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            onClick={handlePublishAgain}
-          >
-            Publish again
-          </button>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Navigation */}
-      {step > 0 && !(step === 4 && publishStarted) && (
+      {step > 0 && !(step === 4 && publishStarted) && !(step === 1 && productType === 'yolo' && !resumingFetch) && !(step === 2 && metadataSteps && download.status === 'done') && (
         <div className="flex justify-between items-start mt-10">
-          <button type="button" className={btnOutline} onClick={() => setStep((s) => s - 1)}>
+          <button type="button" className={btnOutline} onClick={() => setStep((s) => (skipsPackageStep && s === 4 ? 2 : s - 1))}>
             Back
           </button>
 
@@ -2383,15 +2652,7 @@ export default function WizardPage({ resumeSession }: Props) {
               type="button"
               className={btnPrimary}
               onClick={handleContinueToPreprocessing}
-              disabled={
-                preprocessing
-                || (productType === 'camtrapdp' && (!dpNameValid || !dpVersionValid || organizationOptions.length === 0))
-                || (productType === 'yolo' && (!yoloDataset || !yoloMetadataValid(yoloMetadata) || organizationOptions.length === 0))
-                || !publicationReady
-                || (productType === 'yolo' && !isNewerVersion(yoloMetadata.version, previousVersion))
-                || (productType === 'camtrapdp' && previousVersion !== null && !isNewerVersion(dpVersion, previousVersion))
-                || (productType === 'camtrapdp' && (s3Wanted === null || (s3Wanted === true && !s3Config.remoteId)))
-              }
+              disabled={metadataContinueDisabled}
             >
               {preprocessing && <SmallSpinner />}
               {preprocessing ? (s3Progress?.status === 'running' ? 'Uploading images…' : 'Processing…') : 'Continue'}
@@ -2404,9 +2665,9 @@ export default function WizardPage({ resumeSession }: Props) {
             </button>
           )}
 
-          {step === 4 && !publishStarted && selectedRepos.size > 0 && (
+          {step === 4 && !publishStarted && selectedRepos.size > 0 && repoPart === 'order' && (
             <button type="button" className={btnPrimary} onClick={startConfiguring}>
-              Start publishing{dryRun ? ' (dry run)' : ''}
+              Check the settings<span aria-hidden="true"> →</span>
             </button>
           )}
         </div>

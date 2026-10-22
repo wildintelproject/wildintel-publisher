@@ -36,8 +36,8 @@ you to fill in the following fields:
       which B2SHARE mirrors here with its own (lower) real cap.
 - **Flow mode** — what you get back once publishing finishes, only relevant if another
   repository comes after this one in the publish order: the **prepared** package plus the
-  B2SHARE record data needed to sync the PID/DOI later (default), the **same as input**
-  unchanged, or a fresh copy **downloaded from** B2SHARE itself.
+  B2SHARE record data needed to sync the PID/DOI later (default) or the **same as input**
+  unchanged.
 
 Unlike Zenodo, B2SHARE only *submits* the record for moderator review — its PID/DOI may
 not be known yet once the wizard finishes (see the "When it's done" step of the
@@ -49,15 +49,18 @@ not be known yet once the wizard finishes (see the "When it's done" step of the
 If you publish B2SHARE separately from Hugging Face Hub (a different wizard run, or later
 after Hugging Face Hub was already published on its own — including once a pending
 moderator review finally resolves), this section — shown on the final "All done!" screen
-once B2SHARE has published — reflects the B2SHARE PID/DOI into the `CITATION.cff` of an
-*already-published* Hugging Face Hub export, and re-uploads just that changed file (plus
-`checksums-sha256.txt`). It's only shown when Hugging Face Hub isn't part of the same
+once B2SHARE has published — reads the PID/DOI from the B2SHARE record itself and reflects
+it into the `CITATION.cff` and `README.md` of an *already-published* Hugging Face Hub dataset.
+Those files are downloaded from the Hub, edited and uploaded back (with just their lines of
+`checksums-sha256.txt` updated), so no local folder is needed. It's only shown when Hugging Face Hub isn't part of the same
 run: when it is, the PID/DOI is already cross-referenced into it automatically, before its
 version is tagged.
 
 ![Sync PID/DOI form](img/web/b2share-sync-pid-form.png)
 
-- **Hugging Face Hub export directory** — read-only, taken from `settings.toml`.
+- **Environment** and **B2SHARE record ID** — the record whose PID/DOI is synced. The
+  environment comes from `settings.toml` and the ID is pre-filled from the record just
+  published; after a different run, type it or use **List what I published there**.
 - **User or organization** — pre-filled from `settings.toml`, same as the Hugging Face
   Hub form itself.
 - **Repository name** — **never pre-filled** — the dataset name is specific to each
@@ -69,6 +72,6 @@ PID/DOI is available on B2SHARE yet, a note to try again once the record is appr
 
 ![PID/DOI synced](img/web/b2share-sync-pid-done.png)
 
-This is the web equivalent of the CLI's `b2share sync-pid` — except the CLI only edits
-the local `CITATION.cff` and tells you to re-run `hfh upload` yourself; here the
-re-upload happens automatically.
+This is the web equivalent of the CLI's `b2share sync-pid` — except the CLI works on a local
+export folder and tells you to re-run `hfh upload` yourself; here the files are edited in the
+Hub repository directly.

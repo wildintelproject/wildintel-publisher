@@ -14,9 +14,7 @@ from wildintel_publisher.core.services.yolo_adapter import YoloEditableMetadata
 #   LICENSE, CITATION.cff, checksums, images/, zip) that were also written to
 #   the local staging directory.
 # - "passthrough": input_dir itself, unchanged — nothing new is written.
-# - "downloaded": a fresh copy downloaded back from the repo after a
-#   successful upload.
-OutputMode = Literal["prepared", "passthrough", "downloaded"]
+OutputMode = Literal["prepared", "passthrough"]
 
 
 class TrapperCredentials(BaseModel):
@@ -66,6 +64,16 @@ class CamtrapDPArchiveFetchRequest(BaseModel):
     # fetch_camtrap_dp_archive) — same "clear_cache" contract as Trapper's/
     # software's own source-fetching requests.
     clear_cache: bool = False
+
+
+class YoloStructureCheckRequest(BaseModel):
+    # The working copy a resolve-local-source call returned (see services.yolo_service).
+    input_dir: str
+
+
+class YoloDeepChecksRequest(YoloStructureCheckRequest):
+    # Ids of yolo_adapter.DEEP_CHECKS to run over every image.
+    checks: list[str]
 
 
 class LocalSourceResolveRequest(BaseModel):
@@ -257,8 +265,12 @@ class S3UploadRequest(BaseModel):
 
 
 class ZenodoSyncDoiRequest(BaseModel):
-    zenodo_output_dir: str
-    hfh_output_dir: str
+    # The deposition whose DOI is synced — read from Zenodo itself, so no
+    # local output folder is needed.
+    environment: str
+    deposition_id: int
+    # Blank means "use what's saved in settings.toml".
+    token: Optional[str] = None
     hfh_repo_id: str
     hfh_token: Optional[str] = None
 
@@ -302,8 +314,10 @@ class B2SharePublishRequest(BaseModel):
 
 
 class B2ShareSyncPidRequest(BaseModel):
-    b2share_output_dir: str
-    hfh_output_dir: str
+    # The record whose PID/DOI is synced — read from B2SHARE itself.
+    environment: str
+    record_id: str
+    token: Optional[str] = None
     hfh_repo_id: str
     hfh_token: Optional[str] = None
 
@@ -474,6 +488,10 @@ class ResumePublishRequest(BaseModel):
     repos: list[RepoPublishConfig]
     version: Optional[str] = None
     timeout: Optional[int] = None
+
+
+class OpenDirectoryRequest(BaseModel):
+    path: str
 
 
 class PickDirectoryRequest(BaseModel):

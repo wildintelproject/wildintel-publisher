@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from wildintel_publisher.web.schemas.requests import PickDirectoryRequest
+from wildintel_publisher.web.schemas.requests import OpenDirectoryRequest, PickDirectoryRequest
 from wildintel_publisher.web.services import native_dialog
 
 router = APIRouter(prefix="/api/fs", tags=["fs"])
@@ -58,3 +58,15 @@ def pick_directory(req: PickDirectoryRequest) -> dict:
     except native_dialog.NativeDialogUnavailable as exc:
         raise HTTPException(501, f"No native folder dialog available: {exc}") from exc
     return {"path": path}
+
+
+@router.post("/open-directory")
+def open_directory(req: OpenDirectoryRequest) -> dict:
+    """Shows a folder in this machine's file manager. 404 if it isn't a folder; 501 when there is no way to open one here."""
+    if not Path(req.path).expanduser().is_dir():
+        raise HTTPException(404, f"{req.path!r} is not a folder.")
+    try:
+        native_dialog.open_directory(str(Path(req.path).expanduser()))
+    except native_dialog.NativeDialogUnavailable as exc:
+        raise HTTPException(501, f"No file manager available: {exc}") from exc
+    return {"opened": True}

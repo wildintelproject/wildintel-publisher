@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ChoiceCards from './ChoiceCards'
+import { LockedChoice, Section } from './FormSection'
+import InstancePicker from './InstancePicker'
 import { preparedCoreFiles } from '../productFiles'
 import type { OutputMode, ProductType, Publication } from '../types'
 
@@ -81,6 +84,8 @@ interface Props {
    * publish order (see WizardPage), which has nothing to go back to. */
   onBack?: () => void
   backLabel?: string
+  /** Text of the button that confirms this form — "Looks good" on the wizard's settings check. */
+  continueLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
@@ -94,11 +99,11 @@ interface Props {
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
-export default function B2SharePublishForm({ dryRun, productType, publication, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function B2SharePublishForm({ dryRun, productType, publication, onOutputDirChange, initialConfig, onBack, backLabel, continueLabel = 'Continue', onConfigured }: Props) {
   const found = publication?.kind === 'version' ? publication.previous?.b2share ?? null : null
   const [form, setForm] = useState(() => ({
-    outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
-    environment: initialConfig?.environment ?? found?.environment ?? 'sandbox', communityId: initialConfig?.communityId ?? '',
+    outputDir: initialConfig?.outputDir ?? '',
+    environment: initialConfig?.environment ?? found?.environment ?? 'sandbox',
     existingRecordId: initialConfig?.existingRecordId ?? found?.record_id ?? '',
   }))
   const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
@@ -111,7 +116,6 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
   const [savedCommunityIds, setSavedCommunityIds] = useState<Record<string, string | null>>({})
   const hasSavedToken = savedTokens[form.environment as 'sandbox' | 'production'] ?? false
 
-  const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
   // Results of the "Search existing records" button below (see
   // handleSearchRecords) — the token's own published records on
   // form.environment, so the user can pick an existingRecordId from a list
@@ -121,8 +125,6 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
   const [recordSearch, setRecordSearch] = useState<{
     status: TestStatus; message: string; results: { id: string; title: string }[]
   }>({ status: 'idle', message: '', results: [] })
-
-  const b2shareTokenUrl = `https://${form.environment === 'sandbox' ? 'trng-b2share.eudat.eu' : 'b2share.eudat.eu'}/user/profile`
 
   // Prefill from settings.toml — the same file 'b2share config' reads/
   // writes on the CLI. The token itself is never sent to the frontend;
@@ -146,7 +148,6 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
           ...f,
           outputDir: config.output_dir,
           environment,
-          communityId: config.community_id_by_environment[environment] ?? f.communityId,
         }))
       })
       .catch(() => {})
@@ -162,26 +163,22 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
 
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
-    if (key === 'token') setTest({ status: 'idle', message: '' })
-    // The community belongs to an environment: switching shows the new one's own.
-    if (key === 'environment') setForm((f) => ({ ...f, communityId: savedCommunityIds[value] ?? '' }))
     // A stale result list would no longer reflect the environment it was
     // searched under.
     if (key === 'environment') setRecordSearch({ status: 'idle', message: '', results: [] })
   }
 
-  const canTest = form.token !== '' || hasSavedToken
-  const isTesting = test.status === 'testing'
+  const communityId = savedCommunityIds[form.environment] ?? ''
   const canContinue = (dryRun
     ? form.outputDir !== ''
-    : form.outputDir !== '' && form.communityId !== '' && (form.token !== '' || hasSavedToken))
+    : form.outputDir !== '' && communityId !== '' && hasSavedToken)
     // A new version must be created from the previous version's own record.
     && !(found && form.existingRecordId.trim() === '')
 
   async function handleSearchRecords() {
     setRecordSearch({ status: 'testing', message: '', results: [] })
     try {
-      const results = await api.b2shareRecords(form.environment, form.token)
+      const results = await api.b2shareRecords(form.environment, '')
       setRecordSearch({
         status: 'ok',
         message: results.length === 0 ? 'No published records found yet.' : '',
@@ -195,20 +192,9 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
     }
   }
 
-  async function handleTestToken() {
-    setTest({ status: 'testing', message: '' })
-    try {
-      await api.b2shareTestToken(form.token, form.environment)
-      setSavedTokens((t) => ({ ...t, [form.environment]: true })) // the backend saves environment/token on a successful test
-      setTest({ status: 'ok', message: 'Token verified.' })
-    } catch (e) {
-      setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the token.' })
-    }
-  }
-
   function handleContinue() {
     onConfigured({
-      token: form.token, environment: form.environment, communityId: form.communityId,
+      token: '', environment: form.environment, communityId,
       mirrorImages, outputMode, outputDir: form.outputDir,
       fitArchiveSize, maxZipFile: maxZipFile !== '' ? Number(maxZipFile) : undefined,
       minImageEdge: minImageEdge !== '' ? Number(minImageEdge) : 640,
@@ -232,69 +218,13 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div>
-          <label className={labelClass} htmlFor="b2share-environment">Environment</label>
-          <select
-            id="b2share-environment"
-            className={inputClass}
-            value={form.environment}
-            onChange={(e) => setField('environment', e.target.value)}
-          >
-            <option value="sandbox">Sandbox (testing)</option>
-            <option value="production">Production</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="b2share-community-id">Community UUID</label>
-          <input
-            id="b2share-community-id"
-            className={inputClass}
-            placeholder="EUDAT community UUID"
-            value={form.communityId}
-            onChange={(e) => setField('communityId', e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="mb-6">
-        <label className={labelClass} htmlFor="b2share-token">B2SHARE token</label>
-        <input
-          id="b2share-token"
-          type="password"
-          className={inputClass}
-          placeholder="••••••••"
-          value={form.token}
-          onChange={(e) => setField('token', e.target.value)}
-          autoComplete="current-password"
+      <Section title="Where to publish">
+        <InstancePicker
+          name="b2share-environment" repository="B2SHARE"
+          value={form.environment} onChange={(env) => setField('environment', env)}
+          hasToken={savedTokens} communities={savedCommunityIds} communityRequired dryRun={dryRun}
         />
-        {hasSavedToken && form.token === '' && (
-          <p className={hintClass}>Already saved — leave blank to reuse it.</p>
-        )}
-        <p className={hintClass}>
-          Get one at{' '}
-          <a href={b2shareTokenUrl} target="_blank" rel="noreferrer" className="underline">
-            {b2shareTokenUrl.replace('https://', '')}
-          </a>{' '}
-          (Applications → Personal access tokens).
-        </p>
-
-        {dryRun && <p className={hintClass + ' text-right'}>Not required for a dry run.</p>}
-        {!dryRun && (
-          <div className="flex justify-end mt-2">
-            <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
-              {isTesting && <SmallSpinner />}
-              {isTesting ? 'Testing…' : 'Test connection'}
-            </button>
-          </div>
-        )}
-        {!dryRun && test.status === 'ok' && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400 text-right mt-2">{test.message}</p>
-        )}
-        {!dryRun && test.status === 'error' && (
-          <p className="text-sm text-red-600 dark:text-red-400 text-right mt-2">{test.message}</p>
-        )}
-      </div>
+      </Section>
 
       {(publication?.kind === 'version' || (!publication && form.existingRecordId.trim() !== '')) && (
         <div className="mb-6">
@@ -311,7 +241,7 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
             />
             <button
               type="button" className={btnOutline}
-              disabled={!canTest || recordSearch.status === 'testing'}
+              disabled={!hasSavedToken || recordSearch.status === 'testing'}
               onClick={handleSearchRecords}
             >
               {recordSearch.status === 'testing' && <SmallSpinner />}
@@ -368,57 +298,29 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
         </div>
       )}
 
-      {productType === 'yolo' ? (
-        <div className="mb-4">
-          <span className={labelClass}>Mode</span>
-          <p className={hintClass}>
-            An AI Dataset's images and labels are always included in full — its images are local
-            files with no other host to link to, so Mirror and Link would be the same thing.
-          </p>
-        </div>
-      ) : (
-        <div className="mb-4">
-          <span className={labelClass}>Mode</span>
-          <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
-          <div className="flex flex-col gap-2">
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio"
-                name="b2share-mode"
-                className="mt-0.5"
-                checked={mirrorImages}
-                onChange={() => setMirrorImages(true)}
-              />
-              {productType === 'software' ? (
-                <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
-                  CITATION.cff) into a single zip.</span>
-              ) : (
-                <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-                  public images and bundles them inside B2SHARE's own camtrapdp.zip.</span>
-              )}
-            </label>
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio"
-                name="b2share-mode"
-                className="mt-0.5"
-                checked={!mirrorImages}
-                onChange={() => setMirrorImages(false)}
-              />
-              {productType === 'software' ? (
-                <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
-                  citing the GitHub repository directly — the source code itself is not copied here.</span>
-              ) : (
-                <span><strong>Link</strong> - the repository stores links to where the product's items
-                  (the images) already live on Hugging Face Hub, instead of a copy.</span>
-              )}
-            </label>
-          </div>
-        </div>
-      )}
+      <Section title="What gets uploaded">
+        {productType === 'yolo' ? (
+          <LockedChoice
+            title="Images and labels, in full."
+            description="Linking to the images isn't available because they are local files with no other host."
+          />
+        ) : (
+          <ChoiceCards
+            name="b2share-mode" label="What gets uploaded" layout="row"
+            value={mirrorImages ? 'self-contained' : 'link'}
+            onChoose={(mode) => setMirrorImages(mode === 'self-contained')}
+            options={productType === 'software' ? [
+              { value: 'self-contained', title: 'Self-contained', description: 'Bundles the whole repository (at the version cited in CITATION.cff) into a single zip.' },
+              { value: 'link', title: 'Reference only', description: 'Only README.md and CITATION.cff are uploaded, citing the GitHub repository directly — the source code itself is not copied here.' },
+            ] : [
+              { value: 'self-contained', title: 'Self-contained', description: "Downloads the public images and bundles them inside B2SHARE's own camtrapdp.zip." },
+              { value: 'link', title: 'Link', description: "The repository stores links to where the product's items (the images) already live on Hugging Face Hub, instead of a copy." },
+            ]}
+          />
+        )}
 
       {showArchiveSizeOptions && (
-        <div className="mb-4">
+        <div className="mt-4">
           <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer mb-2">
             <input
               type="checkbox"
@@ -460,56 +362,31 @@ export default function B2SharePublishForm({ dryRun, productType, publication, o
           )}
         </div>
       )}
+      </Section>
 
-      <div className="mb-4">
-        <span className={labelClass}>Flow mode</span>
-        <p className={hintClass + ' mb-2'}>What you'll get back once publishing finishes.</p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="b2share-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'prepared'}
-              onChange={() => setOutputMode('prepared')}
-            />
-            <span><strong>Prepared package</strong> - just {preparedCoreFiles(productType).what} with the
-              changes made while preparing and uploading, plus the B2SHARE record data (needed to
-              sync the PID/DOI here later) — no README, LICENSE, CITATION.cff,{' '}
-              {preparedCoreFiles(productType).imagesSeparate ? 'checksums or images' : 'or checksums'}.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="b2share-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'passthrough'}
-              onChange={() => setOutputMode('passthrough')}
-            />
-            <span><strong>Same as input</strong> - exactly what came in as input, unchanged.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="b2share-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'downloaded'}
-              onChange={() => setOutputMode('downloaded')}
-            />
-            <span><strong>Downloaded from repository</strong> - re-download the files from B2SHARE
-              after publishing.</span>
-          </label>
-        </div>
-      </div>
+      <Section title="What you get back when it finishes" hint="The next repository starts from this.">
+        <ChoiceCards
+          name="b2share-output-mode" label="What you get back when it finishes" layout="row"
+          value={outputMode}
+          onChoose={setOutputMode}
+          options={[
+            {
+              value: 'prepared', title: 'Prepared package',
+              description: `Just ${preparedCoreFiles(productType).what} with the changes made while preparing and uploading, plus the B2SHARE record data (needed to sync the PID/DOI here later) — no README, LICENSE, CITATION.cff, ${preparedCoreFiles(productType).imagesSeparate ? 'checksums or images' : 'or checksums'}.`,
+            },
+            { value: 'passthrough', title: 'Unchanged copy', description: 'Exactly what you started with, unchanged.' },
+          ]}
+        />
+      </Section>
 
-      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-end'}>
+      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-start'}>
         {onBack && (
           <button type="button" className={btnOutline} onClick={onBack}>
             {backLabel ?? '← Back'}
           </button>
         )}
-        <button type="button" className={btnPrimary} disabled={!canContinue} onClick={handleContinue}>
-          Continue
+        <button type="button" className={btnOutline} disabled={!canContinue} onClick={handleContinue}>
+          {continueLabel}
         </button>
       </div>
     </div>
@@ -524,8 +401,11 @@ type SyncStatus = 'idle' | 'running' | 'done' | 'error'
  * CITATION.cff. Self-contained: only needs the B2SHARE output directory,
  * everything else (HFH export dir/username/token) is read from settings.toml
  * or typed in here. */
-export function SyncPidSection({ b2shareOutputDir }: { b2shareOutputDir: string }) {
-  const [hfhOutputDir, setHfhOutputDir] = useState('')
+export function SyncPidSection({ initialRecordId = '' }: { initialRecordId?: string }) {
+  const [environment, setEnvironment] = useState('sandbox')
+  const [recordId, setRecordId] = useState(initialRecordId)
+  const [published, setPublished] = useState<{ id: string; title: string }[]>([])
+  const [listError, setListError] = useState<string | null>(null)
   const [hfUser, setHfUser] = useState('')
   const [repoName, setRepoName] = useState('')
   const [token, setToken] = useState('')
@@ -537,21 +417,30 @@ export function SyncPidSection({ b2shareOutputDir }: { b2shareOutputDir: string 
   const hfhRepoId = hfUser && repoName ? `${hfUser}/${repoName}` : ''
 
   useEffect(() => {
+    api.b2shareGetConfig().then((config) => setEnvironment(config.environment)).catch(() => {})
     api.hfhGetConfig()
       .then((config) => {
-        setHfhOutputDir(config.output_dir)
         setHfUser(config.username || '')
         setHasSavedToken(config.has_token)
       })
       .catch(() => {})
   }, [])
 
-  const canSync = hfhOutputDir !== '' && hfhRepoId !== '' && (token !== '' || hasSavedToken) && sync.status !== 'running'
+  const canSync = recordId.trim() !== '' && hfhRepoId !== '' && (token !== '' || hasSavedToken) && sync.status !== 'running'
+
+  async function handleList() {
+    setListError(null)
+    try {
+      setPublished(await api.b2shareRecords(environment, ''))
+    } catch (e) {
+      setListError(e instanceof Error ? e.message : 'Could not list what you published there.')
+    }
+  }
 
   async function handleSync() {
     setSync({ status: 'running', pid: null, repoUrl: null, error: null })
     try {
-      const result = await api.b2shareSyncPid({ b2shareOutputDir, hfhOutputDir, hfhRepoId, hfhToken: token })
+      const result = await api.b2shareSyncPid({ environment, recordId: recordId.trim(), hfhRepoId, hfhToken: token })
       setSync({ status: 'done', pid: result.pid, repoUrl: result.repo_url, error: null })
     } catch (e) {
       setSync({ status: 'error', pid: null, repoUrl: null, error: e instanceof Error ? e.message : 'Could not sync the PID/DOI.' })
@@ -584,12 +473,47 @@ export function SyncPidSection({ b2shareOutputDir }: { b2shareOutputDir: string 
       <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
       <h5 className="text-base font-semibold mb-1 text-zinc-700 dark:text-zinc-300">Sync PID/DOI to Hugging Face Hub</h5>
       <p className={hintClass + ' mb-4'}>
-        Reflects the B2SHARE PID/DOI in the CITATION.cff of an already-published Hugging Face Hub dataset.
+        Reflects the PID/DOI of a B2SHARE record, read from B2SHARE itself, in the CITATION.cff of an already-published Hugging Face Hub dataset.
       </p>
 
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className={labelClass} htmlFor="sync-b2share-environment">B2SHARE environment</label>
+          <select
+            id="sync-b2share-environment"
+            className={inputClass}
+            value={environment}
+            onChange={(e) => { setEnvironment(e.target.value); setPublished([]) }}
+          >
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="sync-b2share-record">B2SHARE record ID</label>
+          <input
+            id="sync-b2share-record"
+            className={inputClass}
+            placeholder="record id"
+            value={recordId}
+            onChange={(e) => setRecordId(e.target.value)}
+          />
+        </div>
+      </div>
       <div className="mb-4">
-        <span className={labelClass}>Hugging Face Hub export directory</span>
-        <p className="text-sm font-mono text-zinc-600 dark:text-zinc-400 break-all">{hfhOutputDir}</p>
+        <button type="button" className={btnOutline} onClick={handleList}>List what I published there</button>
+        {published.length > 0 && (
+          <select
+            aria-label="Published records"
+            className={inputClass + ' mt-2'}
+            value=""
+            onChange={(e) => setRecordId(e.target.value)}
+          >
+            <option value="">Pick one…</option>
+            {published.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.id})</option>)}
+          </select>
+        )}
+        {listError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{listError}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">

@@ -33,11 +33,12 @@ export function organizationPublisher(org: Organization): ProductPublisher {
   return { name: org.title, website: org.path ?? undefined, email: org.email ?? undefined }
 }
 
-/** Same rules as Camtrap DP's own publisher/rightsHolder rows (see
- * WizardPage): both are always set, to one of `organizations` — whichever
- * data.yaml already names, if it's one of them, else organizations[0]/[1].
- * Returns a warning for every value that gets replaced that way, so it's
- * never a silent surprise. */
+/** Publisher and rights holder are both always set: whatever data.yaml
+ * already names is kept — a name that isn't one of `organizations` is fine,
+ * the editor accepts any text — and a missing one defaults to
+ * organizations[0] (publisher) / [1] (rights holder), same as Camtrap DP's own
+ * rows (see WizardPage). Returns a warning when data.yaml lists several
+ * rights holders, since only one can be kept. */
 export function withOrganizationDefaults(
   metadata: YoloDataYamlMetadata, organizations: Organization[],
 ): { metadata: YoloDataYamlMetadata; warnings: string[] } {
@@ -46,30 +47,18 @@ export function withOrganizationDefaults(
   const defaultRightsHolder = organizations[1] ?? organizations[0]
   const warnings: string[] = []
 
-  const existingPublisher = metadata.publisher?.name
+  const existingPublisher = metadata.publisher?.name?.trim()
   const matchedPublisher = organizations.find((o) => o.title === existingPublisher)
-  if (existingPublisher && !matchedPublisher) {
-    warnings.push(
-      `"${existingPublisher}" is the publisher in data.yaml, but isn't one of the selectable organizations — ` +
-      `it will be replaced by "${defaultPublisher.title}" unless you choose another one below.`,
-    )
-  }
-  const existingHolders = metadata.copyright_holders
-  const matchedRightsHolder = organizations.find((o) => o.title === existingHolders[0])
-  if (existingHolders.length > 0 && !matchedRightsHolder) {
-    warnings.push(
-      `"${existingHolders[0]}" is the rights holder in data.yaml, but isn't one of the selectable organizations — ` +
-      `it will be replaced by "${defaultRightsHolder.title}" unless you choose another one below.`,
-    )
-  }
-  if (existingHolders.length > 1) {
-    warnings.push(`data.yaml lists ${existingHolders.length} rights holders — only one can be chosen here.`)
+  const holders = metadata.copyright_holders.filter((h) => h.trim())
+  if (holders.length > 1) {
+    warnings.push(`data.yaml lists ${holders.length} rights holders — only one can be chosen here.`)
   }
   return {
     metadata: {
       ...metadata,
-      publisher: organizationPublisher(matchedPublisher ?? defaultPublisher),
-      copyright_holders: [(matchedRightsHolder ?? defaultRightsHolder).title],
+      publisher: matchedPublisher ? organizationPublisher(matchedPublisher)
+        : existingPublisher ? metadata.publisher! : organizationPublisher(defaultPublisher),
+      copyright_holders: [holders[0] ?? defaultRightsHolder.title],
     },
     warnings,
   }

@@ -184,10 +184,17 @@ export interface AppSettings {
     config_file: string
     /** The level WILDINTEL_PUBLISHER_LOG_LEVEL sets instead, if any (read-only). */
     log_level_override: LogLevel | null
+    /** A folder of its own for the reports; null uses default_reports_dir. */
+    reports_dir: string | null
+    /** Where the reports go when reports_dir is blank (read-only). */
+    default_reports_dir: string
+    /** A folder of its own for the sessions; null uses default_sessions_dir. */
+    sessions_dir: string | null
+    default_sessions_dir: string
   }
   TRAPPER: {
     base_url: string | null
-    has_user_name: boolean
+    user_name: string | null
     has_user_password: boolean
     project_id: number | null
     download_workers: number
@@ -213,6 +220,9 @@ export interface AppSettings {
     environment: 'sandbox' | 'production' | null
     sandbox_communities: string | null
     production_communities: string | null
+    max_record_size_gb: number | null
+    max_files: number | null
+    max_file_size_gb: number | null
     has_sandbox_token: boolean
     has_production_token: boolean
   }
@@ -220,6 +230,9 @@ export interface AppSettings {
     environment: 'sandbox' | 'production' | null
     sandbox_community_id: string | null
     production_community_id: string | null
+    max_record_size_gb: number | null
+    max_files: number | null
+    max_file_size_gb: number | null
     has_sandbox_token: boolean
     has_production_token: boolean
   }
@@ -252,9 +265,9 @@ export interface AppSettings {
  * blank keeps the one already saved, same rule as everywhere else in this
  * app (see TrapperConnectionForm). */
 export interface AppSettingsUpdate {
-  GENERAL: { log_level: LogLevel }
+  GENERAL: { log_level: LogLevel; reports_dir: string | null; sessions_dir: string | null }
   CAMTRAPDP: AppSettings['CAMTRAPDP']
-  TRAPPER: Omit<AppSettings['TRAPPER'], 'has_user_name' | 'has_user_password'> & {
+  TRAPPER: Omit<AppSettings['TRAPPER'], 'has_user_password'> & {
     user_name: string | null
     user_password: string | null
   }
@@ -306,6 +319,8 @@ export interface YoloDataYamlMetadata {
   homepage?: string | null
   /** Appended to the README's Funding section, after the standard text. */
   funding?: string | null
+  /** Appended to the README's Acknowledgements section, after the standard text. */
+  acknowledgements?: string | null
   license?: ProductLicense | null
   authors: ProductAuthor[]
   /** Picked from PRODUCT.organizations, same as a Camtrap DP's own
@@ -353,10 +368,8 @@ export interface BrowseResult {
 /** What a publish task's final output_dir is (used to chain the next repo's
  * inputDir when publishing to more than one repository):
  * - 'prepared' (default): the local directory prepare/upload wrote to.
- * - 'passthrough': inputDir itself, unchanged — nothing new is written.
- * - 'downloaded': a fresh copy downloaded back from the repo after a
- *   successful publish. */
-export type OutputMode = 'prepared' | 'passthrough' | 'downloaded'
+ * - 'passthrough': inputDir itself, unchanged — nothing new is written. */
+export type OutputMode = 'prepared' | 'passthrough'
 
 /** One repo's worth of publish configuration — shared shape between
  * api.publishAllStart and api.resumePublishStart (see PublishSessionSummary
@@ -579,4 +592,67 @@ export interface Publication {
   kind: PublicationKind
   /** Only for kind 'version' — null until it's been looked up. */
   previous: PreviousVersion | null
+}
+
+// ── Reports ─────────────────────────────────────────────────────────────
+
+/** What a report was made of: a validation of a dataset, or a publication. */
+export type ReportKind = 'validation' | 'publication'
+
+/** One check of the dataset (validation) or of one repository (publication). */
+export interface ReportEntry {
+  identifier: string
+  check: string
+  status: 'ok' | 'failed' | 'warning'
+  message: string
+}
+
+export interface ReportCheck {
+  label: string
+  ok: number
+  failed: number
+  warnings: number
+}
+
+/** What a report says of itself — the list of reports. */
+export interface ReportSummary {
+  id: string
+  kind: ReportKind
+  title: string
+  created_at: string
+  source_dir: string | null
+  product_type: string | null
+  checked: number
+  totals: { entries: number; ok: number; failed: number; warnings: number }
+}
+
+export interface Report extends ReportSummary {
+  parameters: Record<string, unknown>
+  checks: Record<string, ReportCheck>
+  entries: ReportEntry[]
+}
+
+// ── YOLO checks ─────────────────────────────────────────────────────────
+
+/** One requirement of a YOLO dataset's structure, and how it stands. */
+export interface StructureCheck {
+  check: string
+  label: string
+  ok: boolean
+  message: string
+}
+
+/** The outcome of one of the deeper checks, run over every image. */
+export interface DeepCheckResult {
+  check: string
+  label: string
+  ok: boolean
+  message: string
+  /** How many things failed (images, classes or label lines, as the check says). */
+  total: number
+  /** The first of them. */
+  failures: string[]
+  truncated: boolean
+  /** What is wrong with each of them. */
+  failure_message: string
 }

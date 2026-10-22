@@ -103,9 +103,9 @@ def prepare(
             "either way, raising an error rather than letting the later upload to Zenodo fail."
         ),
     ),
-    max_zip_file: float = typer.Option(
-        zenodo_service.DEFAULT_MAX_ZIP_BYTES / 1024 ** 3, "--max-zip-file",
-        help="Camtrap DP + --self-contained only: camtrapdp.zip's own size budget, in GiB. Defaults to Zenodo's own per-file upload limit.",
+    max_zip_file: Optional[float] = typer.Option(
+        None, "--max-zip-file",
+        help="Camtrap DP + --self-contained only: camtrapdp.zip's own size budget, in GiB. Defaults to the per-file limit saved in the settings (ZENODO.max_file_size_gb), else the record's own.",
     ),
     min_image_edge: int = typer.Option(
         zenodo_service.DEFAULT_MIN_IMAGE_EDGE, "--min-image-edge",
@@ -130,7 +130,7 @@ def prepare(
             image_timeout=timeout,
             overwrite=overwrite,
             fit_archive_size=fit_archive_size,
-            max_zip_bytes=round(max_zip_file * 1024 ** 3),
+            max_zip_bytes=round(max_zip_file * 1024 ** 3) if max_zip_file else None,
             min_image_edge=min_image_edge,
         )
     except Exception as exc:

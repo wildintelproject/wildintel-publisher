@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import ZenodoPublishForm, { SyncDoiSection } from './ZenodoPublishForm'
+import { OPEN_SETTINGS_EVENT } from './InstancePicker'
 
 // Publishing a new version of something already published — where the existing-record field lives.
 const VERSION = { kind: 'version' as const, previous: null }
@@ -21,7 +22,7 @@ const mockedApi = vi.mocked(api)
 
 beforeEach(() => {
   mockedApi.zenodoGetConfig.mockResolvedValue({
-    environment: 'sandbox', communities: null, communities_by_environment: { sandbox: null, production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
+    environment: 'sandbox', communities: null, communities_by_environment: { sandbox: 'wildintel', production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: true },
   })
   mockedApi.hfhGetConfig.mockResolvedValue({
     username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
@@ -38,7 +39,7 @@ describe('ZenodoPublishForm', () => {
     render(<ZenodoPublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
 
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
-    expect(screen.getByLabelText('Environment')).toHaveValue('sandbox')
+    expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked()
   })
 
   it('shows a note that the linked HFH repository is detected automatically, in link mode', async () => {
@@ -55,14 +56,11 @@ describe('ZenodoPublishForm', () => {
     expect(screen.queryByLabelText('HFH user or organization')).not.toBeInTheDocument()
   })
 
-  it('enables Continue once a token is given, regardless of mode', async () => {
+  it('enables Continue once the settings hold a token, regardless of mode', async () => {
     const onOutputDirChange = vi.fn()
     render(<ZenodoPublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
 
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
-
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
 
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
@@ -70,17 +68,46 @@ describe('ZenodoPublishForm', () => {
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
   })
 
-  it('tests the token', async () => {
-    mockedApi.zenodoTestToken.mockResolvedValue({ ok: true })
+  it('has no token field, and links to the settings', async () => {
+    const onOutputDirChange = vi.fn()
+    const opened = vi.fn()
+    window.addEventListener(OPEN_SETTINGS_EVENT, opened)
+    render(<ZenodoPublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
+
+    expect(screen.queryByLabelText('Zenodo token')).not.toBeInTheDocument()
+    expect(screen.getByText(/sandbox token saved in settings/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /open the zenodo settings/i }))
+    expect(opened).toHaveBeenCalledTimes(1)
+    window.removeEventListener(OPEN_SETTINGS_EVENT, opened)
+  })
+
+  it('disables an instance whose token is missing and blocks Continue when the selected one has none', async () => {
+    mockedApi.zenodoGetConfig.mockResolvedValue({
+      environment: 'sandbox', communities: null, communities_by_environment: { sandbox: null, production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: true },
+    })
     const onOutputDirChange = vi.fn()
     render(<ZenodoPublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
 
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
+    expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeDisabled()
+    expect(screen.getByText('Add a Sandbox token first.')).toBeInTheDocument()
+    expect(screen.getByText(/no sandbox token is saved yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
-    expect(await screen.findByText('Token verified.')).toBeInTheDocument()
-    expect(mockedApi.zenodoTestToken).toHaveBeenCalledWith('zen_x', 'sandbox')
+    await userEvent.click(screen.getByRole('radio', { name: /^production/i }))
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
+  })
+
+  it('tells which communities the selected instance publishes to', async () => {
+    mockedApi.zenodoGetConfig.mockResolvedValue({
+      environment: 'sandbox', communities: null, communities_by_environment: { sandbox: 'wildintel, gbif', production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: true },
+    })
+    render(<ZenodoPublishForm publication={VERSION} onConfigured={vi.fn()} />)
+
+    expect(await screen.findByText('wildintel, gbif')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /^production/i }))
+    expect(screen.getByText(/not submitted to any community/i)).toBeInTheDocument()
   })
 
   it('reports the collected configuration when Continue is clicked', async () => {
@@ -89,28 +116,26 @@ describe('ZenodoPublishForm', () => {
     render(<ZenodoPublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
 
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.type(screen.getByLabelText('Communities'), 'wildintel')
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
 
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     expect(onConfigured).toHaveBeenCalledWith({
-      token: 'zen_x', environment: 'sandbox', communities: 'wildintel',
+      token: '', environment: 'sandbox', communities: 'wildintel',
       mirrorImages: false, outputMode: 'prepared', outputDir: '/zenodo/output',
       fitArchiveSize: true, maxZipFile: undefined, minImageEdge: 640,
       existingDepositionId: '',
     })
   })
 
-  it('keeps "Search existing depositions" disabled until a token is typed', async () => {
+  it('keeps "Search existing depositions" disabled while the environment has no saved token', async () => {
+    mockedApi.zenodoGetConfig.mockResolvedValue({
+      environment: 'production', communities: null, communities_by_environment: { sandbox: null, production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
+    })
     render(<ZenodoPublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^production/i })).toBeChecked())
 
     expect(screen.getByRole('button', { name: /search existing depositions/i })).toBeDisabled()
-
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    expect(screen.getByRole('button', { name: /search existing depositions/i })).toBeEnabled()
   })
 
   it('lists results and fills the deposition id when one is picked', async () => {
@@ -119,12 +144,11 @@ describe('ZenodoPublishForm', () => {
       { id: '222', title: 'Camera Trap Survey v2' },
     ])
     render(<ZenodoPublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
 
-    expect(mockedApi.zenodoDepositions).toHaveBeenCalledWith('sandbox', 'zen_x')
+    expect(mockedApi.zenodoDepositions).toHaveBeenCalledWith('sandbox', '')
     await screen.findByText('Camera Trap Survey v1')
     expect(screen.getByText('Camera Trap Survey v2')).toBeInTheDocument()
 
@@ -138,8 +162,7 @@ describe('ZenodoPublishForm', () => {
   it('reports no depositions found instead of an empty, silent list', async () => {
     mockedApi.zenodoDepositions.mockResolvedValue([])
     render(<ZenodoPublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
 
@@ -149,8 +172,7 @@ describe('ZenodoPublishForm', () => {
   it('shows an error message when the search itself fails', async () => {
     mockedApi.zenodoDepositions.mockRejectedValue(new Error('Zenodo returned an unexpected error.'))
     render(<ZenodoPublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
 
@@ -160,12 +182,11 @@ describe('ZenodoPublishForm', () => {
   it('clears stale results when the environment changes', async () => {
     mockedApi.zenodoDepositions.mockResolvedValue([{ id: '111', title: 'Camera Trap Survey v1' }])
     render(<ZenodoPublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
     await userEvent.click(screen.getByRole('button', { name: /search existing depositions/i }))
     await screen.findByText('Camera Trap Survey v1')
 
-    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+    await userEvent.click(screen.getByRole('radio', { name: /^production/i }))
 
     expect(screen.queryByText('Camera Trap Survey v1')).not.toBeInTheDocument()
   })
@@ -173,8 +194,7 @@ describe('ZenodoPublishForm', () => {
   it('sends the typed existing deposition id when Continue is clicked', async () => {
     const onConfigured = vi.fn()
     render(<ZenodoPublishForm publication={VERSION} onConfigured={onConfigured} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
     await userEvent.type(
       screen.getByLabelText('Zenodo record ID (leave blank to create a new deposition)'), '999',
     )
@@ -203,16 +223,15 @@ describe('ZenodoPublishForm', () => {
     expect(screen.queryByText(/camtrapdp\.zip/i)).not.toBeInTheDocument()
   })
 
-  it('offers no Mirror/Link choice for an AI Dataset and always reports Mirror', async () => {
+  it('offers no choice for an AI Dataset: a locked note and always reports Self-contained', async () => {
     const onConfigured = vi.fn()
     const onOutputDirChange = vi.fn()
     render(<ZenodoPublishForm publication={VERSION} productType="yolo" onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/zenodo/output'))
 
     expect(screen.queryByRole('radio', { name: /^link/i })).not.toBeInTheDocument()
-    expect(screen.getByText(/always included in full/i)).toBeInTheDocument()
+    expect(screen.getByText(/images and labels, in full/i)).toBeInTheDocument()
 
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
     await waitFor(() => expect(onConfigured).toHaveBeenCalledWith(expect.objectContaining({ mirrorImages: true })))
   })
@@ -227,7 +246,6 @@ describe('ZenodoPublishForm', () => {
     await userEvent.type(screen.getByLabelText('Archive size limit (GiB)'), '10')
     await userEvent.clear(screen.getByLabelText('Minimum image edge (px)'))
     await userEvent.type(screen.getByLabelText('Minimum image edge (px)'), '800')
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
 
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -261,16 +279,15 @@ describe('ZenodoPublishForm new dataset vs. new version', () => {
 
     const record = await screen.findByLabelText(/previous version's zenodo record id/i)
     expect(record).toHaveValue('609082')
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('production'))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^production/i })).toBeChecked())
 
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
     await userEvent.clear(record)
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
   })
 
   it('hides the existing-record field for a new dataset', async () => {
     render(<ZenodoPublishForm publication={{ kind: 'new', previous: null }} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     expect(screen.queryByLabelText(/zenodo record id/i)).not.toBeInTheDocument()
   })
@@ -288,9 +305,9 @@ describe('SyncDoiSection', () => {
       username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
     })
     mockedApi.zenodoSyncDoi.mockResolvedValue({ doi: '10.5281/zenodo.123', repo_url: 'https://huggingface.co/datasets/alice/dataset' })
-    render(<SyncDoiSection zenodoOutputDir="/zenodo/output" />)
+    render(<SyncDoiSection initialRecordId="1234" />)
 
-    await screen.findByText('/hfh/output')
+    await screen.findByDisplayValue('alice')
     expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
     expect(screen.getByLabelText('Repository name')).toHaveValue('') // not remembered — the dataset name is per-product
 
@@ -300,7 +317,7 @@ describe('SyncDoiSection', () => {
     const link = await screen.findByRole('link', { name: /huggingface\.co\/datasets\/alice\/dataset/i })
     expect(link.parentElement?.textContent).toContain('DOI synced to')
     expect(mockedApi.zenodoSyncDoi).toHaveBeenCalledWith({
-      zenodoOutputDir: '/zenodo/output', hfhOutputDir: '/hfh/output', hfhRepoId: 'alice/dataset', hfhToken: '',
+      environment: 'sandbox', depositionId: '1234', hfhRepoId: 'alice/dataset', hfhToken: '',
     })
   })
 
@@ -309,8 +326,8 @@ describe('SyncDoiSection', () => {
       username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
     })
     mockedApi.zenodoSyncDoi.mockRejectedValue(new Error('The Zenodo deposition is not published yet.'))
-    render(<SyncDoiSection zenodoOutputDir="/zenodo/output" />)
-    await screen.findByText('/hfh/output')
+    render(<SyncDoiSection initialRecordId="1234" />)
+    await screen.findByDisplayValue('alice')
 
     await userEvent.type(screen.getByLabelText('Repository name'), 'dataset')
     await userEvent.click(screen.getByRole('button', { name: /^sync doi$/i }))
@@ -327,7 +344,7 @@ describe('SyncDoiSection', () => {
     expect(screen.queryByLabelText(/zenodo record id/i)).not.toBeInTheDocument()
   })
 
-  it('describes the prepared package with the dataset\'s own files, not Camtrap DP\'s, for an AI dataset', () => {
+  it('describes the prepared package with the dataset\'s own files, not Camtrap DP\'s, for an AI dataset', async () => {
     const { unmount } = render(<ZenodoPublishForm productType="yolo" onConfigured={vi.fn()} />)
     expect(screen.getByText(/data\.yaml, images\/, labels\//)).toBeInTheDocument()
     expect(screen.queryByText(/camtrap dp/i)).not.toBeInTheDocument()

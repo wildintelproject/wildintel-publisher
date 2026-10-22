@@ -32,9 +32,9 @@ from typing import Any
 
 import httpx
 from dynaconf import loaders
-from huggingface_hub import upload_file
 from wildintel_publisher.core.config import active_config_file, get_zenodo_output_dir, load_settings
 from wildintel_publisher.core.services import product
+from wildintel_publisher.web.services import hfh_service
 from wildintel_publisher.core.services import zenodo as zenodo_service
 
 ZENODO_TOKEN_ENV_VAR = "ZENODO_TOKEN"
@@ -153,9 +153,8 @@ def search_depositions(environment: str, token: str, query: str | None) -> list[
 
 def download_files_from_zenodo(*, environment: str, deposition_id: int, token: str, target_dir: Path) -> Path:
     """Downloads the deposition's current files (the ones that were just
-    uploaded/published) into `target_dir` — used by output_mode='downloaded'
-    to hand the next repo in the publish order a verified, actually-
-    round-tripped copy instead of the local staging directory."""
+    uploaded/published) into `target_dir` — used by the publish orchestrator
+    when a repo's build directory is gone and a file is needed back."""
     api_base_url = f"{_zenodo_base_url(environment)}/api"
     deposition = zenodo_service.get_deposition(api_base_url, token, deposition_id)
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -233,8 +232,6 @@ def start_publish_task(
     the frontend as the next repo's inputDir when chaining publish steps):
     - 'prepared' (default): output_dir itself (the core Camtrap DP files).
     - 'passthrough': input_dir itself, unchanged — nothing new is written.
-    - 'downloaded': a fresh copy downloaded back from the Zenodo deposition
-      after a successful publish (see download_files_from_zenodo).
     """
     task_id = str(uuid.uuid4())
     _publish_tasks[task_id] = {
@@ -265,14 +262,6 @@ def start_publish_task(
             final_output_dir = str(output_dir)
             if output_mode == "passthrough":
                 final_output_dir = str(input_dir)
-            elif output_mode == "downloaded":
-                _publish_tasks[task_id]["stage"] = "downloading"
-                download_dir = output_dir.parent / f"{output_dir.name}-downloaded"
-                await asyncio.to_thread(
-                    download_files_from_zenodo, environment=environment,
-                    deposition_id=record["deposition_id"], token=token, target_dir=download_dir,
-                )
-                final_output_dir = str(download_dir)
 
             _publish_tasks[task_id] = {
                 "status": "done", "stage": "done", "doi": record.get("doi"), "record_url": record.get("record_url"),
@@ -295,37 +284,48 @@ def get_publish_task_status(task_id: str) -> dict[str, Any] | None:
 
 
 def sync_doi_to_hfh(
-    *, zenodo_output_dir: Path, hfh_output_dir: Path, hfh_repo_id: str, hfh_token: str,
+    *, environment: str, deposition_id: int, token: str, hfh_repo_id: str, hfh_token: str,
 ) -> dict:
-    """Reflects the already-published Zenodo DOI in the HFH export's
-    CITATION.cff/README.md/checksums (reusing wildintel_publisher.core.services.
-    zenodo.sync_doi_to_hfh — which also patches README.md's own "## Citation"
-    section, see common.patch_readme_citation_url), and re-uploads just
-    those changed files to the given HuggingFace Hub repo — the CLI's own
-    'zenodo sync-doi' stops at the local edit and tells the user to re-run
-    'hfh upload' themselves.
+    """Reflects the already-published Zenodo DOI in the CITATION.cff/README.md/
+    checksums of a published Hugging Face Hub dataset (reusing
+    wildintel_publisher.core.services.zenodo.sync_doi_to_hfh — which also
+    patches README.md's own "## Citation" section, see
+    common.patch_readme_citation_url), editing those files in the Hub repo
+    itself (see hfh_service.sync_in_repo).
+
+    The DOI is read from the Zenodo deposition (`environment` +
+    `deposition_id`), not from a local output folder: a publication's last
+    repository writes none (see publish._drop_the_last_output), and the
+    record may have been published from another computer. The record is
+    written to a throwaway folder only because the core function reads it
+    from there.
 
     Returns:
         {"doi": "...", "repo_url": "https://huggingface.co/datasets/..."}
 
     Raises:
-        RuntimeError: if the Zenodo deposition isn't published yet, or the
-        HFH export hasn't been prepared (see zenodo.sync_doi_to_hfh), or if
-        the HuggingFace Hub upload fails.
+        RuntimeError: if the Zenodo deposition isn't published yet or can't
+        be fetched, or the Hub repo has no CITATION.cff, or the upload fails.
     """
-    doi = zenodo_service.sync_doi_to_hfh(zenodo_output_dir=zenodo_output_dir, hfh_output_dir=hfh_output_dir)
+    api_base_url = f"{_zenodo_base_url(environment)}/api"
+    deposition = zenodo_service.get_deposition(api_base_url, token, deposition_id)
+    record = {
+        "environment": environment,
+        "deposition_id": deposition_id,
+        "doi": zenodo_service.extract_reserved_doi(deposition),
+        "record_url": deposition.get("links", {}).get("record_html") or deposition.get("links", {}).get("html")
+        or f"{_zenodo_base_url(environment)}/deposit/{deposition_id}",
+        "published": zenodo_service.is_already_published(deposition),
+    }
 
-    for filename in ("CITATION.cff", "README.md", "checksums-sha256.txt"):
-        file_path = hfh_output_dir / filename
-        if not file_path.is_file():
-            continue
-        upload_file(
-            path_or_fileobj=str(file_path),
-            path_in_repo=filename,
-            repo_id=hfh_repo_id,
-            repo_type="dataset",
-            token=hfh_token,
-            commit_message=f"Sync Zenodo DOI ({doi}) via wildintel-publisher",
-        )
+    def edit(hfh_dir: Path) -> str:
+        with tempfile.TemporaryDirectory() as record_dir:
+            zenodo_service._write_record(Path(record_dir), record)
+            return zenodo_service.sync_doi_to_hfh(zenodo_output_dir=Path(record_dir), hfh_output_dir=hfh_dir)
+
+    doi = hfh_service.sync_in_repo(
+        repo_id=hfh_repo_id, token=hfh_token, edit=edit,
+        commit_message=f"Sync Zenodo DOI ({record['doi']}) via wildintel-publisher",
+    )
 
     return {"doi": doi, "repo_url": f"https://huggingface.co/datasets/{hfh_repo_id}"}

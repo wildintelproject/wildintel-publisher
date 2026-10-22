@@ -1,0 +1,14 @@
+{# "Acknowledgements" section of the YOLO README body (see
+   README-yolo-body.md.j2) — same design as _readme-funding.md.j2: a fixed
+   text that is always injected, plus the optional free text from
+   data.yaml's "acknowledgements" key appended after it. Keeps a trailing
+   blank line on purpose, for the same reason as the funding section. #}
+## Acknowledgements
+
+We thank everyone who took part in the fieldwork, image collection and annotation behind this
+dataset, and the [WildINTEL project](https://wildintel.eu/) partners for their support.
+{% if acknowledgements_extra %}
+
+{{ acknowledgements_extra }}
+{% endif %}
+

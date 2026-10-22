@@ -21,7 +21,7 @@ const mockedApi = vi.mocked(api)
 
 beforeEach(() => {
   mockedApi.b2shareGetConfig.mockResolvedValue({
-    environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: null, production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
+    environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: 'uuid-1', production: 'uuid-2' }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: true },
   })
   mockedApi.hfhGetConfig.mockResolvedValue({
     username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
@@ -38,7 +38,7 @@ describe('B2SharePublishForm', () => {
     render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
 
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
-    expect(screen.getByLabelText('Environment')).toHaveValue('sandbox')
+    expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked()
   })
 
   it('shows a note that the linked HFH repository is detected automatically, in link mode — no field to type it in', async () => {
@@ -55,41 +55,43 @@ describe('B2SharePublishForm', () => {
     expect(screen.queryByLabelText('HFH repository name')).not.toBeInTheDocument()
   })
 
-  it('requires a community UUID even in mirror mode', async () => {
+  it('has no token or community field, and links to the settings', async () => {
     const onOutputDirChange = vi.fn()
     render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    expect(screen.queryByLabelText('B2SHARE token')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Community UUID')).not.toBeInTheDocument()
+    expect(screen.getByText('uuid-1')).toBeInTheDocument()
+    expect(screen.getByText(/sandbox token saved in settings/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open the b2share settings/i })).toBeInTheDocument()
+  })
+
+  it('needs a community saved in the settings for the selected instance, even in mirror mode', async () => {
+    mockedApi.b2shareGetConfig.mockResolvedValue({
+      environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: null, production: 'uuid-2' }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: true },
+    })
+    const onOutputDirChange = vi.fn()
+    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
+    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
+
+    expect(screen.getByText(/no community is saved for sandbox yet/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
-    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
+    await userEvent.click(screen.getByRole('radio', { name: /^production/i }))
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
   })
 
-  it('allows continuing in link mode even without a community UUID filled in yet being irrelevant to detection', async () => {
+  it('disables an instance whose token is missing in the settings', async () => {
+    mockedApi.b2shareGetConfig.mockResolvedValue({
+      environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: 'uuid-1', production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: false },
+    })
     const onOutputDirChange = vi.fn()
     render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
-    await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
-
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
-  })
-
-  it('tests the token', async () => {
-    mockedApi.b2shareTestToken.mockResolvedValue({ ok: true })
-    const onOutputDirChange = vi.fn()
-    render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
-
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
-
-    expect(await screen.findByText('Token verified.')).toBeInTheDocument()
-    expect(mockedApi.b2shareTestToken).toHaveBeenCalledWith('b2_x', 'sandbox')
+    expect(screen.getByRole('radio', { name: /^production/i })).toBeDisabled()
+    expect(screen.getByText('Add a Production token first.')).toBeInTheDocument()
   })
 
   it('reports the collected configuration when Continue is clicked', async () => {
@@ -98,28 +100,26 @@ describe('B2SharePublishForm', () => {
     render(<B2SharePublishForm publication={VERSION} onOutputDirChange={onOutputDirChange} onConfigured={onConfigured} />)
     await waitFor(() => expect(onOutputDirChange).toHaveBeenCalledWith('/b2share/output'))
 
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
 
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     expect(onConfigured).toHaveBeenCalledWith({
-      token: 'b2_x', environment: 'sandbox', communityId: 'uuid-1',
+      token: '', environment: 'sandbox', communityId: 'uuid-1',
       mirrorImages: false, outputMode: 'prepared', outputDir: '/b2share/output',
       fitArchiveSize: true, maxZipFile: undefined, minImageEdge: 640,
       existingRecordId: '',
     })
   })
 
-  it('keeps "Search existing records" disabled until a token is typed', async () => {
+  it('keeps "Search existing records" disabled while the environment has no saved token', async () => {
+    mockedApi.b2shareGetConfig.mockResolvedValue({
+      environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: 'uuid-1', production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
+    })
     render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     expect(screen.getByRole('button', { name: /search existing records/i })).toBeDisabled()
-
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    expect(screen.getByRole('button', { name: /search existing records/i })).toBeEnabled()
   })
 
   it('lists results and fills the record id when one is picked', async () => {
@@ -128,12 +128,11 @@ describe('B2SharePublishForm', () => {
       { id: 'rec-2', title: 'Camera Trap Survey v2' },
     ])
     render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
 
-    expect(mockedApi.b2shareRecords).toHaveBeenCalledWith('sandbox', 'b2_x')
+    expect(mockedApi.b2shareRecords).toHaveBeenCalledWith('sandbox', '')
     await screen.findByText('Camera Trap Survey v1')
     expect(screen.getByText('Camera Trap Survey v2')).toBeInTheDocument()
 
@@ -147,8 +146,7 @@ describe('B2SharePublishForm', () => {
   it('reports no records found instead of an empty, silent list', async () => {
     mockedApi.b2shareRecords.mockResolvedValue([])
     render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
 
@@ -158,8 +156,7 @@ describe('B2SharePublishForm', () => {
   it('shows an error message when the search itself fails', async () => {
     mockedApi.b2shareRecords.mockRejectedValue(new Error('B2SHARE returned an unexpected error.'))
     render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
 
     await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
 
@@ -169,12 +166,11 @@ describe('B2SharePublishForm', () => {
   it('clears stale results when the environment changes', async () => {
     mockedApi.b2shareRecords.mockResolvedValue([{ id: 'rec-1', title: 'Camera Trap Survey v1' }])
     render(<B2SharePublishForm publication={VERSION} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
     await userEvent.click(screen.getByRole('button', { name: /search existing records/i }))
     await screen.findByText('Camera Trap Survey v1')
 
-    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'production')
+    await userEvent.click(screen.getByRole('radio', { name: /^production/i }))
 
     expect(screen.queryByText('Camera Trap Survey v1')).not.toBeInTheDocument()
   })
@@ -182,9 +178,7 @@ describe('B2SharePublishForm', () => {
   it('sends the typed existing record id when Continue is clicked', async () => {
     const onConfigured = vi.fn()
     render(<B2SharePublishForm publication={VERSION} onConfigured={onConfigured} />)
-    await waitFor(() => expect(screen.getByLabelText('Environment')).toHaveValue('sandbox'))
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^sandbox/i })).toBeChecked())
     await userEvent.type(
       screen.getByLabelText('B2SHARE record ID (leave blank to create a new draft)'), 'rec-old',
     )
@@ -223,8 +217,6 @@ describe('B2SharePublishForm', () => {
     await userEvent.type(screen.getByLabelText('Archive size limit (GiB)'), '5')
     await userEvent.clear(screen.getByLabelText('Minimum image edge (px)'))
     await userEvent.type(screen.getByLabelText('Minimum image edge (px)'), '800')
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
 
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -252,9 +244,9 @@ describe('SyncPidSection', () => {
       username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
     })
     mockedApi.b2shareSyncPid.mockResolvedValue({ pid: '10.5072/b2share.123', repo_url: 'https://huggingface.co/datasets/alice/dataset' })
-    render(<SyncPidSection b2shareOutputDir="/b2share/output" />)
+    render(<SyncPidSection initialRecordId="1234" />)
 
-    await screen.findByText('/hfh/output')
+    await screen.findByDisplayValue('alice')
     expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
     expect(screen.getByLabelText('Repository name')).toHaveValue('') // not remembered — the dataset name is per-product
 
@@ -264,7 +256,7 @@ describe('SyncPidSection', () => {
     const link = await screen.findByRole('link', { name: /huggingface\.co\/datasets\/alice\/dataset/i })
     expect(link.parentElement?.textContent).toContain('PID/DOI synced to')
     expect(mockedApi.b2shareSyncPid).toHaveBeenCalledWith({
-      b2shareOutputDir: '/b2share/output', hfhOutputDir: '/hfh/output', hfhRepoId: 'alice/dataset', hfhToken: '',
+      environment: 'sandbox', recordId: '1234', hfhRepoId: 'alice/dataset', hfhToken: '',
     })
   })
 
@@ -273,8 +265,8 @@ describe('SyncPidSection', () => {
       username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
     })
     mockedApi.b2shareSyncPid.mockResolvedValue({ pid: null, repo_url: 'https://huggingface.co/datasets/alice/dataset' })
-    render(<SyncPidSection b2shareOutputDir="/b2share/output" />)
-    await screen.findByText('/hfh/output')
+    render(<SyncPidSection initialRecordId="1234" />)
+    await screen.findByDisplayValue('alice')
 
     await userEvent.type(screen.getByLabelText('Repository name'), 'dataset')
     await userEvent.click(screen.getByRole('button', { name: /^sync pid\/doi$/i }))
@@ -287,8 +279,8 @@ describe('SyncPidSection', () => {
       username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
     })
     mockedApi.b2shareSyncPid.mockRejectedValue(new Error('The B2SHARE record is not prepared yet.'))
-    render(<SyncPidSection b2shareOutputDir="/b2share/output" />)
-    await screen.findByText('/hfh/output')
+    render(<SyncPidSection initialRecordId="1234" />)
+    await screen.findByDisplayValue('alice')
 
     await userEvent.type(screen.getByLabelText('Repository name'), 'dataset')
     await userEvent.click(screen.getByRole('button', { name: /^sync pid\/doi$/i }))

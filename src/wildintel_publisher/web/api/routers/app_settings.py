@@ -13,7 +13,7 @@ from wildintel_publisher.core import logging_setup
 from wildintel_publisher.web.services import camtrapdp_service
 from wildintel_publisher.core.config import (
     B2ShareSettings, CamtrapDPSettings, GBIFSettings, HFHSettings, ProductSettings, S3Remote, Settings, TrapperSettings,
-    ZenodoSettings, active_config_file, config_file_for, create_config, list_configs, load_settings, save_settings,
+    ZenodoSettings, active_config_file, default_reports_dir, default_sessions_dir, config_file_for, create_config, list_configs, load_settings, save_settings,
     set_active_config,
 )
 
@@ -52,6 +52,8 @@ def _public(settings: Settings) -> dict:
     data["GENERAL"]["log_file"] = str(logging_setup.log_file())
     data["GENERAL"]["log_level_override"] = logging_setup.env_override()
     data["GENERAL"]["config_file"] = str(active_config_file())
+    data["GENERAL"]["default_reports_dir"] = str(default_reports_dir())
+    data["GENERAL"]["default_sessions_dir"] = str(default_sessions_dir())
     return data
 
 

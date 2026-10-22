@@ -266,36 +266,6 @@ def test_publish_output_mode_passthrough_reports_input_dir_as_output(tmp_path):
     mock_upload.assert_called_once()
 
 
-def test_publish_output_mode_downloaded_fetches_from_the_repo(tmp_path):
-    from wildintel_publisher.web.main import app
-    fake_output_dir = tmp_path / "hfh"
-
-    def fake_prepare(*, input_dir, output_dir, **kwargs):
-        _write_fake_metadata_json(output_dir)
-        return output_dir
-
-    with (
-        patch("wildintel_publisher.web.services.hfh_service.hfh_service.prepare_hfh_export", side_effect=fake_prepare),
-        patch("wildintel_publisher.web.services.hfh_service.hfh_service.upload_to_huggingface", return_value="url"),
-        patch("wildintel_publisher.web.services.hfh_service.hfh_service.tag_release_on_huggingface", return_value=None),
-        patch("wildintel_publisher.web.services.hfh_service.hfh_service.release_on_huggingface", return_value=True),
-        patch("wildintel_publisher.web.services.hfh_service.snapshot_download") as mock_snapshot_download,
-    ):
-        with TestClient(app) as client:
-            start = client.post("/api/hfh/publish", json={
-                "input_dir": "/tmp/camtrapdp", "output_dir": str(fake_output_dir),
-                "repo_id": "alice/dataset", "token": "hf_x", "output_mode": "downloaded",
-            })
-            task_id = start.json()["task_id"]
-            body = _poll_publish(client, task_id)
-
-    expected_download_dir = str(fake_output_dir.parent / f"{fake_output_dir.name}-downloaded")
-    assert body["output_dir"] == expected_download_dir
-    mock_snapshot_download.assert_called_once_with(
-        repo_id="alice/dataset", repo_type="dataset", token="hf_x", local_dir=expected_download_dir,
-    )
-
-
 def test_publish_reports_error_status_on_failure(tmp_path):
     from wildintel_publisher.web.main import app
 

@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from wildintel_publisher.core.services import product
-from wildintel_publisher.core.services.yolo_adapter import YoloAdapter
+from wildintel_publisher.core.services.yolo_adapter import YoloAdapter, dataset_root
 
 
 def _write_yolo_dataset(root: Path, *, data_yaml_extra: dict | None = None, with_test_split: bool = True) -> Path:
@@ -271,22 +271,38 @@ def test_link_media_to_hfh_is_a_no_op(tmp_path):
     assert adapter.link_media_to_hfh(output_dir, "alice/dataset") == 0
 
 
-def test_bundle_local_zip_packs_data_yaml_and_images_but_not_generated_files(tmp_path):
+def _zip_names(directory) -> dict[str, set[str]]:
     import zipfile
 
+    return {z.name: set(zipfile.ZipFile(z).namelist()) for z in sorted(directory.glob("*.zip"))}
+
+
+def test_bundle_local_zip_packs_the_dataset_in_a_single_zip_but_not_generated_files(tmp_path):
     output_dir = _write_yolo_dataset(tmp_path / "yolo")
     (output_dir / "README.md").write_text("# hi", encoding="utf-8")
     (output_dir / "metadata.json").write_text("{}", encoding="utf-8")
-    zip_path = output_dir / "yolo-local.zip"
 
-    YoloAdapter().bundle_local_zip(output_dir, output_dir, zip_path, embed_images=True)  # input_dir unused here
+    YoloAdapter().bundle_local_zip(output_dir, output_dir, output_dir / "yolo.zip", embed_images=True)
 
-    with zipfile.ZipFile(zip_path) as zf:
-        names = set(zf.namelist())
-    assert "data.yaml" in names
-    assert "images/train/img0.jpg" in names
-    assert "README.md" not in names
-    assert "metadata.json" not in names
+    zips = _zip_names(output_dir)
+    assert list(zips) == ["yolo.zip"]
+    assert {"data.yaml", "images/train/img0.jpg"} <= zips["yolo.zip"]
+    assert "README.md" not in zips["yolo.zip"] and "metadata.json" not in zips["yolo.zip"]
+
+
+def test_extract_core_files_unpacks_every_zip_when_the_loose_files_are_gone(tmp_path):
+    import shutil
+
+    output_dir = _write_yolo_dataset(tmp_path / "yolo")
+    expected = {p.relative_to(output_dir).as_posix() for p in output_dir.rglob("*") if p.is_file()}
+    YoloAdapter().bundle_local_zip(output_dir, output_dir, output_dir / "yolo.zip", embed_images=True)
+    for entry in list(output_dir.iterdir()):
+        if entry.suffix != ".zip":
+            shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+
+    YoloAdapter().extract_core_files(output_dir, tmp_path / "chain")
+
+    assert {p.relative_to(tmp_path / "chain").as_posix() for p in (tmp_path / "chain").rglob("*") if p.is_file()} == expected
 
 
 def test_readme_context_reads_class_count_and_names_from_data_yaml(tmp_path):
@@ -648,18 +664,24 @@ def test_extract_core_files_carries_extras_but_not_generated_files(tmp_path):
 
 
 def test_zip_only_leaves_out_top_level_generated_files(tmp_path):
-    import zipfile
-
     output_dir = _write_yolo_dataset(tmp_path / "out")
     (output_dir / "README.md").write_text("generated", encoding="utf-8")
     (output_dir / "additional_info").mkdir()
     (output_dir / "additional_info" / "README.md").write_text("theirs", encoding="utf-8")
 
-    zip_path = tmp_path / "x.zip"
-    YoloAdapter().bundle_local_zip(output_dir, output_dir, zip_path, embed_images=True)
+    YoloAdapter().bundle_local_zip(output_dir, output_dir, output_dir / "yolo.zip", embed_images=True)
 
-    names = zipfile.ZipFile(zip_path).namelist()
+    names = _zip_names(output_dir)["yolo.zip"]
     assert "additional_info/README.md" in names and "README.md" not in names
+
+
+def test_the_readme_context_lists_the_zip_that_will_be_built(tmp_path):
+    output_dir = _write_yolo_dataset(tmp_path / "out")
+
+    listed = [part["name"] for part in YoloAdapter().readme_context(output_dir)["zip_parts"]]
+
+    YoloAdapter().bundle_local_zip(output_dir, output_dir, output_dir / "yolo.zip", embed_images=True)
+    assert listed == [p.name for p in output_dir.glob("*.zip")] == ["yolo.zip"]
 
 
 def test_funding_round_trips_through_the_editor_and_reaches_the_readme_context(tmp_path):
@@ -686,3 +708,279 @@ def test_funding_extra_is_appended_to_the_shared_funding_section():
 
     assert render(funding_extra="Also funded by **Foo**.").rstrip().endswith("(Germany).\n\nAlso funded by **Foo**.")
     assert render().rstrip().endswith("(Germany).")
+
+
+def test_acknowledgements_round_trips_through_the_editor_and_reaches_the_readme_context(tmp_path):
+    from wildintel_publisher.core.services.yolo_adapter import (
+        YoloEditableMetadata, read_editable_fields, update_editable_fields,
+    )
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    assert read_editable_fields(root)["acknowledgements"] is None
+    assert YoloAdapter().readme_context(root)["acknowledgements_extra"] == ""
+
+    update_editable_fields(root, YoloEditableMetadata(acknowledgements="Thanks to **Foo**.", authors=[{"name": "Jane"}], license={"id": "MIT"}))
+
+    assert read_editable_fields(root)["acknowledgements"] == "Thanks to **Foo**."
+    assert YoloAdapter().readme_context(root)["acknowledgements_extra"] == "Thanks to **Foo**."
+    assert "acknowledgements" not in YoloAdapter().extract_metadata(root)
+
+
+def test_acknowledgements_extra_is_appended_to_the_fixed_acknowledgements_section():
+    from wildintel_publisher.core.services import common
+
+    render = lambda **kw: common._jinja_env.from_string('{% include "common/_readme-acknowledgements.md.j2" %}').render(**kw)
+
+    assert "## Acknowledgements" in render()
+    assert render(acknowledgements_extra="Thanks to **Foo**.").rstrip().endswith("\n\nThanks to **Foo**.")
+    assert "Thanks to **Foo**." not in render()
+
+
+def test_structure_checks_pass_one_by_one_for_a_well_formed_dataset(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    checks = yolo_adapter.structure_checks(_write_yolo_dataset(tmp_path / "yolo"))
+
+    assert [c["check"] for c in checks] == ["data_yaml", "config", "classes", "images", "labels"]
+    assert all(c["ok"] for c in checks)
+    assert "nc is 2 and 2 classes" in checks[2]["message"]
+    assert "train: 2" in checks[3]["message"] and "val: 1" in checks[3]["message"]
+    assert "no labels/ folder" in checks[4]["message"].lower()
+
+
+def test_structure_checks_say_what_is_wrong_and_what_could_not_be_checked(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    missing = yolo_adapter.structure_checks(tmp_path / "nothing")
+    assert [c["ok"] for c in missing] == [False] * 5
+    assert "data.yaml" in missing[0]["message"] and missing[1]["message"].startswith("Not checked")
+
+    root = _write_yolo_dataset(tmp_path / "yolo", data_yaml_extra={"train": "somewhere/else"})
+    bad = yolo_adapter.structure_checks(root)
+    assert [c["ok"] for c in bad] == [True, False, False, False, False]
+    assert "images/train" in bad[1]["message"]
+
+    root = _write_yolo_dataset(tmp_path / "noval")
+    for image in (root / "images" / "val").iterdir():
+        image.unlink()
+    assert [c["ok"] for c in yolo_adapter.structure_checks(root)] == [True, True, True, False, True]
+
+
+def test_structure_checks_flag_a_malformed_label_file(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    (root / "labels" / "train").mkdir(parents=True)
+    (root / "labels" / "train" / "img0.txt").write_text("0 0.5 0.5 1.5 0.1\n", encoding="utf-8")
+
+    labels = yolo_adapter.structure_checks(root)[4]
+    assert not labels["ok"] and "img0.txt:1" in labels["message"]
+
+
+def test_the_images_without_a_label_file_are_listed(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    for split, names in (("train", ["img0"]), ("val", ["img0"]), ("test", ["img0"])):
+        (root / "labels" / split).mkdir(parents=True, exist_ok=True)
+        for name in names:
+            (root / "labels" / split / f"{name}.txt").write_text("0 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+
+    [result] = yolo_adapter.run_deep_checks(root, ["image_labels"])
+
+    assert not result["ok"] and result["total"] == 1 and result["failures"] == ["images/train/img1.jpg"]
+    assert "1 of 4 images" in result["message"]
+    with pytest.raises(RuntimeError, match="Unknown"):
+        yolo_adapter.run_deep_checks(root, ["nope"])
+
+
+def test_every_image_labelled_passes_the_deep_check(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    for split in ("train", "val", "test"):
+        (root / "labels" / split).mkdir(parents=True, exist_ok=True)
+        for image in (root / "images" / split).iterdir():
+            (root / "labels" / split / f"{image.stem}.txt").write_text("", encoding="utf-8")
+
+    [result] = yolo_adapter.run_deep_checks(root, ["image_labels"])
+    assert result["ok"] and result["failures"] == [] and result["message"] == "All 4 images have a label file."
+
+
+def test_nc_that_disagrees_with_the_names_is_its_own_failed_check_and_does_not_hide_the_others(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    checks = yolo_adapter.structure_checks(_write_yolo_dataset(tmp_path / "yolo", data_yaml_extra={"nc": 5}))
+
+    assert [c["ok"] for c in checks] == [True, True, False, True, True]
+    assert checks[2]["message"] == "nc is 5 but names lists 2 classes."
+
+
+def _label_everything(root, content="0 0.5 0.5 0.1 0.1\n"):
+    for split in ("train", "val", "test"):
+        (root / "labels" / split).mkdir(parents=True, exist_ok=True)
+        for image in (root / "images" / split).iterdir():
+            (root / "labels" / split / f"{image.stem}.txt").write_text(content, encoding="utf-8")
+
+
+def test_a_declared_class_that_never_appears_in_the_labels_is_listed(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    _label_everything(root)  # only class 0 (cat) is used
+
+    [used] = yolo_adapter.run_deep_checks(root, ["class_use"])
+
+    assert not used["ok"] and used["failures"] == ["dog (class 1)"]
+    assert used["message"] == "1 of 2 declared classes never appear in the 4 label files."
+
+
+def test_a_label_using_an_undeclared_class_is_listed_with_its_line(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    _label_everything(root)
+    (root / "labels" / "val" / "img0.txt").write_text("0 0.5 0.5 0.1 0.1\n7 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+
+    [ids] = yolo_adapter.run_deep_checks(root, ["class_ids"])
+
+    assert not ids["ok"] and ids["failures"] == ["labels/val/img0.txt:2 (class 7)"]
+    clean = _write_yolo_dataset(tmp_path / "clean")
+    _label_everything(clean)
+    [ok] = yolo_adapter.run_deep_checks(clean, ["class_ids"])
+    assert ok["ok"]
+
+
+def test_a_label_file_without_an_image_is_an_orphan(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    _label_everything(root)
+    (root / "labels" / "train" / "ghost.txt").write_text("0 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+    (root / "labels" / "val" / "img0.txt").unlink()  # an image without a label is another check
+
+    [orphans] = yolo_adapter.run_deep_checks(root, ["orphan_labels"])
+
+    assert not orphans["ok"] and orphans["failures"] == ["labels/train/ghost.txt"]
+    assert orphans["message"] == "1 of 4 label files have no image."
+    assert orphans["failure_message"] == "No image with this name in the same split."
+
+
+def test_the_label_name_must_match_the_image_in_the_same_split(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    _label_everything(root)
+    (root / "labels" / "val" / "img0.txt").rename(root / "labels" / "test" / "elsewhere.txt")
+
+    results = {r["check"]: r for r in yolo_adapter.run_deep_checks(root, ["image_labels", "orphan_labels"])}
+
+    assert results["orphan_labels"]["failures"] == ["labels/test/elsewhere.txt"]
+    assert results["image_labels"]["failures"] == ["images/val/img0.jpg"]
+
+
+def test_a_dataset_whose_labels_all_have_an_image_passes_the_orphan_check(tmp_path):
+    from wildintel_publisher.core.services import yolo_adapter
+
+    root = _write_yolo_dataset(tmp_path / "yolo")
+    _label_everything(root)
+
+    [result] = yolo_adapter.run_deep_checks(root, ["orphan_labels"])
+
+    assert result["ok"] and result["message"] == "All 4 label files have an image."
+
+
+def test_prepare_hardlinks_images_and_labels_instead_of_copying_them(tmp_path):
+    source = _write_yolo_dataset(tmp_path / "yolo")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    YoloAdapter().prepare(source, output_dir, mirror=True, image_timeout=1)
+
+    assert (output_dir / "images" / "train" / "img0.jpg").samefile(source / "images" / "train" / "img0.jpg")
+    assert not (output_dir / "data.yaml").samefile(source / "data.yaml")  # data.yaml is edited later: a real copy
+
+
+def test_prepare_copies_the_images_when_they_cannot_be_hardlinked(tmp_path, monkeypatch):
+    import os
+
+    def no_link(*args, **kwargs):
+        raise OSError("Invalid cross-device link")
+
+    source = _write_yolo_dataset(tmp_path / "yolo")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    monkeypatch.setattr(os, "link", no_link)
+
+    YoloAdapter().prepare(source, output_dir, mirror=True, image_timeout=1)
+
+    copied = output_dir / "images" / "train" / "img0.jpg"
+    assert copied.read_bytes() == (source / "images" / "train" / "img0.jpg").read_bytes()
+    assert not copied.samefile(source / "images" / "train" / "img0.jpg")
+
+
+def test_bundling_a_hardlinked_build_leaves_the_original_dataset_untouched(tmp_path):
+    source = _write_yolo_dataset(tmp_path / "yolo")
+    before = sorted(p.relative_to(source).as_posix() for p in source.rglob("*"))
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    adapter = YoloAdapter()
+
+    adapter.prepare(source, output_dir, mirror=True, image_timeout=1)
+    adapter.bundle_local_zip(source, output_dir, output_dir / "yolo.zip", embed_images=True)
+    import shutil
+    for entry in list(output_dir.iterdir()):
+        if entry.name != "yolo.zip":
+            shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+
+    assert sorted(p.relative_to(source).as_posix() for p in source.rglob("*")) == before
+    assert (source / "images" / "train" / "img0.jpg").is_file()
+
+
+
+def test_prepare_in_place_copies_no_media_and_points_at_the_dataset(tmp_path):
+    source = _write_yolo_dataset(tmp_path / "yolo")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    YoloAdapter().prepare(source, output_dir, mirror=True, image_timeout=1, media_in_place=True)
+
+    assert not (output_dir / "images").exists() and not (output_dir / "labels").exists()
+    assert (output_dir / "data.yaml").is_file()
+    assert dataset_root(output_dir) == source.resolve()
+
+
+def test_an_in_place_build_is_zipped_straight_from_the_dataset(tmp_path):
+    source = _write_yolo_dataset(tmp_path / "yolo")
+    before = sorted(p.relative_to(source).as_posix() for p in source.rglob("*"))
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    adapter = YoloAdapter()
+
+    adapter.prepare(source, output_dir, mirror=True, image_timeout=1, media_in_place=True)
+    adapter.bundle_local_zip(source, output_dir, output_dir / "yolo.zip", embed_images=True)
+
+    names = _zip_names(output_dir)["yolo.zip"]
+    assert {"data.yaml", "images/train/img0.jpg"} <= names
+    assert "yolo-source.json" not in names
+    assert sorted(p.relative_to(source).as_posix() for p in source.rglob("*")) == before
+
+
+def test_extract_core_files_of_an_in_place_build_hands_on_just_the_small_files(tmp_path):
+    import shutil
+
+    source = _write_yolo_dataset(tmp_path / "yolo")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    adapter = YoloAdapter()
+    adapter.prepare(source, output_dir, mirror=True, image_timeout=1, media_in_place=True)
+    adapter.bundle_local_zip(source, output_dir, output_dir / "yolo.zip", embed_images=True)
+    for entry in list(output_dir.iterdir()):
+        if entry.name not in ("yolo.zip", "yolo-source.json"):
+            shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+
+    adapter.extract_core_files(output_dir, tmp_path / "next")
+
+    assert not (tmp_path / "next" / "images").exists()
+    assert (tmp_path / "next" / "data.yaml").is_file()
+    assert dataset_root(tmp_path / "next") == source.resolve()

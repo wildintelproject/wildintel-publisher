@@ -59,6 +59,7 @@ from rich.console import Console
 
 from wildintel_publisher.core.config import B2ShareSettings, REPO_ROOT
 from wildintel_publisher.core.services import common, product
+from wildintel_publisher.core.services.yolo_adapter import plan_zip_parts
 
 console = Console()
 
@@ -209,6 +210,9 @@ def prepare_b2share_export(
     adapter.prepare(
         input_dir, output_dir, mirror=self_contained, image_timeout=image_timeout,
         media_dir=media_dir, media_cache_dir=media_cache_dir,
+        # A YOLO dataset ends up in a zip anyway: its images are zipped straight from where they
+        # are, not copied here first.
+        **({"media_in_place": True} if adapter.product_type == product.YOLO else {}),
     )
     product.copy_metadata_json(input_dir, output_dir)
 
@@ -248,10 +252,21 @@ def prepare_b2share_export(
     )
     if self_contained:
         zip_filename = _self_contained_zip_filename(adapter.product_type)
-        zip_size_limit = max_zip_bytes or DEFAULT_MAX_ZIP_BYTES
+        # An explicit size wins; else the settings' own per-file limit; else the repo's real cap.
+        zip_size_limit = (
+            max_zip_bytes or common.gb_to_bytes(metadata.max_file_size_gb) or common.gb_to_bytes(metadata.max_record_size_gb)
+            or DEFAULT_MAX_ZIP_BYTES
+        )
         if adapter.product_type == product.CAMTRAPDP and fit_archive_size:
             common.fit_images_to_size(
                 output_dir / common.IMAGES_DIRNAME, target_bytes=zip_size_limit, min_edge=min_image_edge,
+            )
+        if adapter.product_type == product.YOLO:
+            # The zip is only built if it can fit: its size is known from the files it will hold.
+            common.check_repository_limits(
+                output_dir, repository="B2SHARE", max_record_bytes=common.gb_to_bytes(metadata.max_record_size_gb),
+                max_files=metadata.max_files, max_file_bytes=max_zip_bytes or common.gb_to_bytes(metadata.max_file_size_gb),
+                planned=[(zip_filename, plan_zip_parts(output_dir)[0].size)],
             )
         adapter.bundle_local_zip(input_dir, output_dir, output_dir / zip_filename, embed_images=True)
         common.cleanup_self_contained_sources(output_dir, adapter, product_meta, zip_filename)
@@ -275,6 +290,11 @@ def prepare_b2share_export(
         # needing Hugging Face Hub published in the same run.
         common.write_remote_zip(output_dir)
     common.write_checksums(output_dir)
+    common.check_repository_limits(
+        output_dir, repository="B2SHARE", max_record_bytes=common.gb_to_bytes(metadata.max_record_size_gb),
+        max_files=metadata.max_files,
+        max_file_bytes=max_zip_bytes or common.gb_to_bytes(metadata.max_file_size_gb),
+    )
 
     mode = "self-contained (with images, exactly like zenodo)" if self_contained else (
         "linked to HuggingFace Hub" if hfh_repo_id else "no image handling"
@@ -761,7 +781,7 @@ def upload_to_b2share(
     # meant to be part of the published record itself.
     files = sorted(
         p for p in output_dir.iterdir()
-        if p.is_file() and p.name not in (RECORD_FILENAME, product.METADATA_FILENAME)
+        if p.is_file() and p.name not in (RECORD_FILENAME, *product.BOOKKEEPING_FILENAMES)
     )
     to_upload = [p for p in files if p.name not in already_uploaded]
     for file_path in files:

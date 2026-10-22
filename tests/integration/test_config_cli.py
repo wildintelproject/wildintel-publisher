@@ -12,10 +12,10 @@ runner = CliRunner()
 # Field counts (in model declaration order) — see config.py.
 TRAPPER_FIELD_COUNT = 7
 CAMTRAPDP_FIELD_COUNT = 6
-GENERAL_FIELD_COUNT = 1
+GENERAL_FIELD_COUNT = 3
 HFH_FIELD_COUNT = 5
-ZENODO_FIELD_COUNT = 5
-B2SHARE_FIELD_COUNT = 5
+ZENODO_FIELD_COUNT = 8
+B2SHARE_FIELD_COUNT = 8
 
 
 @pytest.fixture(autouse=True)

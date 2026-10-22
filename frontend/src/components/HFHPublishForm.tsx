@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ChoiceCards from './ChoiceCards'
+import { LockedChoice, Section } from './FormSection'
+import { SettingsLink } from './InstancePicker'
 import { preparedCoreFiles } from '../productFiles'
 import type { OutputMode, ProductType, Publication } from '../types'
 
@@ -58,6 +61,8 @@ interface Props {
    * publish order (see WizardPage), which has nothing to go back to. */
   onBack?: () => void
   backLabel?: string
+  /** Text of the button that confirms this form — "Looks good" on the wizard's settings check. */
+  continueLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
@@ -74,22 +79,20 @@ function slugifyRepoName(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '')
 }
 
-export default function HFHPublishForm({ productType, publication, productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function HFHPublishForm({ productType, publication, productTitle, productVersion, dryRun, onOutputDirChange, initialConfig, onBack, backLabel, continueLabel = 'Continue', onConfigured }: Props) {
   const found = publication?.kind === 'version' ? publication.previous?.hfh ?? null : null
   const [form, setForm] = useState(() => {
     if (!initialConfig) {
       const [hfUser, repoName] = found ? found.repo_id.split('/') : ['', '']
-      return { outputDir: '', hfUser: hfUser ?? '', repoName: repoName ?? '', token: '' }
+      return { outputDir: '', hfUser: hfUser ?? '', repoName: repoName ?? '' }
     }
     const [hfUser, repoName] = initialConfig.repoId.split('/')
-    return { outputDir: initialConfig.outputDir, hfUser: hfUser ?? '', repoName: repoName ?? '', token: initialConfig.token }
+    return { outputDir: initialConfig.outputDir, hfUser: hfUser ?? '', repoName: repoName ?? '' }
   })
   const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
   const [outputMode, setOutputMode] = useState<OutputMode>(initialConfig?.outputMode ?? 'passthrough')
   const [priv, setPriv] = useState(initialConfig?.priv ?? false)
   const [hasSavedToken, setHasSavedToken] = useState(false)
-
-  const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
 
   const repoId = form.hfUser && form.repoName ? `${form.hfUser}/${form.repoName}` : ''
 
@@ -161,40 +164,19 @@ export default function HFHPublishForm({ productType, publication, productTitle,
     // 'namespace/repo_name'").
     const sanitized = key === 'hfUser' || key === 'repoName' ? value.replace(/\//g, '') : value
     setForm((f) => ({ ...f, [key]: sanitized }))
-    if (key === 'token' || key === 'hfUser' || key === 'repoName') setTest({ status: 'idle', message: '' })
   }
 
-  const canTest = repoId !== '' && (form.token !== '' || hasSavedToken)
-  const isTesting = test.status === 'testing'
   const canContinue = dryRun
     ? form.outputDir !== ''
-    : repoId !== '' && form.outputDir !== '' && (form.token !== '' || hasSavedToken)
-
-  async function handleTestToken() {
-    setTest({ status: 'testing', message: '' })
-    try {
-      const result = await api.hfhTestToken(repoId, form.token, productVersion)
-      setHasSavedToken(true) // the backend saves repo_id/token on a successful test
-      if (result.version_conflict) {
-        setTest({
-          status: 'warning',
-          message: `Connected as ${result.username}. Version ${productVersion} has already been published to `
-            + `${repoId} — bump metadata.json's version before publishing again.`,
-        })
-      } else {
-        setTest({ status: 'ok', message: `Connected as ${result.username}.` })
-      }
-    } catch (e) {
-      setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the token.' })
-    }
-  }
+    : repoId !== '' && form.outputDir !== '' && hasSavedToken
 
   function handleContinue() {
-    onConfigured({ repoId, token: form.token, priv, mirrorImages, outputMode, outputDir: form.outputDir })
+    onConfigured({ repoId, token: '', priv, mirrorImages, outputMode, outputDir: form.outputDir })
   }
 
   return (
     <div>
+      <Section title="Where to publish">
       <div className="grid grid-cols-2 gap-4 mb-1.5">
         <div>
           <label className={labelClass} htmlFor="hfh-user">User or organization</label>
@@ -253,138 +235,60 @@ export default function HFHPublishForm({ productType, publication, productTitle,
         </label>
       </div>
 
-      <div className="mb-6">
-        <label className={labelClass} htmlFor="hfh-token">HuggingFace Hub token</label>
-        <input
-          id="hfh-token"
-          type="password"
-          className={inputClass}
-          placeholder="••••••••"
-          value={form.token}
-          onChange={(e) => setField('token', e.target.value)}
-          autoComplete="current-password"
-        />
-        {hasSavedToken && form.token === '' && (
-          <p className={hintClass}>Already saved — leave blank to reuse it.</p>
-        )}
-        <p className={hintClass}>
-          Get one at{' '}
-          <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer" className="underline">
-            huggingface.co/settings/tokens
-          </a>{' '}
-          (write permission).
-        </p>
-
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
         {dryRun ? (
-          <p className={hintClass + ' text-right'}>Not required for a dry run.</p>
+          'No token is needed for a practice run.'
+        ) : hasSavedToken ? (
+          'Published with the Hugging Face Hub token saved in Settings.'
         ) : (
-          <div className="flex justify-end mt-2">
-            <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
-              {isTesting && <SmallSpinner />}
-              {isTesting ? 'Testing…' : 'Test connection'}
-            </button>
-          </div>
+          <span className="text-amber-600 dark:text-amber-400">No Hugging Face Hub token is saved yet.</span>
         )}
-        {test.status === 'ok' && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400 text-right mt-2">{test.message}</p>
-        )}
-        {test.status === 'warning' && (
-          <p className="text-sm text-amber-600 dark:text-amber-400 text-right mt-2">⚠ {test.message}</p>
-        )}
-        {test.status === 'error' && (
-          <p className="text-sm text-red-600 dark:text-red-400 text-right mt-2">{test.message}</p>
-        )}
-      </div>
+      </p>
+      <SettingsLink repository="Hugging Face Hub" />
+      </Section>
 
-      {productType === 'yolo' ? (
-        <div className="mb-4">
-          <span className={labelClass}>Mode</span>
-          <p className={hintClass}>
-            An AI Dataset's images and labels are always included in full — its images are local
-            files with no other host to link to, so Mirror and Link would be the same thing.
-          </p>
-        </div>
-      ) : (
-        <div className="mb-4">
-          <span className={labelClass}>Mode</span>
-          <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
-          <div className="flex flex-col gap-2">
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio"
-                name="hfh-mode"
-                className="mt-0.5"
-                checked={mirrorImages}
-                onChange={() => setMirrorImages(true)}
-              />
-              <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-                images and re-uploads them to Hugging Face Hub, rewriting media.csv to point to them.</span>
-            </label>
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio"
-                name="hfh-mode"
-                className="mt-0.5"
-                checked={!mirrorImages}
-                onChange={() => setMirrorImages(false)}
-              />
-              <span><strong>Link</strong> - the repository stores links to where the product's items
-                (the images) already live, instead of a copy; media.csv keeps pointing at the original
-                file locations.</span>
-            </label>
-          </div>
-        </div>
-      )}
+      <Section title="What gets uploaded">
+        {productType === 'yolo' ? (
+          <LockedChoice
+            title="Images and labels, in full."
+            description="Linking to the images isn't available because they are local files with no other host."
+          />
+        ) : (
+          <ChoiceCards
+            name="hfh-mode" label="What gets uploaded" layout="row"
+            value={mirrorImages ? 'self-contained' : 'link'}
+            onChoose={(mode) => setMirrorImages(mode === 'self-contained')}
+            options={[
+              { value: 'self-contained', title: 'Self-contained', description: 'Downloads the images and re-uploads them to Hugging Face Hub, rewriting media.csv to point to them.' },
+              { value: 'link', title: 'Link', description: "The repository stores links to where the product's images already live, instead of a copy; media.csv keeps pointing at the original file locations." },
+            ]}
+          />
+        )}
+      </Section>
 
-      <div className="mb-4">
-        <span className={labelClass}>Flow mode</span>
-        <p className={hintClass + ' mb-2'}>What you'll get back once publishing finishes.</p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="hfh-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'prepared'}
-              onChange={() => setOutputMode('prepared')}
-            />
-            <span><strong>Prepared package</strong> - just {preparedCoreFiles(productType).what} with the
-              changes made while preparing and uploading, plus CITATION.cff/README.md/checksums
-              (needed to sync a DOI/PID here later) — no LICENSE,{' '}
-              {preparedCoreFiles(productType).imagesSeparate ? 'images or the local zip' : 'or the local zip'}.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="hfh-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'passthrough'}
-              onChange={() => setOutputMode('passthrough')}
-            />
-            <span><strong>Same as input</strong> - exactly what came in as input, unchanged.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="hfh-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'downloaded'}
-              onChange={() => setOutputMode('downloaded')}
-            />
-            <span><strong>Downloaded from repository</strong> - re-download the files from Hugging Face
-              Hub after publishing.</span>
-          </label>
-        </div>
-      </div>
+      <Section title="What you get back when it finishes" hint="The next repository starts from this.">
+        <ChoiceCards
+          name="hfh-output-mode" label="What you get back when it finishes" layout="row"
+          value={outputMode}
+          onChoose={setOutputMode}
+          options={[
+            {
+              value: 'prepared', title: 'Prepared package',
+              description: `Just ${preparedCoreFiles(productType).what} with the changes made while preparing and uploading, plus CITATION.cff/README.md/checksums (needed to sync a DOI/PID here later) — no LICENSE, ${preparedCoreFiles(productType).imagesSeparate ? 'images or the local zip' : 'or the local zip'}.`,
+            },
+            { value: 'passthrough', title: 'Unchanged copy', description: 'Exactly what you started with, unchanged.' },
+          ]}
+        />
+      </Section>
 
-      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-end'}>
+      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-start'}>
         {onBack && (
           <button type="button" className={btnOutline} onClick={onBack}>
             {backLabel ?? '← Back'}
           </button>
         )}
-        <button type="button" className={btnPrimary} disabled={!canContinue} onClick={handleContinue}>
-          Continue
+        <button type="button" className={btnOutline} disabled={!canContinue} onClick={handleContinue}>
+          {continueLabel}
         </button>
       </div>
     </div>

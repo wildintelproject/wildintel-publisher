@@ -21,10 +21,11 @@ import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional, TypeVar
 
 from dynaconf import loaders
-from huggingface_hub import HfApi, snapshot_download, whoami
+from huggingface_hub import HfApi, hf_hub_download, snapshot_download, upload_file, whoami
+from huggingface_hub.utils import EntryNotFoundError
 from wildintel_publisher.core.config import active_config_file, get_hfh_output_dir, load_settings
 from wildintel_publisher.core.services import common as camtrapdp_common
 from wildintel_publisher.core.services import hfh as hfh_service
@@ -190,12 +191,69 @@ def copy_prepared_output_files(*, output_dir: Path, target_dir: Path) -> Path:
 
 def download_from_repo(*, repo_id: str, token: str, target_dir: Path) -> Path:
     """Downloads the dataset repo's current files (the ones that were just
-    uploaded) into `target_dir` — used by output_mode='downloaded' to hand
-    the next repo in the publish order a verified, actually-round-tripped
-    copy instead of the local staging directory."""
+    uploaded) into `target_dir` — used by the publish orchestrator when a repo's
+    build directory is gone and a file is needed back."""
     target_dir.mkdir(parents=True, exist_ok=True)
     snapshot_download(repo_id=repo_id, repo_type="dataset", token=token, local_dir=str(target_dir))
     return target_dir
+
+
+SYNC_FILENAMES = ("CITATION.cff", "README.md", "checksums-sha256.txt")
+_T = TypeVar("_T")
+
+
+def sync_in_repo(*, repo_id: str, token: str, commit_message: str, edit: Callable[[Path], Optional[_T]]) -> Optional[_T]:
+    """Edits the DOI/PID-bearing files of an already-published dataset repo in
+    place on the Hub: downloads CITATION.cff, README.md and
+    checksums-sha256.txt (the three files a synced DOI changes) into a
+    throwaway folder, lets `edit` rewrite them there, and uploads them back.
+    No local export folder is involved, so it works from any computer.
+
+    `edit` gets that folder and returns something truthy when it changed
+    anything (e.g. the DOI); a falsy result uploads nothing. Its own
+    checksums-sha256.txt would only list the files that were downloaded, so
+    the repo's real one is kept and just the lines of the changed files are
+    replaced.
+
+    Raises:
+        RuntimeError: if the repo has no CITATION.cff (not a published export).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        for filename in SYNC_FILENAMES:
+            try:
+                hf_hub_download(repo_id=repo_id, repo_type="dataset", filename=filename, token=token, local_dir=str(folder))
+            except EntryNotFoundError:
+                continue
+        if not (folder / "CITATION.cff").is_file():
+            raise RuntimeError(f"{repo_id} has no CITATION.cff — publish the dataset there first.")
+
+        sums_path = folder / "checksums-sha256.txt"
+        repo_sums = sums_path.read_text(encoding="utf-8").splitlines() if sums_path.is_file() else None
+
+        result = edit(folder)
+        if not result:
+            return result
+
+        changed = ("CITATION.cff", "README.md")
+        if repo_sums is not None:
+            new_hashes = {name: camtrapdp_common.sha256_file(folder / name) for name in changed if (folder / name).is_file()}
+            lines = [
+                f"{new_hashes[line.split(None, 1)[1]]}  {line.split(None, 1)[1]}"
+                if len(line.split(None, 1)) == 2 and line.split(None, 1)[1] in new_hashes else line
+                for line in repo_sums
+            ]
+            sums_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        elif sums_path.is_file():
+            sums_path.unlink()  # the repo had none: don't invent one from two files
+
+        for filename in SYNC_FILENAMES:
+            if (folder / filename).is_file():
+                upload_file(
+                    path_or_fileobj=str(folder / filename), path_in_repo=filename, repo_id=repo_id,
+                    repo_type="dataset", token=token, commit_message=commit_message,
+                )
+        return result
 
 
 def start_publish_task(
@@ -226,8 +284,6 @@ def start_publish_task(
     the frontend as the next repo's inputDir when chaining publish steps):
     - 'prepared' (default): output_dir itself (the core Camtrap DP files).
     - 'passthrough': input_dir itself, unchanged — nothing new is written.
-    - 'downloaded': a fresh copy downloaded back from the HuggingFace Hub
-      repo after a successful upload (see download_from_repo).
     """
     task_id = str(uuid.uuid4())
     _publish_tasks[task_id] = {"status": "running", "stage": "preparing", "repo_url": None, "output_dir": None, "error": None}
@@ -270,11 +326,6 @@ def start_publish_task(
             final_output_dir = str(output_dir)
             if output_mode == "passthrough":
                 final_output_dir = str(input_dir)
-            elif output_mode == "downloaded":
-                _publish_tasks[task_id]["stage"] = "downloading"
-                download_dir = output_dir.parent / f"{output_dir.name}-downloaded"
-                await asyncio.to_thread(download_from_repo, repo_id=repo_id, token=token, target_dir=download_dir)
-                final_output_dir = str(download_dir)
 
             _publish_tasks[task_id] = {
                 "status": "done", "stage": "done", "repo_url": repo_url, "output_dir": final_output_dir, "error": None,

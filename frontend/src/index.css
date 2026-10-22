@@ -9,6 +9,11 @@ body {
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* Native controls (select, scrollbars) follow the class-based theme, not the OS one */
+html.dark {
+  color-scheme: dark;
+}
+
 html.dark body {
   background-color: #09090b; /* zinc-950 */
   color: #f4f4f5;            /* zinc-100 */

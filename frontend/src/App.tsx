@@ -6,6 +6,7 @@ import SettingsPage from './pages/SettingsPage'
 import WelcomePage from './pages/WelcomePage'
 import WizardPage from './pages/WizardPage'
 import { api } from './api'
+import { OPEN_SETTINGS_EVENT } from './components/InstancePicker'
 import type { SessionSummary } from './types'
 
 export default function App() {
@@ -24,6 +25,12 @@ export default function App() {
   // The settings page is shown over the rest, which stays mounted (just
   // hidden) — so a wizard run in progress isn't lost.
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Forms deep in the wizard link to the settings (e.g. where the Zenodo token lives).
+  useEffect(() => {
+    const open = () => setSettingsOpen(true)
+    window.addEventListener(OPEN_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -62,7 +69,7 @@ export default function App() {
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         <div className={settingsOpen ? 'hidden' : ''}>
           {started
-            ? <WizardPage resumeSession={resumeSession ?? undefined} />
+            ? <WizardPage resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false) }} />
             : showResumeScreen
               ? (
                 <ResumeSessionsPage

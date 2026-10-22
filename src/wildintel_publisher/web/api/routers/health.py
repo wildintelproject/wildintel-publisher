@@ -58,6 +58,11 @@ def _latest_web_release(releases: list[dict]) -> dict | None:
 
 
 @router.get("/api/version")
+def version() -> dict:
+    return {"current": _current_version()}
+
+
+@router.get("/api/version/check")
 async def version_check() -> dict:
     """Whether a newer web-app release exists. "error" is set when that
     couldn't be found out (offline, GitHub's rate limit...) — distinct from

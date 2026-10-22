@@ -60,6 +60,8 @@ authors:
   - name: Jane Doe
     affiliation: My Institution
 homepage: https://example.org
+funding: Additional support by the Example Foundation.   # appended to "Funding"
+acknowledgements: Thanks to the park rangers.            # appended to "Acknowledgements"
 publisher:                         # credited in CITATION.cff's preferred-citation
   name: University of Huelva
   website: https://www.uhu.es/
@@ -77,7 +79,10 @@ The authors listed in `data.yaml` are shown as they are; the "Add a saved author
 adds one of the authors saved in the settings page's *Authors* section
 (`[[PRODUCT.authors]]` in `settings.toml`) with one click, and each one stays editable.
 The *Additional funding text* field is appended to the README's *Funding* section
-(saved as `funding` in the copy of `data.yaml`).
+(saved as `funding` in the copy of `data.yaml`). The *Additional acknowledgements
+text* field works the same way for the README's *Acknowledgements* section (saved as
+`acknowledgements`): the standard thanks are always included, and your text is
+appended after them.
 
 Unlike Camtrap DP, there is no `filePublic`/privacy concept — every image under
 `images/` is treated as publishable, and no media-reference URL needs rewriting: the
@@ -129,14 +134,23 @@ distinct from Camtrap DP's own wording.
     For Camtrap DP, mirror mode downloads remote images that otherwise wouldn't exist
     locally, and link mode points at a copy hosted elsewhere. A YOLO dataset's images are
     already local and have nowhere else to point at, so every export always includes
-    `data.yaml`, `images/` and `labels/`: loose on Hugging Face Hub, bundled into
-    `yolo.zip` on Zenodo and B2SHARE.
+    `data.yaml`, `images/` and `labels/`: loose on Hugging Face Hub, bundled into a single zip
+    on Zenodo and B2SHARE (see below).
+
+!!! note "One zip on Zenodo and B2SHARE"
+    Those two repositories only host files, not folders, so the dataset is zipped into a
+    single `yolo.zip` that holds `data.yaml`, `images/`, `labels/` and `additional_info/` with
+    the dataset's own layout. The images and labels are zipped straight from your dataset's folder,
+    never copied first, so the disk needed is about the dataset's own size once more; the
+    repository's size and file-count limits (see the settings) are checked before the zip is
+    written. Zenodo's limit is 50 GB per record (and 100 files), not per file, so a dataset bigger
+    than that cannot be published there however it is zipped.
 
 !!! note "Very large splits on Hugging Face Hub"
     Hugging Face Hub accepts at most 10,000 files per folder. A split over that limit is
     spread, on Hugging Face Hub only, over hash-named subfolders
     (`images/train/3f/img.jpg`, with its label at `labels/train/3f/img.txt`) — still valid
-    YOLO, since trainers look for images recursively. Your own dataset, `yolo.zip` and
+    YOLO, since trainers look for images recursively. Your own dataset, the zips and
     the local output folders keep the original layout.
 
 ## 5. Where it can be published

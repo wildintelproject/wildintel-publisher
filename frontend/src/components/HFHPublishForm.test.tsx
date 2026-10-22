@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import HFHPublishForm from './HFHPublishForm'
+import { OPEN_SETTINGS_EVENT } from './InstancePicker'
 
 vi.mock('../api', () => ({
   api: {
@@ -17,7 +18,7 @@ const mockedApi = vi.mocked(api)
 beforeEach(() => {
   mockedApi.hfhRepoExists.mockResolvedValue({ exists: false })
   mockedApi.hfhGetConfig.mockResolvedValue({
-    username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
+    username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
   })
 })
 
@@ -45,14 +46,16 @@ describe('HFHPublishForm', () => {
     await renderAndWaitForConfig()
   })
 
-  it('disables Test connection and Continue until both repository fields are given', async () => {
+  it('disables Continue until both repository fields are given', async () => {
     await renderAndWaitForConfig()
 
-    expect(screen.getByRole('button', { name: /test connection/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
     await userEvent.type(screen.getByLabelText('User or organization'), 'alice')
-    expect(screen.getByRole('button', { name: /test connection/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('Repository name'), 'dataset')
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
   })
 
   it('shows the combined repository identifier once both fields are filled', async () => {
@@ -82,56 +85,30 @@ describe('HFHPublishForm', () => {
     expect(screen.getByText('wildintelproject/wildintelprojectiberiancamtrap_r0001')).toBeInTheDocument()
   })
 
-  it('tests the token and shows the connected username', async () => {
-    mockedApi.hfhTestToken.mockResolvedValue({ ok: true, username: 'alice', version_conflict: false })
+  it('has no token field, says it uses the saved token and links to the settings', async () => {
+    const opened = vi.fn()
+    window.addEventListener(OPEN_SETTINGS_EVENT, opened)
     await renderAndWaitForConfig()
 
-    await fillRepo('alice', 'dataset')
-    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
-
-    expect(await screen.findByText('Connected as alice.')).toBeInTheDocument()
-    expect(mockedApi.hfhTestToken).toHaveBeenCalledWith('alice/dataset', 'hf_x', undefined)
+    expect(screen.queryByLabelText('HuggingFace Hub token')).not.toBeInTheDocument()
+    expect(screen.getByText(/token saved in settings/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /open the hugging face hub settings/i }))
+    expect(opened).toHaveBeenCalledTimes(1)
+    window.removeEventListener(OPEN_SETTINGS_EVENT, opened)
   })
 
-  it('warns when the version has already been published to this repository', async () => {
-    mockedApi.hfhTestToken.mockResolvedValue({ ok: true, username: 'alice', version_conflict: true })
-    render(<HFHPublishForm productVersion="1.0" onOutputDirChange={vi.fn()} onConfigured={vi.fn()} />)
-    await waitFor(() => expect(mockedApi.hfhGetConfig).toHaveBeenCalled())
-
-    await fillRepo('alice', 'dataset')
-    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
-
-    expect(await screen.findByText(/already been published/i)).toBeInTheDocument()
-    expect(mockedApi.hfhTestToken).toHaveBeenCalledWith('alice/dataset', 'hf_x', '1.0')
-    // still just a warning — Continue isn't blocked by it (the real enforcement is server-side, at publish time)
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
-  })
-
-  it('shows an error message when the token is rejected', async () => {
-    mockedApi.hfhTestToken.mockRejectedValue(new Error('Incorrect or expired HuggingFace Hub token.'))
-    await renderAndWaitForConfig()
-
-    await fillRepo('alice', 'dataset')
-    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_bad')
-    await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
-
-    expect(await screen.findByText('Incorrect or expired HuggingFace Hub token.')).toBeInTheDocument()
-  })
-
-  it('enables Test connection and Continue with a blank token when one is already saved', async () => {
+  it('blocks Continue while no token is saved in the settings, unless it is a dry run', async () => {
     mockedApi.hfhGetConfig.mockResolvedValue({
-      username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true,
+      username: 'alice', output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
     })
-    render(<HFHPublishForm productTitle="Dataset" onConfigured={vi.fn()} />)
+    const { rerender } = render(<HFHPublishForm productTitle="Dataset" onConfigured={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByLabelText('User or organization')).toHaveValue('alice'))
     await waitFor(() => expect(screen.getByLabelText('Repository name')).toHaveValue('dataset'))
+    expect(screen.getByText(/no hugging face hub token is saved yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
-    expect(screen.getByRole('button', { name: /test connection/i })).toBeEnabled()
+    rerender(<HFHPublishForm productTitle="Dataset" dryRun onConfigured={vi.fn()} />)
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
-    expect(screen.getByText('Already saved — leave blank to reuse it.')).toBeInTheDocument()
   })
 
   it('still enables Continue with a blank token when going Back to an already-configured step', async () => {
@@ -189,10 +166,10 @@ describe('HFHPublishForm', () => {
     expect(screen.getByLabelText('Repository name')).toHaveValue('custom-name')
   })
 
-  it('defaults to mirror mode', async () => {
+  it('defaults to self-contained mode', async () => {
     await renderAndWaitForConfig()
 
-    expect(screen.getByRole('radio', { name: /mirror/i })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /^self-contained/i })).toBeChecked()
 
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
 
@@ -204,14 +181,13 @@ describe('HFHPublishForm', () => {
     await renderAndWaitForConfig(onConfigured)
 
     await fillRepo('alice', 'dataset')
-    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
-    await userEvent.click(screen.getByRole('radio', { name: /same as input/i }))
+    await userEvent.click(screen.getByRole('radio', { name: /^unchanged copy/i }))
 
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     expect(onConfigured).toHaveBeenCalledWith({
-      repoId: 'alice/dataset', token: 'hf_x', priv: false, mirrorImages: false,
+      repoId: 'alice/dataset', token: '', priv: false, mirrorImages: false,
       outputMode: 'passthrough', outputDir: '/hfh/output',
     })
   })

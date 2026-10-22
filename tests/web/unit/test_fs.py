@@ -84,3 +84,16 @@ def test_native_dialog_is_unavailable_without_zenity_or_kdialog():
     with patch.object(native_dialog.sys, "platform", "linux"), patch.object(native_dialog.shutil, "which", return_value=None):
         with pytest.raises(native_dialog.NativeDialogUnavailable):
             native_dialog.pick_directory()
+
+
+def test_native_dialog_gets_no_start_folder_when_there_is_no_path():
+    from unittest.mock import MagicMock, patch
+    from wildintel_publisher.web.services import native_dialog
+
+    with patch.object(native_dialog.sys, "platform", "linux"), \
+         patch.object(native_dialog.shutil, "which", side_effect=lambda t: "/usr/bin/zenity" if t == "zenity" else None), \
+         patch.object(native_dialog.subprocess, "run", return_value=MagicMock(returncode=1, stdout="")) as run:
+        native_dialog.pick_directory(None)
+        native_dialog.pick_directory("")
+    for call in run.call_args_list:
+        assert not any(arg.startswith("--filename") for arg in call.args[0])

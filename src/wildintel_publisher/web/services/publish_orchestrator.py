@@ -39,23 +39,16 @@ finished.
 own_output_mode — each repo's OWN output_mode (RepoPublishConfig; the same
 choice that, after phase 2, decides how its user-facing output_dir gets filled
 — see _finalize_one) ALSO decides, right here in phase 1, what it hands the
-NEXT repo in the chain (see _extract_chain_input/_download_repo_copy,
-called from the per-repo loop below):
+NEXT repo in the chain (see _extract_chain_input, called from the per-repo
+loop below):
   - "prepared" (the default) — the repo's own build_dir, as it stands
     right after its own upload (e.g. media.csv already rewritten to HFH
     URLs, in mirror mode) — unchanged from before this mode-awareness
     existed.
-  - "downloaded" — round-trips through the real remote FIRST (still
-    unpublished/undrafted at this point — see _download_repo_copy's own
-    docstring on why that's fine for HFH/Zenodo but needs a draft-aware
-    call for B2SHARE), so the next repo builds on a verified copy of what
-    actually landed, not just what the local build_dir claims.
   - "passthrough" — forwards this repo's OWN input unchanged, with no
     extraction at all: this repo is treated as not having transformed
     anything worth handing forward.
-This only matters for the INTERNAL chain — a fresh dry_run "downloaded"
-falls back to "prepared" (nothing real was ever uploaded to round-trip
-through).
+This only matters for the INTERNAL chain.
 
 GBIF is not like the other three: it never prepares or uploads any files of
 its own — it only registers, in GBIF's Registry, a dataset whose CAMTRAP_DP
@@ -129,6 +122,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 import re
 import shutil
@@ -144,9 +138,12 @@ from wildintel_publisher.core.services import doi_populate
 from wildintel_publisher.core.services import gbif as gbif_cli
 from wildintel_publisher.core.services import hfh as hfh_cli
 from wildintel_publisher.core.services import product
+from wildintel_publisher.core.services import report_service
 from wildintel_publisher.core.services import zenodo as zenodo_cli
 
 from wildintel_publisher.web.services import b2share_service, camtrapdp_service, gbif_service, hfh_service, session_store, zenodo_service
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 60
 
@@ -252,6 +249,26 @@ def _archive_url_for_tag(archive_url: str, version: str) -> str | None:
 
 def get_publish_task_status(task_id: str) -> dict[str, Any] | None:
     return _publish_tasks.get(task_id)
+
+
+class _Cancelled(Exception):
+    """The user pressed Stop — raised at the points where stopping leaves nothing half-done."""
+
+
+def cancel_publish_task(task_id: str) -> bool:
+    """Asks a running publish task to stop. It doesn't interrupt what is being sent right now: it stops before the next
+    repository's upload, and before releasing (locking) the next one, so whatever was already released stays published and the
+    rest is left untouched. The session stays on disk, so the run can still be resumed. False if there is no such running task."""
+    task = _publish_tasks.get(task_id)
+    if task is None or task["status"] != "running":
+        return False
+    task["cancel_requested"] = True
+    return True
+
+
+def _check_not_cancelled(task: dict) -> None:
+    if task.get("cancel_requested"):
+        raise _Cancelled
 
 
 # Never written to session.json — a resumed session always requires the user
@@ -623,9 +640,8 @@ async def _lock_one(cfg: dict, *, session_dir: Path, build_dir: Path, repo_statu
 
     if repo in _RECORD_FILENAME_BY_REPO:
         _capture_repo_record(session_dir, repo, lock_dir)
-        output_dir = Path(cfg["output_dir"])
-        if output_dir.is_dir():
-            shutil.copy2(record_path, output_dir / record_path.name)
+        if cfg.get("output_dir") and Path(cfg["output_dir"]).is_dir():
+            shutil.copy2(record_path, Path(cfg["output_dir"]) / record_path.name)
 
 
 async def _extract_chain_input(core_source: Path, chain_dir: Path, *, metadata_source: Path) -> Path:
@@ -646,14 +662,11 @@ async def _extract_chain_input(core_source: Path, chain_dir: Path, *, metadata_s
     extract_core_files).
 
     `core_source` and `metadata_source` are DELIBERATELY separate params
-    (see _run's own call sites, one per output_mode): `core_source` is
-    normally the repo's own build_dir (output_mode="prepared", the
-    default), but for output_mode="downloaded" it's instead a fresh,
-    just-downloaded-back copy from the real remote (see
-    _download_repo_copy) — which never has metadata.json (that file is
-    deliberately excluded from every upload, see _upload_one's own
-    docstring), so metadata_source always stays the repo's own build_dir
-    regardless of where the core files themselves come from.
+    (see _run's own call site): `core_source` is where the core files are
+    read from, `metadata_source` where metadata.json is — both are the
+    repo's own build_dir. (metadata.json is deliberately excluded from
+    every upload, see _upload_one's own docstring, so a copy fetched back
+    from a remote would never have it.)
 
     `chain_dir` is caller-provided (a fixed path under the task's own
     session_dir, not a throwaway tempdir) so it survives a crash and its
@@ -701,8 +714,7 @@ async def _get_checksums_for_populate(cfg: dict, *, session_dir: Path, build_dir
     this repo's own upload); build_dir directly, if it's still around
     (true for every run today — nothing deletes it yet, see the module's
     own docstring); only then a fresh download from the real remote
-    (reusing _download_repo_copy — same as the chain's own
-    output_mode="downloaded" case), for whenever build_dir eventually
+    (reusing _download_repo_copy), for whenever build_dir eventually
     isn't an option either."""
     cached = _checksums_cache_path(session_dir, cfg["repo"])
     if cached.is_file():
@@ -771,11 +783,9 @@ def _read_repo_record(session_dir: Path, repo: str, build_dir: Path) -> dict:
 
 async def _download_repo_copy(cfg: dict, *, session_dir: Path, build_dir: Path, target_dir: Path) -> None:
     """Downloads what THIS repo just uploaded back from the real remote,
-    BEFORE it's ever locked/published — backs the chain's own
-    output_mode="downloaded" case (see _run): a real round-trip
-    verification that what actually landed on the remote is what the next
-    repo in the chain then builds on, instead of just trusting the local
-    build_dir.
+    BEFORE it's ever locked/published — for a file populate() needs when
+    neither build_dir nor the session's cache has it (see
+    _resolve_populate_file).
 
     Reuses each repo's own record (see _read_repo_record — build_dir's own
     copy if still there, else the session's own canonical metadata.json)
@@ -788,9 +798,7 @@ async def _download_repo_copy(cfg: dict, *, session_dir: Path, build_dir: Path, 
     test_zenodo_upload_resumes_by_skipping_files_the_deposition_already_has);
     B2SHARE's own published-record endpoint does NOT (a still-draft record
     isn't there yet), so this uses download_draft_files_from_b2share
-    instead of download_files_from_b2share (published records only).
-    Also backs _finalize_one's own "downloaded" case, which likewise runs
-    before phase 3's lock."""
+    (the published record's own endpoint only serves published records)."""
     repo = cfg["repo"]
     if repo == "hfh":
         await asyncio.to_thread(
@@ -837,8 +845,7 @@ async def _resolve_populate_file(
     _get_checksums_for_populate's own docstring: the session's own small
     cache (see _cache_citation_and_readme/_cache_checksums), build_dir
     directly, or a fresh download from the real remote (reusing
-    _download_repo_copy — same as the chain's own output_mode="downloaded"
-    case; shared across every file/tier that needs it this same run, so a
+    _download_repo_copy; shared across every file/tier that needs it this same run, so a
     prior call for a DIFFERENT file never triggers a second download).
     None if even the download doesn't have it (e.g. a repo whose export
     never included this file in the first place).
@@ -934,33 +941,30 @@ def _copy_populate_patches_back(populate_dir: Path, checksums_path: Path, build_
 
 async def _finalize_one(
     cfg: dict, *, session_dir: Path, build_dir: Path, previous_output_dir: str, dry_run: bool,
-) -> str:
+) -> str | None:
     """Copies the product's own core files (see each web service's own
     copy_prepared_output_files) into this repo's user-configured
-    output_dir, then resolves output_mode — same three choices each
-    single-repo publish endpoint already offered, just computed here since
+    output_dir, then resolves output_mode — the same two choices each
+    single-repo publish endpoint already offers, just computed here since
     chaining is now internal (see the module's own docstring).
 
     Runs right after phase 2 (populate + re-upload), BEFORE phase 3's
     lock — the files never change after that point (a release/tag only
     publishes what's already there), so waiting for the lock bought
     nothing, and doing it now is what lets build_dir stop being needed
-    by the time phase 3 starts.
-
-    output_mode == "downloaded" means "fetch a fresh copy back from the
-    repo" — still unpublished at this point, so it goes through the same
-    draft-aware _download_repo_copy the chain itself uses. Meaningless in
-    dry_run (nothing was actually uploaded there to fetch back), so it
-    falls through to the same result as "prepared" instead of hitting
-    the network."""
+    by the time phase 3 starts."""
     repo = cfg["repo"]
+    if not cfg.get("output_dir"):
+        # The last stage of the pipe: nothing comes after it, so it hands nothing on (see
+        # routers.publish._drop_the_last_output).
+        return None
     output_dir = Path(cfg["output_dir"])
     output_mode = cfg.get("output_mode", "prepared")
 
     if repo == "gbif":
         # register_gbif_dataset already wrote gbif_linked_dataset_record.json
         # straight into output_dir itself (see _register_gbif) — there's no
-        # build_dir content to copy, and no "downloaded"/"passthrough" choice
+        # build_dir content to copy, and no "passthrough" choice
         # that would mean anything for a repo that never hosts a copy.
         return str(output_dir)
 
@@ -973,10 +977,6 @@ async def _finalize_one(
 
     if output_mode == "passthrough":
         return previous_output_dir
-    if output_mode == "downloaded" and not dry_run:
-        download_dir = output_dir.parent / f"{output_dir.name}-downloaded"
-        await _download_repo_copy(cfg, session_dir=session_dir, build_dir=build_dir, target_dir=download_dir)
-        return str(download_dir)
     return str(output_dir)
 
 
@@ -1116,6 +1116,7 @@ async def _run(
         for i, cfg in enumerate(repos):
             repo = cfg["repo"]
             repo_status = task["repos"][repo]
+            _check_not_cancelled(task)
 
             if repo_status.get("stage") in UPLOADED_STAGES:
                 # Its build_dir (and, if it fed the next repo in the chain,
@@ -1175,17 +1176,6 @@ async def _run(
                     # nothing new to extract; current_input_dir is left as
                     # it already was for this repo's own turn.
                     pass
-                elif output_mode == "downloaded" and not dry_run:
-                    # Round-trips through the real remote before the next
-                    # repo builds on it (see _download_repo_copy) — dry_run
-                    # has nothing real to download back, so it falls
-                    # through to the same "prepared" extraction as below.
-                    downloaded_dir = session_dir / f"{repo}-downloaded"
-                    await _download_repo_copy(cfg, session_dir=session_dir, build_dir=build_dir, target_dir=downloaded_dir)
-                    chain_dir = session_dir / f"chain-after-{repo}"
-                    current_input_dir = await _extract_chain_input(
-                        downloaded_dir, chain_dir, metadata_source=build_dir,
-                    )
                 else:
                     chain_dir = session_dir / f"chain-after-{repo}"
                     current_input_dir = await _extract_chain_input(build_dir, chain_dir, metadata_source=build_dir)
@@ -1315,6 +1305,7 @@ async def _run(
         # Finalize (fill each repo's user-facing output_dir) right after
         # the populate broadcast, BEFORE any lock — see _finalize_one's own
         # docstring on why the files can't change past this point anyway.
+        _check_not_cancelled(task)
         previous_output_dir = str(input_dir)
         for cfg in repos:
             repo = cfg["repo"]
@@ -1332,7 +1323,7 @@ async def _run(
             )
             repo_status["output_dir"] = final_output_dir
             repo_status["stage"] = "finalized"
-            previous_output_dir = final_output_dir
+            previous_output_dir = final_output_dir or previous_output_dir
             _discard_build_artifacts(session_dir, repo, build_dirs.pop(repo, None))
             _persist()
         # Shared by every repo's own mirroring (see _upload_one) — nothing
@@ -1344,6 +1335,7 @@ async def _run(
             repo_status = task["repos"][repo]
             if repo_status.get("stage") == "done":
                 continue
+            _check_not_cancelled(task)
             await _lock_one(
                 cfg, session_dir=session_dir, build_dir=build_dirs.get(repo) or session_dir / f"{repo}-build",
                 repo_status=repo_status, dry_run=dry_run,
@@ -1390,6 +1382,13 @@ async def _run(
                 _persist()
 
         task["status"] = "done"
+    except _Cancelled:
+        task["status"] = "cancelled"
+        # Whatever was mid-flight goes back to waiting; its stage stays, so a resume continues from there.
+        for repo_status in task["repos"].values():
+            if repo_status["status"] == "running":
+                repo_status["status"] = "pending"
+        _persist()
     except Exception as exc:
         task["status"] = "error"
         task["error"] = str(exc)
@@ -1399,10 +1398,31 @@ async def _run(
                 repo_status["error"] = str(exc)
         _persist()
     finally:
+        if task["status"] in ("done", "error", "cancelled"):
+            task["finished_at"] = datetime.now(timezone.utc).isoformat()
+        if task["status"] in ("done", "error"):
+            _keep_publication_report(task, input_dir=input_dir, dry_run=dry_run)
         # Only a fully successful task deletes its own session — an
         # interrupted one stays on disk on purpose, for resume_publish_all_task.
         if task["status"] == "done":
             shutil.rmtree(session_dir, ignore_errors=True)
+
+
+def _keep_publication_report(task: dict, *, input_dir: Path, dry_run: bool) -> None:
+    """Leaves the report of this run with the others (see core.services.report_service). Best-effort: a report that can't
+    be made or kept never breaks the publication it is about."""
+    try:
+        try:
+            metadata = product.read_metadata_json(input_dir)
+        except RuntimeError:
+            metadata = {}
+        title = f"Publication of {metadata.get('title') or input_dir.name}"
+        report_service.try_save(report_service.publication_report(
+            title, task["repos"], source_dir=str(input_dir), product_type=metadata.get("product_type"),
+            dry_run=dry_run, error=task.get("error"),
+        ))
+    except Exception:
+        logger.warning("Could not make the publication report", exc_info=True)
 
 
 def _default_primary_doi_source(input_dir: Path, repos: list[dict]) -> str | None:

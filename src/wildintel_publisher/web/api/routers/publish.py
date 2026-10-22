@@ -8,6 +8,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from wildintel_publisher.core.services import product
+
 from wildintel_publisher.web.schemas.requests import PublishAllRequest, RepoPublishConfig, ResumePublishRequest
 from wildintel_publisher.web.services import (
     b2share_service, gbif_service, hfh_service, previous_version_service, publish_orchestrator, session_store,
@@ -95,6 +97,18 @@ def _resolve_repo_config(
     return data
 
 
+def _drop_the_last_output(resolved_repos: list[dict], input_dir: Path) -> None:
+    """A YOLO dataset publishes like a pipe: each repo hands the next one what it needs, and the
+    last one hands nothing on, so it gets no output folder. (Its record — DOI, URL — is in the
+    publication's report.) Any other product keeps one output folder per repo."""
+    try:
+        product_type = product.read_metadata_json(input_dir)["product_type"]
+    except RuntimeError:
+        return
+    if product_type == product.YOLO and resolved_repos:
+        resolved_repos[-1]["output_dir"] = None
+
+
 @router.post("/start")
 async def start(req: PublishAllRequest) -> dict:
     """Starts the whole multi-repo publish as one background task. Returns
@@ -124,6 +138,8 @@ async def start(req: PublishAllRequest) -> dict:
         for cfg in req.repos
     ]
 
+    _drop_the_last_output(resolved_repos, Path(req.input_dir))
+
     task_id = publish_orchestrator.start_publish_all_task(
         input_dir=Path(req.input_dir), repos=resolved_repos, primary_doi_source=req.primary_doi_source,
         dry_run=req.dry_run, media_dir=Path(req.media_dir) if req.media_dir else None,
@@ -152,6 +168,9 @@ async def resume(task_id: str, req: ResumePublishRequest) -> dict:
         _resolve_repo_config(cfg, version=req.version, timeout=req.timeout, dry_run=False)
         for cfg in req.repos
     ]
+    manifest_input_dir = (session_store.read_manifest(task_id) or {}).get("input_dir")
+    if manifest_input_dir:
+        _drop_the_last_output(resolved_repos, Path(manifest_input_dir))
     try:
         resumed_task_id = publish_orchestrator.resume_publish_all_task(task_id, resolved_repos)
     except RuntimeError as exc:
@@ -166,11 +185,19 @@ def discard(task_id: str) -> dict:
     return {"status": "discarded"}
 
 
+@router.post("/{task_id}/cancel")
+def cancel(task_id: str) -> dict:
+    """Stop button: the run ends before the next repository starts (see publish_orchestrator.cancel_publish_task)."""
+    if not publish_orchestrator.cancel_publish_task(task_id):
+        raise HTTPException(404, f"No running publish task {task_id!r}.")
+    return {"status": "cancelling"}
+
+
 @router.get("/{task_id}")
 def status(task_id: str) -> dict:
     """Poll the status of a multi-repo publish task — {"status", "repos":
     {repo: {"status", "stage", "error", "repo_url", "doi", "pid",
-    "output_dir", "doi_synced_to_hfh"}}, "error"}."""
+    "output_dir", "doi_synced_to_hfh"}}, "error", "created_at", "finished_at"}."""
     result = publish_orchestrator.get_publish_task_status(task_id)
     if result is None:
         raise HTTPException(404, f"Task {task_id!r} not found.")

@@ -17,7 +17,7 @@ from typing import Any, Literal, Optional
 import platformdirs
 import typer
 from dynaconf import Dynaconf, loaders
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 APP_NAME = "wildintel-publisher"
 
@@ -79,10 +79,19 @@ def get_camtrapdp_archive_output_dir() -> Path:
     return get_app_documents_dir() / "camtrapdp-archive"
 
 
-def get_sessions_dir() -> Path:
-    """Directorio donde persisten las sesiones de publicación en curso o
-    interrumpidas — ver services.publish_orchestrator (web app)."""
+def default_sessions_dir() -> Path:
+    """Dónde persisten las sesiones si GENERAL.sessions_dir no dice otra cosa:
+    <Documents>/wildintel-publisher/sessions."""
     return get_app_documents_dir() / "sessions"
+
+
+def get_sessions_dir(settings: Optional["Settings"] = None) -> Path:
+    """Directorio donde persisten las sesiones de publicación en curso o
+    interrumpidas — ver services.publish_orchestrator (web app):
+    GENERAL.sessions_dir si está, si no default_sessions_dir()."""
+    settings = settings or load_settings()
+    custom = settings.GENERAL.sessions_dir
+    return Path(custom).expanduser() if custom else default_sessions_dir()
 
 
 def _slug_to_dataset_name(slug: str) -> str:
@@ -95,9 +104,21 @@ LogLevel = Literal["ERROR", "WARNING", "INFO", "DEBUG"]
 
 
 def get_logs_dir() -> Path:
-    """Dónde va el log de la aplicación — junto a settings.toml (ver
-    logging_setup)."""
+    """Dónde va el log de la aplicación — la carpeta de logs del sistema, que es
+    estado: ~/.local/state/wildintel-publisher/log en Linux (ver logging_setup).
+    No es configurable."""
+    return Path(platformdirs.user_log_dir(APP_NAME))
+
+
+def legacy_logs_dir() -> Path:
+    """Dónde se guardaban los logs antes: junto a settings.toml."""
     return DEFAULT_SETTINGS_DIR / "logs"
+
+
+def default_reports_dir() -> Path:
+    """Dónde se guardan los informes (reports) si GENERAL.reports_dir no dice otra cosa:
+    <Documents>/wildintel-publisher/reports."""
+    return get_app_documents_dir() / "reports"
 
 
 class GeneralSettings(BaseModel):
@@ -105,6 +126,27 @@ class GeneralSettings(BaseModel):
         default="INFO",
         description="How much the app logs, to the console and its log file. (GENERAL.log_level)",
     )
+    # None until the user picks one — resolved against default_reports_dir() so moving the
+    # app's documents dir (a platformdirs choice) doesn't strand an old absolute path baked
+    # into settings.toml.
+    reports_dir: Optional[str] = Field(
+        default=None,
+        description="A folder of its own for the reports of the validations and publications, instead of the \"reports\" folder inside the app's documents folder. (GENERAL.reports_dir)",
+    )
+
+    sessions_dir: Optional[str] = Field(
+        default=None,
+        description="A folder of its own for the sessions — what a publication in progress or interrupted keeps while it runs — instead of the \"sessions\" folder inside the app's documents folder. (GENERAL.sessions_dir)",
+    )
+
+    @field_validator("reports_dir", "sessions_dir")
+    @classmethod
+    def _absolute(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        if not Path(value.strip()).expanduser().is_absolute():
+            raise ValueError("must be an absolute path (or start with ~)")
+        return value.strip()
 
 
 class TrapperSettings(BaseModel):
@@ -132,7 +174,6 @@ class TrapperSettings(BaseModel):
             "WILDINTEL_USER_NAME environment variable, if set, takes priority over this "
             "value. (TRAPPER.user_name)"
         ),
-        json_schema_extra={"secret": True},
     )
     user_password: Optional[str] = Field(
         default=None,
@@ -328,6 +369,25 @@ class ZenodoSettings(BaseModel):
         json_schema_extra={"secret": True},
     )
 
+    max_record_size_gb: Optional[float] = Field(
+        default=50, gt=0,
+        description=(
+            "Most a whole Zenodo record may weigh (all its files together), in GB. Checked when the record is prepared, so a dataset that is too big fails before anything is uploaded. Empty means no limit. (ZENODO.max_record_size_gb)"
+        ),
+    )
+    max_files: Optional[int] = Field(
+        default=100, ge=1,
+        description=(
+            "Most files a Zenodo record may hold. Checked when the record is prepared. Empty means no limit. (ZENODO.max_files)"
+        ),
+    )
+    max_file_size_gb: Optional[float] = Field(
+        default=None, gt=0,
+        description=(
+            "Most a single file of a Zenodo record may weigh, in GB — also the size an archive of images is resized to fit. Empty means no limit beyond the record's own. (ZENODO.max_file_size_gb)"
+        ),
+    )
+
     def value_for(self, field: str, environment: Optional[str] = None) -> Optional[str]:
         """The saved value of a per-environment `field` (sandbox_<field> /
         production_<field>) for `environment` (default: the configured one)."""
@@ -383,6 +443,25 @@ class B2ShareSettings(BaseModel):
             "set, takes priority over this value. (B2SHARE.production_token)"
         ),
         json_schema_extra={"secret": True},
+    )
+
+    max_record_size_gb: Optional[float] = Field(
+        default=None, gt=0,
+        description=(
+            "Most a whole B2SHARE record may weigh (all its files together), in GB. Checked when the record is prepared, so a dataset that is too big fails before anything is uploaded. Empty means no limit. (B2SHARE.max_record_size_gb)"
+        ),
+    )
+    max_files: Optional[int] = Field(
+        default=100, ge=1,
+        description=(
+            "Most files a B2SHARE record may hold. Checked when the record is prepared. Empty means no limit. (B2SHARE.max_files)"
+        ),
+    )
+    max_file_size_gb: Optional[float] = Field(
+        default=20, gt=0,
+        description=(
+            "Most a single file of a B2SHARE record may weigh, in GB — also the size an archive of images is resized to fit. Empty means no limit beyond the record's own. (B2SHARE.max_file_size_gb)"
+        ),
     )
 
     def value_for(self, field: str, environment: Optional[str] = None) -> Optional[str]:
@@ -665,6 +744,14 @@ class Author(BaseModel):
     )
 
 
+_IOP_PAS = (
+    "Institute of Nature Conservation, Polish Academy of Sciences, al. Adama Mickiewicza 33, "
+    "31-120 Kraków, Poland"
+)
+_IDIV = "German Centre for Integrative Biodiversity Research (iDiv) Halle-Jena-Leipzig, Leipzig, Germany"
+_USN = "Department of Natural Sciences and Environmental Health, University of South-Eastern Norway, Bø, Norway"
+_GBIF_ES = "Spanish Node of the Global Biodiversity Information Facility (GBIF-Spain), Madrid, Spain"
+_MIT_AID = "Faculty of Artificial Intelligence and Decision-Making, Massachusetts Institute of Technology, Cambridge, MA, USA"
 _UHU_DEPARTMENT = "Department of Integrated Sciences, Faculty of Experimental Sciences, University of Huelva, Huelva, Spain"
 
 
@@ -732,13 +819,20 @@ class ProductSettings(BaseModel):
                 affiliation="Department Information Technologies, University of Huelva, 21007 Huelva, Spain",
             ),
             Author(name="Lenka Straková", affiliation=_UHU_DEPARTMENT),
-            Author(
-                name="Agata Kaczówka",
-                affiliation=(
-                    "Institute of Nature Conservation, Polish Academy of Sciences, al. Adama Mickiewicza 33, "
-                    "31-120 Kraków, Poland"
-                ),
-            ),
+            Author(name="Agata Kaczówka", affiliation=_IOP_PAS),
+            Author(name="Nuria Selva", affiliation=_IOP_PAS),
+            Author(name="Tomasz Zwijacz-Kozica", affiliation=_IOP_PAS),
+            Author(name="Carlos Bautista", affiliation=_IOP_PAS),
+            Author(name="Weronika Czop", affiliation=_IOP_PAS),
+            Author(name="Iwona Huber-Dąbrowska", affiliation=_IOP_PAS),
+            Author(name="Seth Wong", affiliation=_IOP_PAS),
+            Author(name="Néstor Fernández", affiliation=_IDIV),
+            Author(name="Pedro Mittelman", affiliation=_IDIV),
+            Author(name="Andreas Zedrosser", affiliation=_USN),
+            Author(name="Pradeep Joshi", affiliation=_USN),
+            Author(name="Francisco Pando", affiliation=_GBIF_ES),
+            Author(name="Katia Cezón", affiliation=_GBIF_ES),
+            Author(name="Sara Beery", affiliation=_MIT_AID),
         ],
         description="Selectable authors the web wizard's metadata-editing step can add to a product. (PRODUCT.authors)",
     )
@@ -926,6 +1020,15 @@ def save_settings(new: Settings, config_file: Optional[Path] = None) -> None:
     config_file = config_file or active_config_file()
     config_file.parent.mkdir(parents=True, exist_ok=True)
     loaders.toml_loader.write(str(config_file), new.model_dump(mode="json"), merge=False)
+
+
+def reports_dir(settings: Optional[Settings] = None) -> Path:
+    """Dónde se guardan los informes de las validaciones y publicaciones:
+    GENERAL.reports_dir si está, si no <Documents>/wildintel-publisher/reports
+    (ver services.report_service)."""
+    settings = settings or load_settings()
+    custom = settings.GENERAL.reports_dir
+    return Path(custom).expanduser() if custom else default_reports_dir()
 
 
 settings = load_settings()

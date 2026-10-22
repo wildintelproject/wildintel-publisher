@@ -19,9 +19,8 @@ def _fresh_settings():
 
 def test_defaults_never_show_a_secret_value():
     data = _client().get("/api/settings").json()
-    assert data["TRAPPER"]["has_user_name"] is False
     assert data["TRAPPER"]["has_user_password"] is False
-    assert "user_name" not in data["TRAPPER"] and "user_password" not in data["TRAPPER"]
+    assert "user_password" not in data["TRAPPER"]
     assert data["HFH"]["has_token"] is False and "token" not in data["HFH"]
     for env in ("sandbox", "production"):
         assert data["ZENODO"][f"has_{env}_token"] is False and f"{env}_token" not in data["ZENODO"]
@@ -43,9 +42,9 @@ def test_saving_a_secret_shows_it_saved_but_never_its_value():
     current["TRAPPER"]["user_password"] = "s3cret"
 
     saved = client.put("/api/settings", json=current).json()
-    assert saved["TRAPPER"]["has_user_name"] is True
+    assert saved["TRAPPER"]["user_name"] == "alice"  # the username is not a secret: it is shown
     assert saved["TRAPPER"]["has_user_password"] is True
-    assert "user_name" not in saved["TRAPPER"] and "user_password" not in saved["TRAPPER"]
+    assert "user_password" not in saved["TRAPPER"]
 
 
 def test_saving_a_blank_secret_keeps_the_one_already_saved():

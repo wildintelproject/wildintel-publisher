@@ -42,7 +42,14 @@ export const api = {
     }
   },
 
-  checkVersion: () => req<VersionCheck>('/api/version'),
+  checkVersion: () => req<{ current: string }>('/api/version'),
+  checkForUpdate: () => req<VersionCheck>('/api/version/check'),
+
+  listReports: () => req<ReportSummary[]>('/api/reports'),
+  getReport: (id: string) => req<Report>(`/api/reports/${encodeURIComponent(id)}`),
+  deleteReport: (id: string) => req<{ status: string }>(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Where a report can be downloaded from — its JSON, or a CSV with a row per entry. */
+  reportUrl: (id: string, format: 'json' | 'csv') => `/api/reports/${encodeURIComponent(id)}/download?format=${format}`,
 
   getSettings: () => req<AppSettings>('/api/settings'),
   saveSettings: (update: AppSettingsUpdate) => put<AppSettings>('/api/settings', update),
@@ -190,6 +197,10 @@ export const api = {
   // YOLO's counterpart of datapackageFields/updateDatapackageFields: the
   // metadata keys this tool adds to data.yaml, edited on the working copy
   // BEFORE generateProductMetadata, which re-reads them from there.
+  yoloStructureCheck: (inputDir: string) =>
+    post<{ checks: StructureCheck[]; ok: boolean }>('/api/yolo/structure-check', { input_dir: inputDir }),
+  yoloDeepChecks: (inputDir: string, checks: string[]) =>
+    post<{ results: DeepCheckResult[]; report_id: string | null }>('/api/yolo/deep-checks', { input_dir: inputDir, checks }),
   yoloResolveLocalSource: (path: string, sessionTaskId?: string) =>
     post<{ status: 'valid' | 'invalid'; workingDir: string | null; sourceDir: string; taskId: string; error: string | null }>(
       '/api/yolo/resolve-local-source', { path, session_task_id: sessionTaskId },
@@ -350,10 +361,10 @@ export const api = {
   zenodoDepositions: (environment: string, token: string, query?: string) =>
     post<{ id: string; title: string; version?: string | null; published?: string | null }[]>('/api/zenodo/depositions', { environment, token: token || null, query: query || null }),
 
-  zenodoSyncDoi: (params: { zenodoOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
+  zenodoSyncDoi: (params: { environment: string; depositionId: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ doi: string; repo_url: string }>('/api/zenodo/sync-doi', {
-      zenodo_output_dir: params.zenodoOutputDir,
-      hfh_output_dir: params.hfhOutputDir,
+      environment: params.environment,
+      deposition_id: Number(params.depositionId),
       hfh_repo_id: params.hfhRepoId,
       hfh_token: params.hfhToken,
     }),
@@ -418,10 +429,10 @@ export const api = {
   b2shareRecords: (environment: string, token: string, query?: string) =>
     post<{ id: string; title: string; version?: string | null; published?: string | null }[]>('/api/b2share/records', { environment, token: token || null, query: query || null }),
 
-  b2shareSyncPid: (params: { b2shareOutputDir: string; hfhOutputDir: string; hfhRepoId: string; hfhToken: string }) =>
+  b2shareSyncPid: (params: { environment: string; recordId: string; hfhRepoId: string; hfhToken: string }) =>
     post<{ pid: string | null; repo_url: string }>('/api/b2share/sync-pid', {
-      b2share_output_dir: params.b2shareOutputDir,
-      hfh_output_dir: params.hfhOutputDir,
+      environment: params.environment,
+      record_id: params.recordId,
       hfh_repo_id: params.hfhRepoId,
       hfh_token: params.hfhToken,
     }),
@@ -548,9 +559,17 @@ export const api = {
       session_task_id: params.sessionTaskId,
     }),
 
+  // Stop: the run ends before the next repository starts; what is already published stays published.
+  publishCancel: (taskId: string) =>
+    req<{ status: string }>(`/api/publish/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
+
+  // Shows a folder in this machine's file manager.
+  openDirectory: (path: string) =>
+    post<{ opened: boolean }>('/api/fs/open-directory', { path }),
+
   publishAllStatus: (taskId: string) =>
     req<{
-      status: 'running' | 'done' | 'error'
+      status: 'running' | 'done' | 'error' | 'cancelled'
       error: string | null
       dry_run: boolean
       repos: Record<string, {

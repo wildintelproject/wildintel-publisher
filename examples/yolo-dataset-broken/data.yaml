@@ -1,0 +1,16 @@
+train: images/train
+val: images/val
+
+# nc says 5 classes, but only 3 names are listed.
+nc: 5
+names: [deer, fox, bird]
+
+title: Example Dataset That Fails To Be Read
+description: >-
+  A tiny, deliberately broken YOLO dataset, to see what the wizard's "Select the folder" step
+  says when the structure cannot be read. Not real field data.
+version: "1.0"
+license: CC-BY-4.0
+authors:
+  - name: Jane Researcher
+    affiliation: WildINTEL Example Institute

@@ -1,0 +1,73 @@
+import { useEffect, useState } from 'react'
+import { api } from '../api'
+import ReportPanel from './ReportPanel'
+import type { ReportKind, ReportSummary } from '../types'
+
+const btnOutline = 'inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors no-underline'
+
+const KIND_LABELS: Record<ReportKind, string> = { validation: 'Validation', publication: 'Publication' }
+
+const formatDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+/** The reports the validations and publications left: to look at again, download or delete. */
+export default function ReportsList() {
+  const [reports, setReports] = useState<ReportSummary[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.listReports().then(setReports).catch((e) => setError(e instanceof Error ? e.message : 'Could not read the reports.'))
+  }, [])
+
+  async function handleDelete(id: string) {
+    try {
+      await api.deleteReport(id)
+      setReports((list) => (list ?? []).filter((r) => r.id !== id))
+      if (open === id) setOpen(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delete the report.')
+    } finally {
+      setConfirming(null)
+    }
+  }
+
+  return (
+    <div className="py-3">
+      <p className="text-zinc-500 dark:text-zinc-400 mb-5 text-sm">
+        Every validation of a dataset and every publication leaves a report of what was checked and where it ended up. Look at one again,
+        download it (a CSV opens in a spreadsheet; the JSON has everything), or delete the ones you no longer need.
+      </p>
+      {error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>}
+      {reports === null && !error && <p className="text-sm text-zinc-500 dark:text-zinc-400">Reading the reports…</p>}
+      {reports?.length === 0 && <p className="text-sm text-zinc-500 dark:text-zinc-400">There are no reports yet — they are made when you validate or publish a dataset.</p>}
+      <ul className="space-y-3">
+        {(reports ?? []).map((r) => (
+          <li key={r.id} className="rounded-xl border border-zinc-200 dark:border-zinc-700 p-4" aria-label={r.title}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  <span className="mr-2 text-xs font-medium px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{KIND_LABELS[r.kind]}</span>{r.title}
+                </p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  {formatDate(r.created_at)} · {r.totals.failed === 0 ? 'nothing failed' : <span className="text-red-600 dark:text-red-400">{r.totals.failed} problem(s)</span>}
+                  {r.totals.warnings > 0 && <span className="text-amber-600 dark:text-amber-400"> · {r.totals.warnings} warning(s)</span>}
+                </p>
+                {r.source_dir && <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono break-all mt-0.5">{r.source_dir}</p>}
+              </div>
+              <div className="flex gap-2 items-center">
+                <button type="button" className={btnOutline} aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? 'Hide' : 'View'}</button>
+                <a className={btnOutline} href={api.reportUrl(r.id, 'csv')} download>CSV</a>
+                <a className={btnOutline} href={api.reportUrl(r.id, 'json')} download>JSON</a>
+                {confirming === r.id
+                  ? <button type="button" className="px-3 py-1.5 text-sm rounded-xl bg-red-600 text-white hover:bg-red-700" onClick={() => handleDelete(r.id)}>Delete it</button>
+                  : <button type="button" className={btnOutline} onClick={() => setConfirming(r.id)}>Delete</button>}
+              </div>
+            </div>
+            {open === r.id && <ReportPanel reportId={r.id} />}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}

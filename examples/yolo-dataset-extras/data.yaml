@@ -41,4 +41,7 @@ copyright_holders:                 # "© <year> <names>" in the citation
 # Markdown appended to the README's "Funding" section, after the standard text.
 funding: >-
   Additional support was provided by the Example Foundation (project EX-2021-001).
+# Markdown appended to the README's "Acknowledgements" section, after the standard text.
+acknowledgements: >-
+  We thank the park rangers for their help during the fieldwork.
 homepage: https://github.com/wildintelproject/wildintel-publisher

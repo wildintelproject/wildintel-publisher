@@ -1,6 +1,8 @@
 """logging_setup, and the settings page's General section / log download."""
 import logging
+from pathlib import Path
 
+import platformdirs
 import pytest
 from fastapi.testclient import TestClient
 
@@ -33,7 +35,7 @@ def _flush():
         handler.flush()
 
 
-def test_the_log_goes_to_a_file_next_to_settings_toml():
+def test_the_log_goes_to_a_file_in_the_log_folder_of_the_system():
     from wildintel_publisher.core import config, logging_setup
 
     logging_setup.configure()
@@ -41,7 +43,7 @@ def test_the_log_goes_to_a_file_next_to_settings_toml():
     _flush()
 
     assert logging_setup.log_file() == config.get_logs_dir() / "wildintel-publisher.log"
-    assert config.get_logs_dir().parent == config.DEFAULT_CONFIG_FILE.parent
+    assert config.get_logs_dir() == Path(platformdirs.user_log_dir(config.APP_NAME))
     assert "something to find later" in logging_setup.log_file().read_text(encoding="utf-8")
 
 
@@ -116,3 +118,20 @@ def test_an_unknown_level_falls_back_to_info():
 
     logging_setup.apply_level("verbose")
     assert logging.getLogger().level == logging.INFO
+
+
+def test_log_files_left_next_to_the_settings_are_moved_to_the_log_folder(tmp_path, monkeypatch):
+    from wildintel_publisher.core import config, logging_setup
+
+    old, new = tmp_path / "config" / "logs", tmp_path / "state" / "log"
+    monkeypatch.setattr(config, "legacy_logs_dir", lambda: old)
+    monkeypatch.setattr(config, "get_logs_dir", lambda: new)
+    old.mkdir(parents=True)
+    (old / "wildintel-publisher.log").write_text("an old line\n", encoding="utf-8")
+    (old / "wildintel-publisher.log.1").write_text("an older one\n", encoding="utf-8")
+
+    logging_setup.migrate_legacy_logs()
+
+    assert (new / "wildintel-publisher.log").read_text(encoding="utf-8") == "an old line\n"
+    assert (new / "wildintel-publisher.log.1").is_file()
+    assert not old.exists()

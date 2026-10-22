@@ -27,8 +27,7 @@ asking you to fill in the following fields:
   `media.csv` pointing at the original file locations instead.
 - **Flow mode** — what you get back once publishing finishes, only relevant if another
   repository comes after this one in the publish order: the **prepared** package (the
-  core Camtrap DP files, default), the **same as input** unchanged, or a fresh copy
-  **downloaded from** Hugging Face Hub itself.
+  core Camtrap DP files, default) or the **same as input** unchanged.
 
 Hugging Face Hub never has a DOI of its own — there's no "Sync DOI" section for it here;
 it's the *destination* the Zenodo/B2SHARE sync sections write into instead (see

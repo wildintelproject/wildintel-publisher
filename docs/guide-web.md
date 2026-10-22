@@ -72,6 +72,30 @@ pre-fills its forms with those same saved values.
 
 ---
 
+## Reports
+
+Every time the checks of an AI dataset are run (see its **Select the folder** step) and every time a
+publication ends — successfully or not — the app keeps a **report** of it: what was checked,
+what passed, what failed and why, and where each repository ended up (URL, DOI or PID).
+
+They are listed in **Settings › Reports**, where you can open one, download it as CSV (to open
+it in a spreadsheet) or JSON (it has everything), or delete the ones you no longer need.
+
+Reports are kept in a `reports` folder inside the app's documents folder. To keep them somewhere
+else, set **Settings › General › Reports folder** (an absolute path, or one starting with `~`);
+**Use the default** goes back to the original. Reports already made stay where they are: move
+them by hand if you want them in the new folder.
+
+### Sessions
+
+A publication in progress keeps what it needs in a **session** folder, so one that is interrupted
+can be resumed. A session takes very little until you publish; then it holds a copy of what is being
+uploaded — for a dataset with images, as much as the images take — and it is deleted when the
+publication finishes. Set **Settings › General › Sessions folder** to keep sessions on a disk with
+room; sessions already started stay where they are.
+
+---
+
 ## Select what you want to publish
 
 On the wizard's first screen, pick what you want to publish. Currently we can publish:

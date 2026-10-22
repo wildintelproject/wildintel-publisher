@@ -117,6 +117,15 @@ Set these up for whichever repositories you actually plan to use — each is ind
 
    </div>
 
+!!! note "Size and file-count limits"
+    Zenodo and B2SHARE cap how much a record may hold. The limits are saved in the settings
+    (`max_record_size_gb`, `max_files`, `max_file_size_gb`; empty means no limit) and are
+    checked when the record is prepared, so a dataset that cannot fit fails right away
+    instead of hours into the upload. Zenodo's defaults are 50 GB and 100 files per record;
+    B2SHARE's, 100 files per record and 20 GB per file. Change them with
+    `wildintel-publisher zenodo config set max_record_size_gb=100` if your quota was raised
+    (or on the settings page, under the repository's *Edit* dialog).
+
 **B2SHARE (EUDAT)**
 
 1. Create an account at [b2share.eudat.eu](https://b2share.eudat.eu) (use
@@ -186,9 +195,8 @@ Set these up for whichever repositories you actually plan to use — each is ind
 ```console
 $ wildintel-publisher trapper config set base_url=https://trapper.example.org
 ✔  trapper.base_url = https://trapper.example.org
-$ wildintel-publisher trapper config set user_name
-Value of user_name:
-✔  trapper.user_name = ••••••••
+$ wildintel-publisher trapper config set user_name=<trapper-user>
+✔  trapper.user_name = <trapper-user>
 $ wildintel-publisher trapper config set project_id=<classification-project-id>
 ✔  trapper.project_id = <classification-project-id>
 ```

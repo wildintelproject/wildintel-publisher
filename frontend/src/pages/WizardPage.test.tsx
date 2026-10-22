@@ -20,6 +20,9 @@ vi.mock('../api', () => ({
     camtrapdpFetchArchiveStatus: vi.fn(),
     resolveLocalSource: vi.fn(),
     yoloResolveLocalSource: vi.fn(),
+    yoloStructureCheck: vi.fn(),
+    yoloDeepChecks: vi.fn(),
+    reportUrl: (id: string, format: string) => `/api/reports/${id}/download?format=${format}`,
     yoloDataYamlFields: vi.fn(),
     updateYoloDataYaml: vi.fn(),
     previousVersion: vi.fn(),
@@ -56,6 +59,8 @@ vi.mock('../api', () => ({
     s3UploadStatus: vi.fn(),
     publishAllStart: vi.fn(),
     publishAllStatus: vi.fn(),
+    publishCancel: vi.fn(),
+    openDirectory: vi.fn(),
     listPublishSessions: vi.fn(),
     resumePublishStart: vi.fn(),
     discardPublishSession: vi.fn(),
@@ -74,7 +79,14 @@ const mockedApi = vi.mocked(api)
 async function answerNewDataset() {
   const noS3Radio = screen.queryByRole('radio', { name: /^no —/i })
   if (noS3Radio) await userEvent.click(noS3Radio)
-  await userEvent.click(await screen.findByRole('radio', { name: /a new dataset/i }))
+  await userEvent.click(await screen.findByRole('radio', { name: /^new dataset/i }))
+  await continueToReviewMetadata()
+}
+
+/** Camtrap DP and YOLO: once what is being published is answered, "Continue" opens the second step, the metadata. */
+async function continueToReviewMetadata() {
+  const next = screen.queryByRole('button', { name: 'Continue to review the metadata' })
+  if (next) await userEvent.click(next)
 }
 
 beforeEach(() => {
@@ -86,11 +98,22 @@ beforeEach(() => {
   mockedApi.resolveLocalSource.mockImplementation(async (path: string) => (
     { status: 'valid' as const, workingDir: path, sourceDir: path, taskId: 'local-session', error: null }
   ))
+  mockedApi.yoloStructureCheck.mockResolvedValue({
+    ok: true,
+    checks: [
+      { check: 'data_yaml', label: 'data.yaml found and readable', ok: true, message: 'data.yaml found and valid YAML.' },
+      { check: 'images', label: 'Images in the splits', ok: true, message: 'train: 2 · val: 1 images.' },
+    ],
+  })
+  mockedApi.yoloDeepChecks.mockResolvedValue({
+    report_id: '20261021-101500_validation_yolo',
+    results: [{ check: 'image_labels', label: 'Every image has a label file', ok: true, message: 'All 3 images have a label file.', total: 0, failures: [], truncated: false, failure_message: 'No label file.' }],
+  })
   mockedApi.yoloResolveLocalSource.mockImplementation(async (path: string) => (
     { status: 'valid' as const, workingDir: `${path}-working`, sourceDir: path, taskId: 'yolo-session', error: null }
   ))
   mockedApi.yoloDataYamlFields.mockResolvedValue({
-    title: 'My YOLO', description: null, version: '1.0', homepage: null,
+    title: 'My YOLO', description: 'A local dataset.', version: '1.0', homepage: null,
     license: { id: 'MIT', name: 'MIT', url: '' }, authors: [{ name: 'Jane Doe', affiliation: '' }],
     publisher: null, copyright_holders: [],
     class_names: ['cat', 'dog'], split_image_counts: { train: 2, val: 1 }, warnings: [],
@@ -122,21 +145,21 @@ beforeEach(() => {
     { title: 'Massachusetts Institute of Technology', path: 'https://www.mit.edu/', email: null },
     { title: 'Spanish Node of the Global Biodiversity Information Facility', path: 'https://www.gbif.es/', email: null },
   ])
-  mockedApi.hfhGetConfig.mockResolvedValue({ username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false })
+  mockedApi.hfhGetConfig.mockResolvedValue({ username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: true })
   mockedApi.zenodoGetConfig.mockResolvedValue({
-    environment: 'sandbox', communities: null, communities_by_environment: { sandbox: null, production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
+    environment: 'sandbox', communities: null, communities_by_environment: { sandbox: null, production: null }, output_dir: '/zenodo/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: false },
   })
   mockedApi.b2shareGetConfig.mockResolvedValue({
-    environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: null, production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: false, has_token_by_environment: { sandbox: false, production: false },
+    environment: 'sandbox', community_id: null, community_id_by_environment: { sandbox: 'uuid-1', production: null }, output_dir: '/b2share/output', version: '1.0', timeout: 60, has_token: true, has_token_by_environment: { sandbox: true, production: false },
   })
   mockedApi.gbifGetConfig.mockResolvedValue({
     environment: 'sandbox', publishing_organization_key: null, installation_key: null,
     keys_by_environment: {
-      sandbox: { publishing_organization_key: null, installation_key: null },
+      sandbox: { publishing_organization_key: 'org-1', installation_key: 'inst-1' },
       production: { publishing_organization_key: null, installation_key: null },
     },
-    registry_language: 'eng', output_dir: '/gbif/output', has_credentials: false,
-    has_credentials_by_environment: { sandbox: false, production: false },
+    registry_language: 'eng', output_dir: '/gbif/output', has_credentials: true,
+    has_credentials_by_environment: { sandbox: true, production: false },
   })
   mockedApi.gbifInstallations.mockResolvedValue([])
 })
@@ -144,6 +167,15 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
 })
+
+/** The three steps a YOLO dataset goes through before its metadata: the folder, the checks, and their results. */
+async function passYoloFolderSteps(folder = '/data/yolo') {
+  await userEvent.type(screen.getByLabelText('Folder'), folder)
+  await userEvent.click(screen.getByRole('button', { name: 'Check the structure' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue to the checks' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Run checks' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue to the metadata' }))
+}
 
 describe('WizardPage', () => {
   it('shows the step indicator with the first step active', () => {
@@ -251,7 +283,6 @@ describe('WizardPage download flow', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -334,7 +365,8 @@ describe('WizardPage local directory flow', () => {
     await answerNewDataset()
     await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
 
-    await userEvent.click(screen.getByRole('button', { name: /^back$/i }))
+    // The first Back is the one of "What are you publishing?", which leaves the metadata step.
+    await userEvent.click(screen.getAllByRole('button', { name: /^back$/i })[0])
     // Re-mounts LocalDirectoryForm with the path it already had — this
     // must reuse the very first call's own session (taskId
     // 'local-session', from the default mock), never mint a fresh one.
@@ -413,17 +445,14 @@ async function reachPublishStepYolo() {
   })
 
   await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
-  await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
-  await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
-  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
-  await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  await passYoloFolderSteps()
   await answerNewDataset()
 
   await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
-  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument())
-  await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  // An AI Dataset has no "Package" step: Continue goes straight to choosing the repositories.
+  expect(await screen.findByText('Where do you want to publish it?')).toBeInTheDocument()
 }
 
 describe('WizardPage coordinate anonymization', () => {
@@ -446,10 +475,7 @@ describe('WizardPage coordinate anonymization', () => {
   it('does not show the anonymize-coordinates option in the metadata step for an AI Dataset', async () => {
     render(<WizardPage />)
     await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
-    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
-    await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
-    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
-    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await passYoloFolderSteps()
     await answerNewDataset()
 
     expect(await screen.findByLabelText('Title')).toHaveValue('My YOLO')
@@ -505,10 +531,7 @@ describe('WizardPage YOLO metadata editor', () => {
   async function reachYoloMetadataStep() {
     render(<WizardPage />)
     await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
-    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
-    await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
-    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
-    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await passYoloFolderSteps()
     await answerNewDataset()
     await screen.findByLabelText('Title')
   }
@@ -527,21 +550,36 @@ describe('WizardPage YOLO metadata editor', () => {
       warnings: ['3 image(s) under /data/yolo/images have no label file'],
     })
     await reachYoloMetadataStep()
-    expect(screen.getByText('cat, dog')).toBeInTheDocument()
-    expect(screen.getByText('train: 2 · val: 1')).toBeInTheDocument()
+    expect(screen.getByText('Classes · 2')).toBeInTheDocument()
+    expect(screen.getByText('cat')).toBeInTheDocument()
+    expect(screen.getByText('dog')).toBeInTheDocument()
+    expect(screen.getByText('Training images').previousElementSibling).toHaveTextContent('2')
+    expect(screen.getByText('Validation images').previousElementSibling).toHaveTextContent('1')
     expect(screen.getByText(/have no label file/)).toBeInTheDocument()
   })
 
-  it('adds a saved author from settings, offering only the ones not already listed', async () => {
+  it('suggests the saved authors in the name field and fills in the affiliation of the one picked', async () => {
     await reachYoloMetadataStep()
-    const picker = await screen.findByLabelText('Add a saved author')
-    // Jane Doe is already an author (from data.yaml), so only Ana Lopez is offered
-    expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['+ Add a saved author…', 'Ana Lopez'])
+    const name = screen.getByLabelText('Author 1 name')
+    await userEvent.clear(name)
+    await userEvent.type(name, 'ana')
 
-    await userEvent.selectOptions(picker, 'Ana Lopez')
+    // Jane Doe (already an author) is not offered; Ana Lopez matches what was typed
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Ana LopezUniversity of Huelva'])
+    await userEvent.click(screen.getByRole('option', { name: /Ana Lopez/ }))
 
-    expect(screen.getByLabelText('Author 2 affiliation')).toHaveValue('University of Huelva')
-    expect(screen.queryByLabelText('Add a saved author')).not.toBeInTheDocument()
+    expect(name).toHaveValue('Ana Lopez')
+    expect(screen.getByLabelText('Author 1 affiliation')).toHaveValue('University of Huelva')
+  })
+
+  it('lets the author name be anything, not only a saved author', async () => {
+    await reachYoloMetadataStep()
+    const name = screen.getByLabelText('Author 1 name')
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Someone New')
+
+    expect(name).toHaveValue('Someone New')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('saves the edited metadata into the working copy before generating metadata.json', async () => {
@@ -549,14 +587,14 @@ describe('WizardPage YOLO metadata editor', () => {
     const title = screen.getByLabelText('Title')
     await userEvent.clear(title)
     await userEvent.type(title, 'Edited title')
-    await userEvent.type(screen.getByLabelText('Additional funding text'), 'Also funded by Foo.')
+    await userEvent.type(screen.getByLabelText('Funding'), 'Also funded by Foo.')
     await userEvent.click(screen.getByRole('button', { name: /add author/i }))
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(mockedApi.generateProductMetadata).toHaveBeenCalled())
     expect(mockedApi.updateYoloDataYaml).toHaveBeenCalledWith('/data/yolo-working', {
-      title: 'Edited title', description: '', version: '1.0', homepage: '',
-      funding: 'Also funded by Foo.',
+      title: 'Edited title', description: 'A local dataset.', version: '1.0', homepage: '',
+      funding: 'Also funded by Foo.', acknowledgements: '',
       // data.yaml's bare "MIT" completed with its canonical name/URL
       license: { id: 'MIT', name: 'MIT License', url: 'https://opensource.org/licenses/MIT' },
       authors: [{ name: 'Jane Doe', affiliation: '' }],  // the blank added row is dropped
@@ -568,10 +606,14 @@ describe('WizardPage YOLO metadata editor', () => {
       .toBeLessThan(mockedApi.generateProductMetadata.mock.invocationCallOrder.at(-1)!)
   })
 
-  it('lets the user pick the publisher and rights holder from the configured organizations', async () => {
+  it('suggests the configured organizations for the publisher and rights holder', async () => {
     await reachYoloMetadataStep()
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Publisher' }), 'Spanish National Research Council')
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Rights holder' }), 'Massachusetts Institute of Technology')
+    for (const [label, text] of [['Publisher', 'Spanish National'], ['Rights holder', 'Massachusetts']]) {
+      const field = screen.getByRole('combobox', { name: label })
+      await userEvent.clear(field)
+      await userEvent.type(field, text)
+      await userEvent.click(screen.getByRole('option', { name: new RegExp(text) }))
+    }
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
     await waitFor(() => expect(mockedApi.updateYoloDataYaml).toHaveBeenCalled())
@@ -580,7 +622,7 @@ describe('WizardPage YOLO metadata editor', () => {
     expect(saved.copyright_holders).toEqual(['Massachusetts Institute of Technology'])
   })
 
-  it('keeps a publisher from data.yaml that is a configured organization, and warns about one that is not', async () => {
+  it('keeps any publisher and rights holder from data.yaml, even one that is not a configured organization', async () => {
     mockedApi.yoloDataYamlFields.mockResolvedValue({
       title: 'My YOLO', description: null, version: '1.0', homepage: null, license: null, authors: [],
       publisher: { name: 'University of South-Eastern Norway' }, copyright_holders: ['Some Unknown Lab'],
@@ -589,8 +631,7 @@ describe('WizardPage YOLO metadata editor', () => {
     await reachYoloMetadataStep()
 
     expect(screen.getByRole('combobox', { name: 'Publisher' })).toHaveValue('University of South-Eastern Norway')
-    expect(screen.getByRole('combobox', { name: 'Rights holder' })).toHaveValue('University of Huelva')
-    expect(screen.getByText(/"Some Unknown Lab" is the rights holder in data.yaml/)).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Rights holder' })).toHaveValue('Some Unknown Lab')
   })
 
   it('defaults the license to CC-BY-NC-4.0 when data.yaml has none', async () => {
@@ -602,7 +643,7 @@ describe('WizardPage YOLO metadata editor', () => {
     await reachYoloMetadataStep()
 
     expect(screen.getByLabelText('License')).toHaveValue('CC-BY-NC-4.0')
-    expect(screen.getByText('https://creativecommons.org/licenses/by-nc/4.0/')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Read the full license terms' })).toHaveAttribute('href', 'https://creativecommons.org/licenses/by-nc/4.0/')
     expect(screen.queryByLabelText('License ID')).not.toBeInTheDocument()
   })
 
@@ -659,29 +700,97 @@ describe('WizardPage new dataset vs. new version', () => {
   async function reachMetadataStepYolo() {
     render(<WizardPage />)
     await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
-    await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
-    await userEvent.type(screen.getByLabelText('Directory'), '/data/yolo')
-    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
-    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    await passYoloFolderSteps()
   }
 
-  async function findPreviousVersion() {
-    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
-    await userEvent.type(screen.getByLabelText('Previous version identifier'), 'alice/my-yolo')
-    await userEvent.click(screen.getByRole('button', { name: /^find$/i }))
+  async function chooseNewVersion() {
+    await userEvent.click(await screen.findByRole('radio', { name: /^new version of an existing dataset/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continue to find the previous publication' }))
   }
+
+  async function findPreviousVersion({ proceed = true } = {}) {
+    await chooseNewVersion()
+    await userEvent.type(screen.getByLabelText('Previous version identifier'), 'alice/my-yolo')
+    await userEvent.click(screen.getByRole('button', { name: 'Find previous publication' }))
+    if (!proceed) return
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue to review the metadata' })).toBeEnabled())
+    await continueToReviewMetadata()
+  }
+
+  it('shows what was chosen so far above the heading of the metadata step', async () => {
+    await reachMetadataStepYolo()
+
+    const chips = within(await screen.findByRole('group', { name: 'Chosen so far' }))
+    expect(chips.getByText('AI Dataset')).toBeInTheDocument()
+    expect(chips.getByText('3 images')).toBeInTheDocument()
+    expect(chips.getByText('2 classes')).toBeInTheDocument()
+  })
+
+  it('has no Package step for an AI Dataset: Continue goes on to choosing the repositories, which start with a summary', async () => {
+    await reachMetadataStepYolo()
+    await answerNewDataset()
+    expect(screen.queryByText('Package')).not.toBeInTheDocument()  // not in the step bar either
+
+    await userEvent.click(await screen.findByRole('button', { name: /^continue$/i }))
+
+    expect(await screen.findByText('Where do you want to publish it?')).toBeInTheDocument()
+    const chips = within(screen.getByRole('group', { name: 'Chosen so far' }))
+    expect(chips.getByText('My YOLO')).toBeInTheDocument()
+    expect(chips.getByText('Version 1.0')).toBeInTheDocument()
+    // Back returns to the metadata, not to a step that is not there
+    await userEvent.click(screen.getByRole('button', { name: /^back$/i }))
+    expect(await screen.findByLabelText('Title')).toBeInTheDocument()
+  })
+
+  it('needs a title and a description to continue', async () => {
+    await reachMetadataStepYolo()
+    await answerNewDataset()
+    const continueButton = await screen.findByRole('button', { name: /^continue$/i })
+    expect(continueButton).toBeEnabled()
+
+    await userEvent.clear(screen.getByLabelText('Description'))
+    expect(continueButton).toBeDisabled()
+  })
 
   it('asks the question before showing the editor', async () => {
     await reachMetadataStepYolo()
 
-    expect(await screen.findByText('1. What are you publishing?')).toBeInTheDocument()
-    expect(screen.queryByText('2. Review metadata')).not.toBeInTheDocument()
+    expect(await screen.findByText('What are you publishing?')).toBeInTheDocument()
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Continue to review the metadata' })).toBeDisabled()
 
     await answerNewDataset()
     expect(await screen.findByLabelText('Title')).toBeInTheDocument()
-    expect(screen.getByText('2. Review metadata')).toBeInTheDocument()
+  })
+
+  it('shows the metadata step as two steps: locked until the first is answered, then done with a summary', async () => {
+    await reachMetadataStepYolo()
+
+    expect(screen.getByRole('img', { name: 'Locked' })).toBeInTheDocument()  // "Review metadata" waits for the first step
+    await answerNewDataset()
+
+    expect(screen.queryByRole('img', { name: 'Locked' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit What are you publishing?' })).toBeInTheDocument()
+    expect(screen.getByText('A new dataset')).toBeInTheDocument()  // the summary of the done step
+  })
+
+  it('adds a step to find the previous publication for a new version, and shows what was found', async () => {
+    mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)
+    await reachMetadataStepYolo()
+
+    await chooseNewVersion()
+    expect(screen.getByText('Find the previous publication')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Hugging Face Hub' })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Continue to review the metadata' })).toBeDisabled()  // nothing found yet
+
+    await userEvent.type(screen.getByLabelText('Previous version identifier'), 'alice/my-yolo')
+    await userEvent.click(screen.getByRole('button', { name: 'Find previous publication' }))
+
+    expect(await screen.findByText('Previous publication found')).toBeInTheDocument()
+    expect(screen.getAllByText('Found').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Continue to review the metadata' })).toBeEnabled()
+    // "Review metadata" is the third step now, still locked until this one is done
+    expect(screen.getByRole('img', { name: 'Locked' })).toBeInTheDocument()
   })
 
   it('finds the previous version from one identifier, and suggests the next version number', async () => {
@@ -690,11 +799,29 @@ describe('WizardPage new dataset vs. new version', () => {
     await findPreviousVersion()
 
     expect(mockedApi.previousVersion).toHaveBeenCalledWith('hfh', 'alice/my-yolo')
-    expect(await screen.findByText('609082')).toBeInTheDocument()
+    expect(await screen.findByText(/609082/)).toBeInTheDocument()
     expect(screen.getByText(/last published version:/i)).toBeInTheDocument()
     // data.yaml said 1.0 — older than the last published 3.0, so bumped
     expect(await screen.findByLabelText('Version')).toHaveValue('4.0')
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeEnabled()
+  })
+
+  it('warns, under the previous publication found, when the title looks nothing like its title', async () => {
+    mockedApi.previousVersion.mockResolvedValue({ ...PREVIOUS_V3, title: 'Iberian lynx census' })
+    await reachMetadataStepYolo()
+    await findPreviousVersion({ proceed: false })
+
+    const notice = await screen.findByText(/looks nothing like the previous publication/i)
+    expect(notice).toHaveTextContent('Iberian lynx census')
+  })
+
+  it('does not warn when the title is the previous one\'s', async () => {
+    mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)  // "My YOLO", like data.yaml's
+    await reachMetadataStepYolo()
+    await findPreviousVersion({ proceed: false })
+
+    await screen.findByText('Previous publication found')
+    expect(screen.queryByText(/looks nothing like the previous publication/i)).not.toBeInTheDocument()
   })
 
   it('lists what was already published to the chosen repository, and looks up the one picked', async () => {
@@ -703,8 +830,8 @@ describe('WizardPage new dataset vs. new version', () => {
       { id: '609036', title: 'My YOLO' }, { id: '700001', title: 'Something else' },
     ])
     await reachMetadataStepYolo()
-    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
-    await userEvent.selectOptions(screen.getByLabelText('Previous version repository'), 'zenodo')
+    await chooseNewVersion()
+    await userEvent.click(screen.getByRole('radio', { name: 'Zenodo' }))
     await waitFor(() => expect(screen.getByLabelText('Previous version environment')).toHaveValue('sandbox'))
 
     await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
@@ -715,7 +842,7 @@ describe('WizardPage new dataset vs. new version', () => {
 
     expect(mockedApi.zenodoDepositions).toHaveBeenCalledWith('sandbox', '')
     expect(mockedApi.previousVersion).toHaveBeenCalledWith('zenodo', 'https://sandbox.zenodo.org/records/609036')
-    expect(await screen.findByText('609082')).toBeInTheDocument()
+    expect(await screen.findByText(/609082/)).toBeInTheDocument()
   })
 
   it('filters the published list as the user types', async () => {
@@ -725,7 +852,7 @@ describe('WizardPage new dataset vs. new version', () => {
       { id: 'wildintel/other', title: 'Other thing', version: null },
     ])
     await reachMetadataStepYolo()
-    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await chooseNewVersion()
     await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
     expect(await screen.findByText('3 found')).toBeInTheDocument()
 
@@ -746,7 +873,7 @@ describe('WizardPage new dataset vs. new version', () => {
       { id: 'alice/c', title: 'Charlie', version: '1.0', published: null },
     ])
     await reachMetadataStepYolo()
-    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await chooseNewVersion()
     await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
     await screen.findByText('3 found')
 
@@ -774,7 +901,7 @@ describe('WizardPage new dataset vs. new version', () => {
     mockedApi.previousVersion.mockResolvedValue(PREVIOUS_V3)
     mockedApi.hfhDatasets.mockResolvedValue([{ id: 'alice/my-yolo', title: 'My YOLO', version: '3.0' }])
     await reachMetadataStepYolo()
-    await userEvent.click(await screen.findByRole('radio', { name: /a new version of an already published dataset/i }))
+    await chooseNewVersion()
 
     expect(screen.queryByLabelText('Previous version environment')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /list what i published here/i }))
@@ -802,9 +929,10 @@ describe('WizardPage new dataset vs. new version', () => {
   it('shows the lookup error and keeps the editor hidden', async () => {
     mockedApi.previousVersion.mockRejectedValue(new Error("Could not read 'alice/my-yolo': not found"))
     await reachMetadataStepYolo()
-    await findPreviousVersion()
+    await findPreviousVersion({ proceed: false })
 
     expect(await screen.findByText(/could not read 'alice\/my-yolo'/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to review the metadata' })).toBeDisabled()
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
   })
 })
@@ -1015,7 +1143,6 @@ describe('WizardPage Camtrap DP archive flow', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -1070,7 +1197,6 @@ describe('WizardPage Camtrap DP archive flow', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -1078,9 +1204,9 @@ describe('WizardPage Camtrap DP archive flow', () => {
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
 
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
-    await screen.findByRole('heading', { name: /configure gbif/i })
+    await screen.findByRole('button', { name: /^\d\. gbif/i, expanded: true })
     await act(async () => {})
     expect(screen.getByLabelText('Archive URL')).toHaveValue(fetchedUrl)
     expect(screen.getByLabelText('Archive URL')).not.toHaveAttribute('readonly')
@@ -1109,7 +1235,6 @@ async function reachPublishStepSoftware() {
   await vi.advanceTimersByTimeAsync(2000)
   vi.useRealTimers()
 
-  await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
   await answerNewDataset()
   await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -1138,7 +1263,6 @@ describe('WizardPage metadata errors', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -1164,7 +1288,6 @@ describe('WizardPage metadata errors', () => {
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument())
     await answerNewDataset()
     await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
   }
@@ -1220,7 +1343,7 @@ describe('WizardPage publish step', () => {
     expect(screen.getByText('Required')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /zenodo/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /b2share/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
   })
 
   it('does not let the user deselect GBIF for a Camtrap DP', async () => {
@@ -1230,7 +1353,7 @@ describe('WizardPage publish step', () => {
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
 
     // Still there — toggling a mandatory repo is a no-op.
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
   })
 
   it('shows Zenodo and B2SHARE available for a Software Application, with Zenodo pre-selected as required', async () => {
@@ -1245,7 +1368,7 @@ describe('WizardPage publish step', () => {
     expect(screen.getByRole('button', { name: /b2share/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /hugging face hub/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /gbif/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
   })
 
   it('does not let the user deselect Zenodo for a Software Application', async () => {
@@ -1255,7 +1378,7 @@ describe('WizardPage publish step', () => {
     await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
 
     // Still there — toggling a mandatory repo is a no-op.
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
   })
 
   it('does not show any publish form while still choosing repositories', async () => {
@@ -1265,7 +1388,7 @@ describe('WizardPage publish step', () => {
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
 
     expect(screen.queryByLabelText('Version')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
   })
 
   it('shows the Hugging Face Hub configuration form first when publishing a Camtrap DP (GBIF tags along, being mandatory)', async () => {
@@ -1273,31 +1396,31 @@ describe('WizardPage publish step', () => {
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     // metadata.json already has a version (the wizard required it to be
     // filled in before Step 3) — this just flushes the sub-form's own
     // settings.toml config-load effect before interacting with it further.
     await act(async () => {})
-    expect(screen.getByRole('heading', { name: /configure hugging face hub/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d\. hugging face hub/i, expanded: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^looks good$/i })).toBeInTheDocument()
     // GBIF is mandatory for Camtrap DP, so it's always the second step too.
-    expect(screen.getByText('Step 1 of 2.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^1\. /, expanded: true })).toBeInTheDocument()
   })
 
   it('shows the Zenodo configuration form after starting publishing a Software Application (Zenodo alone, the mandatory default)', async () => {
     render(<WizardPage />)
     await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     // metadata.json already has a version (the wizard required it to be
     // filled in before Step 3) — this just flushes the sub-form's own
     // settings.toml config-load effect before interacting with it further.
     await act(async () => {})
-    expect(screen.getByRole('heading', { name: /configure zenodo/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 1.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d\. zenodo/i, expanded: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^looks good$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^1\. /, expanded: true })).toBeInTheDocument()
   })
 
   it('shows the B2SHARE configuration form after Zenodo, when publishing a Software Application with both selected', async () => {
@@ -1305,18 +1428,17 @@ describe('WizardPage publish step', () => {
     await reachPublishStepSoftware()
 
     await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await act(async () => {})
-    expect(screen.getByRole('heading', { name: /configure zenodo/i })).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 2.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d\. zenodo/i, expanded: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^1\. /, expanded: true })).toBeInTheDocument()
 
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 
     await act(async () => {})
-    expect(screen.getByRole('heading', { name: /configure b2share/i })).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 2.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d\. b2share/i, expanded: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^2\. /, expanded: true })).toBeInTheDocument()
   })
 
   it('shows the GBIF configuration form after starting publishing with only GBIF selected', async () => {
@@ -1324,11 +1446,11 @@ describe('WizardPage publish step', () => {
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await act(async () => {})
-    expect(screen.getByRole('heading', { name: /configure gbif/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d\. gbif/i, expanded: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^looks good$/i })).toBeInTheDocument()
   })
 
   it('lets the user deselect an optional repository, keeping Start publishing while the mandatory one remains', async () => {
@@ -1341,10 +1463,10 @@ describe('WizardPage publish step', () => {
 
     const b2shareButton = screen.getByRole('button', { name: /b2share/i })
     await userEvent.click(b2shareButton)
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
 
     await userEvent.click(b2shareButton)
-    expect(screen.getByRole('button', { name: /start publishing/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue to the publish order' })).toBeInTheDocument()
   })
 })
 
@@ -1353,8 +1475,7 @@ async function configureHfhAndContinue() {
   await userEvent.type(screen.getByLabelText('User or organization'), 'alice')
   await userEvent.clear(screen.getByLabelText('Repository name'))
   await userEvent.type(screen.getByLabelText('Repository name'), 'dataset')
-  await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 }
 
 // Fills in everything GBIF needs beyond the archive URL (already prefilled
@@ -1363,11 +1484,14 @@ async function configureHfhAndContinue() {
 // tests (ordering, back-navigation, retry...).
 async function configureGbifAndContinue() {
   await act(async () => {})
-  await userEvent.type(screen.getByLabelText('Publishing organization UUID'), 'org-1')
-  await userEvent.type(screen.getByLabelText('Installation UUID'), 'inst-1')
-  await userEvent.type(screen.getByLabelText('GBIF username'), 'alice')
-  await userEvent.type(screen.getByLabelText('GBIF password'), 's3cret')
-  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
+}
+
+// Step 4 is two parts — which repositories, then in what order — and publishing starts from the second.
+async function startPublishing() {
+  const toOrder = screen.queryByRole('button', { name: 'Continue to the publish order' })
+  if (toOrder) await userEvent.click(toOrder)
+  await userEvent.click(screen.getByRole('button', { name: /check the settings/i }))
 }
 
 // Zenodo is mandatory for both YOLO and Software Application — used as the
@@ -1375,8 +1499,7 @@ async function configureGbifAndContinue() {
 // neither product type can reach a genuinely empty selection anymore.
 async function configureZenodoAndContinue() {
   await act(async () => {})
-  await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-  await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 }
 
 async function runZenodoPublishToDone() {
@@ -1391,7 +1514,7 @@ async function runZenodoPublishToDone() {
     },
   })
   vi.useFakeTimers()
-  fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+  fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
   await vi.advanceTimersByTimeAsync(2000)
   vi.useRealTimers()
 }
@@ -1418,106 +1541,80 @@ describe('WizardPage publish order', () => {
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
 
-    expect(await screen.findByText('Publish order')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue to the publish order' }))
+    expect(await screen.findByText('In what order?')).toBeInTheDocument()
     expect(screen.getByText(/Hugging Face Hub always publishes first/i)).toBeInTheDocument()
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /move .* up/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /move .* down/i })).not.toBeInTheDocument()
   })
 
-  it('collects configuration for each repository one screen at a time, then confirms before publishing', async () => {
+  it('reviews the settings of each repository in turn, then offers to publish', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     // Step 1 of 2: configure Hugging Face Hub — nothing published yet.
     await act(async () => {})
-    expect(screen.getByText('Step 1 of 2.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^1\. /, expanded: true })).toBeInTheDocument()
     await configureHfhAndContinue()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
 
     // Step 2 of 2: configure GBIF — still nothing published.
-    expect(await screen.findByText('Step 2 of 2.', { exact: false })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^2\. /, expanded: true })).toBeInTheDocument()
     await configureGbifAndContinue()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
 
-    // Both configured — confirmation screen, still nothing published.
+    // Both reviewed — "Ready to publish" lists them and Start publishing is enabled, still nothing published.
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
-    expect(screen.getByText(/Hugging Face Hub, GBIF/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^start publishing$/i })).toBeEnabled()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
   })
 
-  it('lets the user go back from "Ready to publish" to reconfigure the last repo, pre-filled', async () => {
-    // Regression test: once every repo is configured, "Ready to publish"
-    // used to be a dead end — the page-level Back button stays hidden for
-    // the whole step 4 && publishStarted stretch on purpose (see its own
-    // condition), and this screen had no button of its own to get back
-    // into the per-repo configuration forms.
+  it('lets the user reopen a reviewed repository to change it, with what was typed kept', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
     await configureHfhAndContinue()
     await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
-    await userEvent.click(screen.getByRole('button', { name: /back to gbif/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^2\. gbif/i }))
 
-    expect(await screen.findByText('Step 2 of 2.', { exact: false })).toBeInTheDocument()
-    expect(screen.getByLabelText('Publishing organization UUID')).toHaveValue('org-1')
+    expect(await screen.findByRole('button', { name: /^2\. gbif/i, expanded: true })).toBeInTheDocument()
+    expect(screen.getByText('org-1')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 
-    expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^start publishing$/i })).toBeEnabled()
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()
-  })
 
-  it('lets the user go back to a previous repository without losing what was typed', async () => {
-    render(<WizardPage />)
-    await reachPublishStep()
-
-    await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
-
-    await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
-    expect(screen.queryByRole('button', { name: /back to hugging face hub/i })).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: /back to hugging face hub/i }))
-
-    await screen.findByText('Step 1 of 2.', { exact: false })
-    // No "Back" button on the very first configured repository.
-    expect(screen.queryByRole('button', { name: /^back to/i })).not.toBeInTheDocument()
-    await act(async () => {})
+    await userEvent.click(screen.getByRole('button', { name: /^1\. hugging face hub/i }))
     expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
     expect(screen.getByLabelText('Repository name')).toHaveValue('dataset')
-    expect(screen.getByLabelText('HuggingFace Hub token')).toHaveValue('hf_x')
+
   })
 
-  it('lets the user jump back to a previous repository by clicking its step in the breadcrumb', async () => {
+  it('keeps GBIF locked until Hugging Face Hub is reviewed, and goes back to the repository choice with Back', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
-    await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    expect(screen.getByRole('button', { name: /^2\. gbif/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^start publishing$/i })).toBeDisabled()
 
-    // The already-configured first step shows a checkmark and is clickable,
-    // same effect as the current step's own "Back to X" button.
-    await userEvent.click(screen.getByRole('button', { name: /✓.*hugging face hub/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^back$/i }))
 
-    await screen.findByText('Step 1 of 2.', { exact: false })
-    await act(async () => {})
-    expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
+    expect(await screen.findByRole('button', { name: /check the settings/i })).toBeInTheDocument()
   })
 
   it('prefills the GBIF archive URL from an earlier Hugging Face Hub step in the same order', async () => {
@@ -1526,11 +1623,11 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
 
-    await screen.findByRole('heading', { name: /configure gbif/i })
+    await screen.findByRole('button', { name: /^\d\. gbif/i, expanded: true })
     await act(async () => {})
     expect(screen.getByLabelText('Archive URL')).toHaveValue(
       'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip',
@@ -1547,17 +1644,16 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await act(async () => {})
     await userEvent.click(screen.getByRole('radio', { name: /^link/i }))
     await userEvent.type(screen.getByLabelText('User or organization'), 'alice')
     await userEvent.clear(screen.getByLabelText('Repository name'))
     await userEvent.type(screen.getByLabelText('Repository name'), 'dataset')
-    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 
-    await screen.findByRole('heading', { name: /configure gbif/i })
+    await screen.findByRole('button', { name: /^\d\. gbif/i, expanded: true })
     await act(async () => {})
     expect(screen.getByLabelText('Archive URL')).toHaveValue(
       'https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip',
@@ -1577,9 +1673,9 @@ describe('WizardPage publish order', () => {
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
-    await screen.findByRole('heading', { name: /configure gbif/i })
+    await screen.findByRole('button', { name: /^\d\. gbif/i, expanded: true })
     await act(async () => {})
     expect(screen.getByLabelText('Archive URL')).toHaveValue('')
     expect(screen.getByLabelText('Archive URL')).not.toHaveAttribute('readonly')
@@ -1594,27 +1690,24 @@ describe('WizardPage publish order', () => {
     // reachPublishStepYolo runs, nothing to click for it here.
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await act(async () => {})
-    await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 
-    await screen.findByText('Step 2 of 3.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureHfhAndContinue()
 
-    await screen.findByText('Step 3 of 3.', { exact: false })
+    await screen.findByRole('button', { name: /^3\. /, expanded: true })
     await act(async () => {})
-    await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-    await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
     expect(screen.queryByText(/Which DOI should Hugging Face Hub cite as primary\?/)).not.toBeInTheDocument()
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
     mockedApi.publishAllStatus.mockResolvedValue({ status: 'running', error: null, dry_run: false, repos: {} })
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     await waitFor(() => expect(mockedApi.publishAllStart).toHaveBeenCalled())
     expect(mockedApi.publishAllStart.mock.calls[0][0].primaryDoiSource).toBeUndefined()
@@ -1628,32 +1721,26 @@ describe('WizardPage publish order', () => {
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /zenodo/i }))
     await userEvent.click(screen.getByRole('button', { name: /b2share/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     for (let step = 1; step <= 4; step++) {
-      await screen.findByText(`Step ${step} of 4.`, { exact: false })
+      const open = await screen.findByRole('button', { name: new RegExp(`^${step}\\. `), expanded: true })
       await act(async () => {})
-      if (screen.queryByLabelText('HuggingFace Hub token')) await configureHfhAndContinue()
-      else if (screen.queryByLabelText('GBIF username')) await configureGbifAndContinue()
-      else if (screen.queryByLabelText('Zenodo token')) {
-        await userEvent.type(screen.getByLabelText('Zenodo token'), 'zen_x')
-        await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
-      } else {
-        await userEvent.type(screen.getByLabelText('B2SHARE token'), 'b2_x')
-        await userEvent.type(screen.getByLabelText('Community UUID'), 'uuid-1')
-        await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
-      }
+      if (/hugging face hub/i.test(open.textContent ?? '')) await configureHfhAndContinue()
+      else if (/gbif/i.test(open.textContent ?? '')) await configureGbifAndContinue()
+      else await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
     }
 
+    // Every repository is reviewed, but publishing waits for the primary DOI to be picked.
     expect(await screen.findByText(/Which DOI should Hugging Face Hub cite as primary\?/)).toBeInTheDocument()
-    expect(screen.queryByText('Ready to publish')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^start publishing$/i })).toBeDisabled()
 
     await userEvent.click(screen.getByRole('radio', { name: /b2share \(eudat\)/i }))
-    expect(await screen.findByText('Ready to publish')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^start publishing$/i })).toBeEnabled())
 
     mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
     mockedApi.publishAllStatus.mockResolvedValue({ status: 'running', error: null, dry_run: false, repos: {} })
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
 
     await waitFor(() => expect(mockedApi.publishAllStart).toHaveBeenCalledWith(
       expect.objectContaining({ primaryDoiSource: 'b2share' }),
@@ -1666,10 +1753,10 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureGbifAndContinue()
 
     await screen.findByText('Ready to publish')
@@ -1690,7 +1777,7 @@ describe('WizardPage publish order', () => {
     })
 
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
@@ -1727,7 +1814,8 @@ describe('WizardPage publish order', () => {
     // Continue stays disabled until the S3 question itself is answered,
     // even once the publication kind is chosen — same gate as the missing-
     // metadata/version checks right alongside it.
-    await userEvent.click(await screen.findByRole('radio', { name: /a new dataset/i }))
+    await userEvent.click(await screen.findByRole('radio', { name: /^new dataset/i }))
+    await continueToReviewMetadata()
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
     await userEvent.click(screen.getByRole('radio', { name: /^yes —/i }))
@@ -1759,18 +1847,15 @@ describe('WizardPage publish order', () => {
   })
 
   it('shows the GBIF Sync DOI section only when this run\'s registration actually returned a DOI', async () => {
-    mockedApi.hfhGetConfig.mockResolvedValue({
-      username: null, output_dir: '/hfh/output', version: '1.0', timeout: 60, has_token: false,
-    })
     render(<WizardPage />)
     await reachPublishStep()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -1790,7 +1875,7 @@ describe('WizardPage publish order', () => {
     })
 
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
@@ -1804,10 +1889,10 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -1828,14 +1913,16 @@ describe('WizardPage publish order', () => {
     })
 
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
     expect(screen.queryByText('Sync DOI to Hugging Face Hub')).not.toBeInTheDocument()
     expect(screen.getByText(/automatically synced/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('link', { name: 'https://huggingface.co/datasets/alice/dataset' }).length).toBe(2)
+    expect(screen.getByRole('link', { name: /open in hugging face hub/i })).toHaveAttribute('href', 'https://huggingface.co/datasets/alice/dataset')
+    await userEvent.click(screen.getByRole('button', { name: /add this doi to a dataset published earlier/i }))
+    expect(screen.getByRole('link', { name: 'https://huggingface.co/datasets/alice/dataset' })).toBeInTheDocument()
   })
 
   it('does not show the GBIF Sync DOI section when this run\'s registration got no DOI', async () => {
@@ -1844,10 +1931,10 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -1867,7 +1954,7 @@ describe('WizardPage publish order', () => {
     })
 
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
@@ -1881,10 +1968,10 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -1901,7 +1988,7 @@ describe('WizardPage publish order', () => {
     })
 
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
@@ -1915,10 +2002,10 @@ describe('WizardPage publish order', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
     await userEvent.click(screen.getByRole('button', { name: /gbif/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
     await configureHfhAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureGbifAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -1938,7 +2025,7 @@ describe('WizardPage publish order', () => {
     })
 
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
@@ -1983,21 +2070,22 @@ describe('WizardPage publish order', () => {
     render(<WizardPage />)
     await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
     await configureZenodoAndContinue()
     await screen.findByText('Ready to publish')
 
     await runZenodoPublishToDone()
 
     await waitFor(() => expect(screen.getByText('All done!')).toBeInTheDocument())
-    expect(screen.getByText(/Published to: Zenodo\./)).toBeInTheDocument()
+    expect(screen.getByText('Published to Zenodo')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open in zenodo/i })).toHaveAttribute('href', 'https://sandbox.zenodo.org/records/1')
   })
 
   it('offers the manual Zenodo "Sync DOI to Hugging Face Hub" form when HFH is not part of the run', async () => {
     render(<WizardPage />)
     await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
     await configureZenodoAndContinue()
     await screen.findByText('Ready to publish')
     await runZenodoPublishToDone()
@@ -2011,9 +2099,9 @@ describe('WizardPage publish order', () => {
     await reachPublishStepYolo()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
     await configureZenodoAndContinue()
-    await screen.findByText('Step 2 of 2.', { exact: false })
+    await screen.findByRole('button', { name: /^2\. /, expanded: true })
     await configureHfhAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -2026,7 +2114,7 @@ describe('WizardPage publish order', () => {
       },
     })
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
@@ -2038,7 +2126,7 @@ describe('WizardPage publish order', () => {
     render(<WizardPage />)
     await reachPublishStepSoftware()
 
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
     await configureZenodoAndContinue()
     await screen.findByText('Ready to publish')
 
@@ -2051,16 +2139,90 @@ describe('WizardPage publish order', () => {
     expect(screen.queryByText('All done!')).not.toBeInTheDocument()
   })
 
-  it('hides the global Back button once publishing has started', async () => {
+  it('shows which repository is publishing, and the step it is on, while the run is going', async () => {
+    render(<WizardPage />)
+    await reachPublishStepSoftware()
+    await startPublishing()
+    await configureZenodoAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishAllStatus.mockResolvedValue({
+      status: 'running', error: null, dry_run: false,
+      repos: { zenodo: { status: 'running', stage: 'uploading', error: null, repo_url: null, doi: null, pid: null, output_dir: null } },
+    })
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    expect(await screen.findByText('Working…')).toBeInTheDocument()
+    expect(screen.getByText('Publishing to Zenodo (1 of 1)')).toBeInTheDocument()
+    expect(screen.getByText('This is the last one.')).toBeInTheDocument()
+    expect(screen.getByText('Prepare the files').nextSibling).toHaveTextContent('Done')
+    expect(screen.getByText('Upload to Zenodo').nextSibling).toHaveTextContent('Uploading…')
+    expect(screen.getByText('Get the DOI').nextSibling).toHaveTextContent('Starts when the step before ends.')
+  })
+
+  it('stops the run on Stop, then goes back to the settings check with a note', async () => {
+    render(<WizardPage />)
+    await reachPublishStepSoftware()
+    await startPublishing()
+    await configureZenodoAndContinue()
+    await screen.findByText('Ready to publish')
+
+    mockedApi.publishAllStart.mockResolvedValue({ task_id: 'publish-task' })
+    mockedApi.publishCancel.mockResolvedValue({ status: 'cancelling' })
+    let calls = 0
+    mockedApi.publishAllStatus.mockImplementation(async () => {
+      calls += 1
+      return calls < 2
+        ? { status: 'running', error: null, dry_run: false, repos: { zenodo: { status: 'running', stage: 'uploading', error: null, repo_url: null, doi: null, pid: null, output_dir: null } } }
+        : { status: 'cancelled', error: null, dry_run: false, repos: { zenodo: { status: 'pending', stage: 'uploading', error: null, repo_url: null, doi: null, pid: null, output_dir: null } } }
+    })
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await vi.advanceTimersByTimeAsync(2000)
+    fireEvent.click(screen.getByRole('button', { name: /^stop$/i }))
+    expect(mockedApi.publishCancel).toHaveBeenCalledWith('publish-task')
+    await vi.advanceTimersByTimeAsync(2000)
+    vi.useRealTimers()
+
+    expect(await screen.findByText(/you stopped the run/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^start publishing$/i })).toBeInTheDocument()
+  })
+
+  it('shows where it is now on the final screen, and opens the package folder', async () => {
+    mockedApi.openDirectory.mockResolvedValue({ opened: true })
+    render(<WizardPage />)
+    await reachPublishStepSoftware()
+    await startPublishing()
+    await configureZenodoAndContinue()
+    await screen.findByText('Ready to publish')
+
+    await runZenodoPublishToDone()
+    await screen.findByText('All done!')
+
+    expect(screen.getByText('Where it is now')).toBeInTheDocument()
+    expect(screen.getByText('Published')).toBeInTheDocument()
+    expect(screen.getByText('10.5281/zenodo.1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /open folder/i }))
+    expect(mockedApi.openDirectory).toHaveBeenCalledWith('/zenodo/output')
+  })
+
+  it('swaps the global Back button for the settings check\'s own once publishing has started', async () => {
     render(<WizardPage />)
     await reachPublishStep()
 
     expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /hugging face hub/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
-    expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+    // One Back — the check's own, which returns to the repository choice.
+    expect(screen.getAllByRole('button', { name: /back/i })).toHaveLength(1)
   })
 })
 
@@ -2162,20 +2324,18 @@ describe('WizardPage resume', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: /where do you want to publish it\?/i })).toBeInTheDocument())
 
     expect(screen.getByRole('button', { name: /gbif/i })).toHaveClass('border-blue-500')
-    await userEvent.click(screen.getByRole('button', { name: /start publishing/i }))
+    await startPublishing()
 
-    expect(await screen.findByText('Configure GBIF')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^\d\. gbif/i, expanded: true })).toBeInTheDocument()
   })
 
-  it('skips straight to configuring the persisted repos, pre-filled minus the token', async () => {
+  it('skips straight to configuring the persisted repos, pre-filled', async () => {
     render(<WizardPage resumeSession={HFH_ONLY_RESUME_SESSION} />)
 
     await act(async () => {})
-    expect(screen.getByRole('heading', { name: /configure hugging face hub/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d\. hugging face hub/i, expanded: true })).toBeInTheDocument()
     expect(screen.getByLabelText('User or organization')).toHaveValue('alice')
     expect(screen.getByLabelText('Repository name')).toHaveValue('dataset')
-    // Never persisted — the user must always retype it.
-    expect(screen.getByLabelText('HuggingFace Hub token')).toHaveValue('')
   })
 
   it('calls resumePublishStart (not publishAllStart) once every repo is reconfigured', async () => {
@@ -2194,18 +2354,17 @@ describe('WizardPage resume', () => {
     // User/org and repository name are already pre-filled from the session
     // (see the first test above) — only the token needs retyping.
     await act(async () => {})
-    await userEvent.type(screen.getByLabelText('HuggingFace Hub token'), 'hf_x')
-    await userEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^looks good$/i }))
 
     await act(async () => {})
     vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: /start publishing now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start publishing/i }))
     await vi.advanceTimersByTimeAsync(2000)
     vi.useRealTimers()
 
     expect(mockedApi.resumePublishStart).toHaveBeenCalledWith(
       'resume-task-1',
-      expect.arrayContaining([expect.objectContaining({ repo: 'hfh', token: 'hf_x', repoId: 'alice/dataset' })]),
+      expect.arrayContaining([expect.objectContaining({ repo: 'hfh', token: '', repoId: 'alice/dataset' })]),
       undefined, 60,
     )
     expect(mockedApi.publishAllStart).not.toHaveBeenCalled()

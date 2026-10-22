@@ -924,29 +924,6 @@ def test_extract_chain_input_prepared_reads_core_files_and_metadata_from_the_sam
     assert not (chain_dir / "CITATION.cff").exists()  # never part of the "core" extraction
 
 
-def test_extract_chain_input_downloaded_takes_core_files_from_one_dir_and_metadata_from_another(tmp_path):
-    """The whole point of separating core_source from metadata_source (see
-    the module's own docstring): a real downloaded-back copy never has
-    metadata.json (excluded from every upload), so it has to come from the
-    repo's own build_dir regardless of where the core files themselves
-    came from."""
-    from wildintel_publisher.web.services.publish_orchestrator import _extract_chain_input
-
-    build_dir = tmp_path / "build"
-    _write_product_files(build_dir)
-
-    downloaded_dir = tmp_path / "downloaded"
-    _write_product_files(downloaded_dir)
-    (downloaded_dir / "metadata.json").unlink()  # never present in a real downloaded copy
-    (downloaded_dir / "media.csv").write_text("id\ndownloaded-marker", encoding="utf-8")
-
-    chain_dir = tmp_path / "chain"
-    result = asyncio.run(_extract_chain_input(downloaded_dir, chain_dir, metadata_source=build_dir))
-
-    assert (result / "metadata.json").is_file()  # came from build_dir
-    assert "downloaded-marker" in (result / "media.csv").read_text(encoding="utf-8")  # came from downloaded_dir
-
-
 def test_download_repo_copy_hfh_uses_repo_id_and_token(tmp_path):
     from wildintel_publisher.web.services.publish_orchestrator import _download_repo_copy
 
@@ -1006,8 +983,7 @@ def test_download_repo_copy_zenodo_falls_back_to_the_session_metadata_record_whe
 def test_download_repo_copy_b2share_uses_the_draft_aware_call_not_the_published_one(tmp_path):
     """Unlike Zenodo/HFH, a still-draft B2SHARE record 404s on the
     published-record endpoint — this must go through
-    download_draft_files_from_b2share, never download_files_from_b2share
-    (see _download_repo_copy's own docstring)."""
+    download_draft_files_from_b2share (see _download_repo_copy's own docstring)."""
     from wildintel_publisher.web.services.publish_orchestrator import _download_repo_copy
 
     session_dir = tmp_path / "session"
@@ -1017,44 +993,87 @@ def test_download_repo_copy_b2share_uses_the_draft_aware_call_not_the_published_
     (build_dir / "b2share_record.json").write_text(json.dumps({"record_id": "rec-1"}), encoding="utf-8")
     target_dir = tmp_path / "downloaded"
 
-    with (
-        patch("wildintel_publisher.web.services.publish_orchestrator.b2share_service.download_draft_files_from_b2share") as mock_draft,
-        patch("wildintel_publisher.web.services.publish_orchestrator.b2share_service.download_files_from_b2share") as mock_published,
-    ):
+    with patch("wildintel_publisher.web.services.publish_orchestrator.b2share_service.download_draft_files_from_b2share") as mock_draft:
         asyncio.run(_download_repo_copy(
             {"repo": "b2share", "environment": "sandbox", "token": "b2_x"},
             session_dir=session_dir, build_dir=build_dir, target_dir=target_dir,
         ))
     mock_draft.assert_called_once_with(environment="sandbox", record_id="rec-1", token="b2_x", target_dir=target_dir)
-    mock_published.assert_not_called()
 
 
-def test_finalize_one_downloaded_b2share_uses_the_draft_aware_call(tmp_path):
-    """_finalize_one now runs BEFORE phase 3's lock, so the B2SHARE record
-    is still a draft — its "downloaded" output_mode must go through the
-    same draft-aware _download_repo_copy the chain uses."""
+# ── the last stage of a YOLO pipe has no output ──
+
+def _write_yolo_input(directory: Path, product_type: str = "yolo") -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "product_type": product_type, "title": "T", "description": "D", "version": "1.0",
+        "license": {"id": "CC-BY-4.0", "name": "CC-BY-4.0", "url": ""},
+        "authors": [{"name": "A", "affiliation": ""}], "publish_history": [], "homepage": None,
+    }
+    (directory / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    return directory
+
+
+def test_finalize_one_without_an_output_dir_copies_and_hands_on_nothing(tmp_path):
     from wildintel_publisher.web.services.publish_orchestrator import _finalize_one
 
-    session_dir = tmp_path / "session"
-    session_dir.mkdir()
-    build_dir = tmp_path / "build"
-    _write_product_files(build_dir)
-    (build_dir / "b2share_record.json").write_text(json.dumps({"record_id": "rec-1", "pid": None}), encoding="utf-8")
-    output_dir = tmp_path / "b2share_out"
+    with patch("wildintel_publisher.web.services.publish_orchestrator.zenodo_service.copy_prepared_output_files") as copy:
+        result = asyncio.run(_finalize_one(
+            {"repo": "zenodo", "output_dir": None, "output_mode": "prepared"},
+            session_dir=tmp_path / "session", build_dir=tmp_path / "build", previous_output_dir="/prev", dry_run=False,
+        ))
+
+    assert result is None
+    copy.assert_not_called()
+
+
+def test_the_last_repo_of_a_yolo_publish_gets_no_output_dir(tmp_path):
+    from wildintel_publisher.web.api.routers.publish import _drop_the_last_output
+
+    repos = [{"repo": "zenodo", "output_dir": "/a"}, {"repo": "b2share", "output_dir": "/b"}]
+    _drop_the_last_output(repos, _write_yolo_input(tmp_path / "yolo"))
+
+    assert [r["output_dir"] for r in repos] == ["/a", None]
+
+
+def test_any_other_product_keeps_the_output_dir_of_every_repo(tmp_path):
+    from wildintel_publisher.web.api.routers.publish import _drop_the_last_output
+
+    repos = [{"repo": "zenodo", "output_dir": "/a"}, {"repo": "b2share", "output_dir": "/b"}]
+    _drop_the_last_output(repos, _write_yolo_input(tmp_path / "cam", product_type="camtrapdp"))
+
+    assert [r["output_dir"] for r in repos] == ["/a", "/b"]
+
+
+def test_publishing_a_yolo_dataset_to_zenodo_alone_writes_no_output_and_still_releases(tmp_path):
+    def fake_prepare(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        _write_citation(output_dir, {"cff-version": "1.2.0"})
+
+    def fake_upload_zenodo(output_dir, **kwargs):
+        (output_dir / "zenodo_record.json").write_text(json.dumps({"doi": None}), encoding="utf-8")
 
     with (
-        patch("wildintel_publisher.web.services.publish_orchestrator.b2share_service.download_draft_files_from_b2share") as mock_draft,
-        patch("wildintel_publisher.web.services.publish_orchestrator.b2share_service.download_files_from_b2share") as mock_published,
+        patch("wildintel_publisher.web.services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare),
+        patch("wildintel_publisher.web.services.publish_orchestrator.zenodo_cli.upload_to_zenodo", side_effect=fake_upload_zenodo),
+        patch(
+            "wildintel_publisher.web.services.publish_orchestrator.zenodo_cli.release_on_zenodo",
+            return_value={"doi": "10.5281/zenodo.1", "record_url": "https://zenodo.org/records/1"},
+        ),
+        patch("wildintel_publisher.web.services.publish_orchestrator.zenodo_service.copy_prepared_output_files") as copy,
     ):
-        result = asyncio.run(_finalize_one(
-            {"repo": "b2share", "output_dir": str(output_dir), "output_mode": "downloaded",
-             "environment": "sandbox", "token": "b2_x"},
-            session_dir=session_dir, build_dir=build_dir, previous_output_dir="/prev", dry_run=False,
-        ))
-    download_dir = tmp_path / "b2share_out-downloaded"
-    assert result == str(download_dir)
-    mock_draft.assert_called_once_with(environment="sandbox", record_id="rec-1", token="b2_x", target_dir=download_dir)
-    mock_published.assert_not_called()
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": str(_write_yolo_input(tmp_path / "yolo")),
+                "repos": [{"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo")), "token": "zen_x", "environment": "sandbox"}],
+            })
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "done", body
+    assert body["repos"]["zenodo"]["output_dir"] is None
+    assert body["repos"]["zenodo"]["doi"] == "10.5281/zenodo.1"
+    copy.assert_not_called()
+    assert not (tmp_path / "zenodo").exists()
 
 
 # ── folding each repo's own record into the session's own metadata.json ──
@@ -1211,110 +1230,6 @@ def test_publish_all_passthrough_output_mode_forwards_the_original_input_to_gbif
     assert body["status"] == "done", body
     # NOT HFH's real, just-updated homepage — passthrough never picked it up.
     assert mock_register.call_args.kwargs["homepage"] is None
-
-
-def test_publish_all_downloaded_output_mode_round_trips_hfh_before_gbif_reads_it(tmp_path):
-    """output_mode="downloaded" on HFH makes the chain hand GBIF a
-    freshly-downloaded-back copy instead of trusting the local build_dir —
-    proven here by the download containing a marker value build_dir itself
-    never had."""
-    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
-        _write_product_files(output_dir)
-        _write_citation(output_dir, {"cff-version": "1.2.0"})
-
-    def fake_upload_hfh(output_dir, **kwargs):
-        return "https://huggingface.co/datasets/alice/dataset"
-
-    def fake_download(*, repo_id, token, target_dir):
-        _write_product_files(target_dir)
-        (target_dir / "metadata.json").unlink()  # a real download never has it
-        return target_dir
-
-    input_dir = tmp_path / "input"
-    _write_product_files(input_dir)
-
-    with (
-        patch("wildintel_publisher.web.services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
-        patch("wildintel_publisher.web.services.publish_orchestrator.hfh_cli.upload_to_huggingface", side_effect=fake_upload_hfh),
-        patch("wildintel_publisher.web.services.publish_orchestrator.hfh_cli.tag_release_on_huggingface", return_value=None),
-        patch("wildintel_publisher.web.services.publish_orchestrator.hfh_cli.release_on_huggingface", return_value=True),
-        patch(
-            "wildintel_publisher.web.services.publish_orchestrator.hfh_service.download_from_repo", side_effect=fake_download,
-        ) as mock_download,
-        patch(
-            "wildintel_publisher.web.services.publish_orchestrator.gbif_cli.register_gbif_dataset",
-            return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/xyz", "doi": None},
-        ),
-    ):
-        with _client() as client:
-            start = client.post("/api/publish/start", json={
-                "input_dir": str(input_dir),
-                "repos": [
-                    {
-                        "repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset",
-                        "token": "hf_x", "output_mode": "downloaded",
-                    },
-                    {
-                        "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
-                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip",
-                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
-                        "username": "alice", "password": "s3cret", "environment": "sandbox",
-                    },
-                ],
-            })
-            assert start.status_code == 200, start.text
-            body = _poll(client, start.json()["task_id"])
-
-    # "done" (not "error") already proves _extract_chain_input successfully
-    # read metadata.json from build_dir despite the downloaded copy lacking
-    # it entirely — an unhandled FileNotFoundError there would fail the task.
-    assert body["status"] == "done", body
-    # Called twice: once for the chain (_download_repo_copy, phase 1 — what
-    # this test is about) and once more for HFH's own output_mode
-    # "downloaded" user-facing copy (_finalize_one, after phase 2 — pre-existing,
-    # unrelated behavior that just happens to share output_mode's value).
-    assert mock_download.call_count == 2
-    for call in mock_download.call_args_list:
-        assert call.kwargs["repo_id"] == "alice/dataset"
-
-
-def test_publish_all_downloaded_output_mode_skips_the_real_download_in_dry_run(tmp_path):
-    """dry_run has nothing real uploaded to round-trip through — must fall
-    back to the same "prepared" extraction as the default, not attempt a
-    real network download."""
-    def fake_prepare_hfh(*, input_dir, output_dir, **kwargs):
-        _write_product_files(output_dir)
-        _write_citation(output_dir, {"cff-version": "1.2.0"})
-
-    input_dir = tmp_path / "input"
-    _write_product_files(input_dir)
-
-    with (
-        patch("wildintel_publisher.web.services.publish_orchestrator.hfh_cli.prepare_hfh_export", side_effect=fake_prepare_hfh),
-        patch("wildintel_publisher.web.services.publish_orchestrator.hfh_service.download_from_repo") as mock_download,
-        patch(
-            "wildintel_publisher.web.services.publish_orchestrator.gbif_cli.register_gbif_dataset",
-            return_value={"dataset_page_url": "https://registry.gbif-test.org/dataset/xyz", "doi": None},
-        ),
-    ):
-        with _client() as client:
-            start = client.post("/api/publish/start", json={
-                "input_dir": str(input_dir), "dry_run": True,
-                "repos": [
-                    {"repo": "hfh", "output_dir": str(_tmp(tmp_path, "hfh")), "repo_id": "alice/dataset", "output_mode": "downloaded"},
-                    {
-                        "repo": "gbif", "output_dir": str(_tmp(tmp_path, "gbif")),
-                        "archive_url": "https://huggingface.co/datasets/alice/dataset/resolve/main/camtrapdp-remote.zip",
-                        "publishing_organization_key": "org-1", "installation_key": "inst-1",
-                        "environment": "sandbox",
-                    },
-                ],
-            })
-            assert start.status_code == 200, start.text
-            body = _poll(client, start.json()["task_id"])
-
-    assert body["status"] == "done", body
-    mock_download.assert_not_called()
 
 
 def test_publish_all_passes_existing_deposition_id_through_to_zenodo(tmp_path):
@@ -1633,6 +1548,44 @@ def test_publish_all_dry_run_never_touches_a_real_repo_but_still_populates_dois(
     assert hfh_citation["identifiers"] == [
         {"type": "doi", "value": f"https://doi.org/{body['repos']['b2share']['pid']}", "description": "B2SHARE (EUDAT) DOI"},
     ]
+
+
+def test_publish_all_stop_ends_the_run_before_the_next_repo_and_before_anything_is_released(tmp_path):
+    """Stop doesn't interrupt the repo being sent, but nothing after it starts: the next repo is never prepared and no
+    lock/release happens — the task ends "cancelled", with the session left on disk to resume."""
+    from wildintel_publisher.web.services import publish_orchestrator
+
+    def fake_prepare_zenodo(*, input_dir, output_dir, **kwargs):
+        _write_product_files(output_dir)
+        # The user presses Stop while Zenodo is being prepared.
+        assert publish_orchestrator.cancel_publish_task(list(publish_orchestrator._publish_tasks)[-1])
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("wildintel_publisher.web.services.publish_orchestrator.zenodo_cli.prepare_zenodo_export", side_effect=fake_prepare_zenodo))
+        prepare_b2share = stack.enter_context(patch("wildintel_publisher.web.services.publish_orchestrator.b2share_cli.prepare_b2share_export"))
+        release_zenodo = stack.enter_context(patch("wildintel_publisher.web.services.publish_orchestrator.zenodo_cli.release_on_zenodo"))
+
+        with _client() as client:
+            start = client.post("/api/publish/start", json={
+                "input_dir": "/tmp/camtrapdp", "dry_run": True, "primary_doi_source": "zenodo",
+                "repos": [
+                    {"repo": "zenodo", "output_dir": str(_tmp(tmp_path, "zenodo"))},
+                    {"repo": "b2share", "output_dir": str(_tmp(tmp_path, "b2share"))},
+                ],
+            })
+            assert start.status_code == 200, start.text
+            body = _poll(client, start.json()["task_id"])
+
+    assert body["status"] == "cancelled", body
+    assert body["finished_at"]
+    prepare_b2share.assert_not_called()
+    release_zenodo.assert_not_called()
+    assert body["repos"]["b2share"]["status"] == "pending"
+
+
+def test_stop_of_an_unknown_or_finished_task_is_a_404():
+    with _client() as client:
+        assert client.post("/api/publish/nope/cancel").status_code == 404
 
 
 def test_publish_all_requires_at_least_one_repo():

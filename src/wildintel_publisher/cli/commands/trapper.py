@@ -74,9 +74,8 @@ def download(
         TRAPPER_DEFAULTS.base_url, "--trapper-url", envvar="WILDINTEL_BASE_URL", help=_trapper_help("base_url"),
     ),
     trapper_user: Optional[str] = typer.Option(
-        # Sin default= (a diferencia de --trapper-url/--project-id): user_name es un
-        # campo "secret" en TrapperSettings — pasar TRAPPER_DEFAULTS.user_name aquí lo
-        # mostraría en claro en --help. El fallback a settings.toml se resuelve abajo.
+        # Sin default= (a diferencia de --trapper-url/--project-id): el fallback a
+        # settings.toml se resuelve abajo, junto al de la contraseña.
         None, "--trapper-user", envvar="WILDINTEL_USER_NAME", help=_trapper_help("user_name"),
     ),
     trapper_password: Optional[str] = typer.Option(

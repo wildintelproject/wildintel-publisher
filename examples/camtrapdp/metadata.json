@@ -1,0 +1,23 @@
+{
+  "product_type": "camtrapdp",
+  "title": "Example Camera Trap Survey",
+  "description": "A small, synthetic camera-trap dataset — 2 deployments, 5 media files (one private), 5 observations — used as a wildintel-publisher example. Not real field data; the images are generated placeholders, not photographs.",
+  "version": "1.0",
+  "license": {
+    "id": "CC0-1.0",
+    "name": "CC0-1.0",
+    "url": ""
+  },
+  "authors": [
+    {
+      "name": "Jane Researcher",
+      "affiliation": "WildINTEL Example Institute"
+    },
+    {
+      "name": "WildINTEL Example Institute",
+      "affiliation": ""
+    }
+  ],
+  "homepage": "https://github.com/wildintelproject/wildintel-publisher",
+  "publish_history": []
+}

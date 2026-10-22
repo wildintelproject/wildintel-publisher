@@ -3,6 +3,7 @@ HuggingFace Hub calls are mocked out (no real network), but settings.toml
 reads/writes go through the real wildintel_publisher.core.config
 machinery, isolated to a throwaway HOME by conftest.py."""
 import time
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -219,41 +220,6 @@ def test_publish_output_mode_passthrough_reports_input_dir_as_output(tmp_path):
     assert body["output_dir"] == "/tmp/camtrapdp"
 
 
-def test_publish_output_mode_downloaded_fetches_files_from_b2share(tmp_path):
-    from wildintel_publisher.web.main import app
-    fake_output_dir = tmp_path / "b2share"
-    fake_record_with_files = {"files": [{"key": "README.md", "links": {"self": "https://b2share.eudat.eu/files/readme"}}]}
-    fake_file_response = MagicMock(status_code=200, content=b"# hello")
-    fake_file_response.raise_for_status.return_value = None
-
-    def fake_prepare(*, input_dir, output_dir, **kwargs):
-        _write_fake_metadata_json(output_dir)
-        return output_dir
-
-    with (
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.prepare_b2share_export", side_effect=fake_prepare),
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.upload_to_b2share", return_value={"record_id": "123"}),
-        patch(
-            "wildintel_publisher.web.services.b2share_service.b2share_service.release_on_b2share",
-            return_value={"pid": "10.5072/b2share.123", "record_url": "u", "record_id": "123"},
-        ),
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.get_record", return_value=fake_record_with_files),
-        patch("wildintel_publisher.web.services.b2share_service.httpx.get", return_value=fake_file_response) as mock_get,
-    ):
-        with TestClient(app) as client:
-            start = client.post("/api/b2share/publish", json={
-                "input_dir": "/tmp/camtrapdp", "output_dir": str(fake_output_dir),
-                "token": "b2_x", "community_id": "uuid-1", "output_mode": "downloaded",
-            })
-            task_id = start.json()["task_id"]
-            body = _poll_publish(client, task_id)
-
-    expected_download_dir = fake_output_dir.parent / f"{fake_output_dir.name}-downloaded"
-    assert body["output_dir"] == str(expected_download_dir)
-    assert (expected_download_dir / "README.md").read_bytes() == b"# hello"
-    mock_get.assert_called_once()
-
-
 def test_download_draft_files_from_b2share_reads_the_dict_shaped_entries_and_builds_the_content_url(tmp_path):
     """Unlike a published record's own list-shaped "files" (see
     download_files_from_b2share's own test above, "files": [...]), a
@@ -285,38 +251,6 @@ def test_download_draft_files_from_b2share_reads_the_dict_shaped_entries_and_bui
         "https://trng-b2share.eudat.eu/api/records/rec-1/draft/files/README.md/content",
         headers={"Authorization": "Bearer b2_x"}, timeout=300,
     )
-
-
-def test_publish_output_mode_downloaded_falls_back_to_prepared_when_pid_pending(tmp_path):
-    """If B2SHARE hasn't assigned a PID yet (pending moderator approval),
-    there's nothing published to download from — the prepared directory is
-    reported instead."""
-    from wildintel_publisher.web.main import app
-    fake_output_dir = tmp_path / "b2share"
-
-    def fake_prepare(*, input_dir, output_dir, **kwargs):
-        _write_fake_metadata_json(output_dir)
-        return output_dir
-
-    with (
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.prepare_b2share_export", side_effect=fake_prepare),
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.upload_to_b2share", return_value={"record_id": "123"}),
-        patch(
-            "wildintel_publisher.web.services.b2share_service.b2share_service.release_on_b2share",
-            return_value={"pid": None, "record_url": "u", "record_id": "123"},
-        ),
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.get_record") as mock_get_record,
-    ):
-        with TestClient(app) as client:
-            start = client.post("/api/b2share/publish", json={
-                "input_dir": "/tmp/camtrapdp", "output_dir": str(fake_output_dir),
-                "token": "b2_x", "community_id": "uuid-1", "output_mode": "downloaded",
-            })
-            task_id = start.json()["task_id"]
-            body = _poll_publish(client, task_id)
-
-    assert body["output_dir"] == str(fake_output_dir)
-    mock_get_record.assert_not_called()
 
 
 def test_publish_reports_error_status_on_failure(tmp_path):
@@ -390,84 +324,93 @@ def test_records_maps_runtime_error_to_400():
     assert response.status_code == 400
 
 
-def test_sync_pid_success_with_pid(tmp_path):
+PUBLISHED_RECORD = {
+    "id": "rec-1", "pids": {"doi": {"identifier": "10.5072/b2share.123"}},
+    "links": {"self_html": "https://trng-b2share.eudat.eu/records/rec-1"},
+}
+
+SYNC_BODY = {
+    "environment": "sandbox", "record_id": "rec-1", "token": "b2_x",
+    "hfh_repo_id": "alice/dataset", "hfh_token": "hf_x",
+}
+
+
+def _fake_hub_download(files: dict[str, str]):
+    from huggingface_hub.utils import EntryNotFoundError
+
+    def download(*, filename, local_dir, **kwargs):
+        if filename not in files:
+            raise EntryNotFoundError(filename)
+        (Path(local_dir) / filename).write_text(files[filename], encoding="utf-8")
+    return download
+
+
+def test_sync_pid_success_with_pid():
+    uploaded = []
     with (
-        patch("wildintel_publisher.web.services.b2share_service.b2share_service.sync_pid_to_hfh", return_value="10.5072/b2share.123") as mock_sync,
-        patch("wildintel_publisher.web.services.b2share_service.upload_file") as mock_upload_file,
-    ):
-        response = _client().post("/api/b2share/sync-pid", json={
-            "b2share_output_dir": str(tmp_path / "b2share"),
-            "hfh_output_dir": str(tmp_path / "hfh"),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
-
-    assert response.status_code == 200
-    assert response.json() == {"pid": "10.5072/b2share.123", "repo_url": "https://huggingface.co/datasets/alice/dataset"}
-    mock_sync.assert_called_once_with(b2share_output_dir=tmp_path / "b2share", hfh_output_dir=tmp_path / "hfh")
-    mock_upload_file.assert_not_called()  # no CITATION.cff/checksums exist under tmp_path in this test
-
-
-def test_sync_pid_uploads_the_changed_files_when_present(tmp_path):
-    hfh_output_dir = tmp_path / "hfh"
-    hfh_output_dir.mkdir()
-    (hfh_output_dir / "CITATION.cff").write_text("cff", encoding="utf-8")
-    (hfh_output_dir / "README.md").write_text("readme", encoding="utf-8")
-    (hfh_output_dir / "checksums-sha256.txt").write_text("sums", encoding="utf-8")
-
-    with (
+        patch("wildintel_publisher.web.services.b2share_service.b2share_service.get_record", return_value=PUBLISHED_RECORD) as mock_get,
         patch("wildintel_publisher.web.services.b2share_service.b2share_service.sync_pid_to_hfh", return_value="10.5072/b2share.123"),
-        patch("wildintel_publisher.web.services.b2share_service.upload_file") as mock_upload_file,
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff", "README.md": "readme"})),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file", side_effect=lambda **kw: uploaded.append(kw["path_in_repo"])),
     ):
-        response = _client().post("/api/b2share/sync-pid", json={
-            "b2share_output_dir": str(tmp_path / "b2share"),
-            "hfh_output_dir": str(hfh_output_dir),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
+        response = _client().post("/api/b2share/sync-pid", json=SYNC_BODY)
 
-    assert response.status_code == 200
-    assert mock_upload_file.call_count == 3
-    uploaded_names = {call.kwargs["path_in_repo"] for call in mock_upload_file.call_args_list}
-    assert uploaded_names == {"CITATION.cff", "README.md", "checksums-sha256.txt"}
+    assert response.status_code == 200, response.text
+    assert response.json() == {"pid": "10.5072/b2share.123", "repo_url": "https://huggingface.co/datasets/alice/dataset"}
+    mock_get.assert_called_once_with("https://trng-b2share.eudat.eu/api", "b2_x", "rec-1")
+    assert set(uploaded) == {"CITATION.cff", "README.md"}
 
 
-def test_sync_pid_returns_none_pid_when_pending_moderator_approval(tmp_path):
+def test_sync_pid_reads_the_pid_from_the_record_without_any_local_record():
+    seen = {}
+
+    def fake_core_sync(*, b2share_output_dir, hfh_output_dir):
+        seen["record"] = json.loads((b2share_output_dir / "b2share_record.json").read_text(encoding="utf-8"))
+        return seen["record"]["pid"]
+
+    with (
+        patch("wildintel_publisher.web.services.b2share_service.b2share_service.get_record", return_value=PUBLISHED_RECORD),
+        patch("wildintel_publisher.web.services.b2share_service.b2share_service.sync_pid_to_hfh", side_effect=fake_core_sync),
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff"})),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file"),
+    ):
+        response = _client().post("/api/b2share/sync-pid", json=SYNC_BODY)
+
+    assert response.status_code == 200, response.text
+    assert seen["record"]["pid"] == "10.5072/b2share.123"
+    assert seen["record"]["pid_kind"] == "doi"
+    assert seen["record"]["record_url"] == "https://trng-b2share.eudat.eu/records/rec-1"
+
+
+def test_sync_pid_returns_none_pid_when_pending_moderator_approval():
     """B2SHARE-specific: unlike Zenodo, publishing doesn't guarantee an
     immediate PID/DOI — it can be pending community moderator approval."""
     with (
+        patch("wildintel_publisher.web.services.b2share_service.b2share_service.get_record", return_value={"id": "rec-1"}),
         patch("wildintel_publisher.web.services.b2share_service.b2share_service.sync_pid_to_hfh", return_value=None),
-        patch("wildintel_publisher.web.services.b2share_service.upload_file") as mock_upload_file,
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff"})),
+        patch("wildintel_publisher.web.services.hfh_service.upload_file") as mock_upload_file,
     ):
-        response = _client().post("/api/b2share/sync-pid", json={
-            "b2share_output_dir": str(tmp_path / "b2share"),
-            "hfh_output_dir": str(tmp_path / "hfh"),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
+        response = _client().post("/api/b2share/sync-pid", json=SYNC_BODY)
 
     assert response.status_code == 200
     assert response.json()["pid"] is None
     mock_upload_file.assert_not_called()
 
 
-def test_sync_pid_maps_runtime_error_to_400(tmp_path):
-    with patch("wildintel_publisher.web.services.b2share_service.b2share_service.sync_pid_to_hfh", side_effect=RuntimeError("not prepared")):
-        response = _client().post("/api/b2share/sync-pid", json={
-            "b2share_output_dir": str(tmp_path / "b2share"),
-            "hfh_output_dir": str(tmp_path / "hfh"),
-            "hfh_repo_id": "alice/dataset",
-            "hfh_token": "hf_x",
-        })
+def test_sync_pid_maps_runtime_error_to_400():
+    with (
+        patch("wildintel_publisher.web.services.b2share_service.b2share_service.get_record", return_value=PUBLISHED_RECORD),
+        patch("wildintel_publisher.web.services.hfh_service.hf_hub_download", side_effect=_fake_hub_download({"CITATION.cff": "cff"})),
+        patch("wildintel_publisher.web.services.b2share_service.b2share_service.sync_pid_to_hfh", side_effect=RuntimeError("not prepared")),
+    ):
+        response = _client().post("/api/b2share/sync-pid", json=SYNC_BODY)
 
     assert response.status_code == 400
     assert "not prepared" in response.json()["detail"]
 
 
-def test_sync_pid_requires_hfh_token_when_none_saved(tmp_path):
-    response = _client().post("/api/b2share/sync-pid", json={
-        "b2share_output_dir": str(tmp_path / "b2share"),
-        "hfh_output_dir": str(tmp_path / "hfh"),
-        "hfh_repo_id": "alice/dataset",
-    })
+def test_sync_pid_requires_hfh_token_when_none_saved():
+    body = {k: v for k, v in SYNC_BODY.items() if k != "hfh_token"}
+    response = _client().post("/api/b2share/sync-pid", json=body)
     assert response.status_code == 400

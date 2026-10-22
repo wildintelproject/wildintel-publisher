@@ -7,7 +7,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from wildintel_publisher.web.schemas.requests import LocalSourceResolveRequest, UpdateDataYamlRequest
+from wildintel_publisher.web.schemas.requests import (
+    LocalSourceResolveRequest, UpdateDataYamlRequest, YoloDeepChecksRequest, YoloStructureCheckRequest,
+)
 from wildintel_publisher.web.services import yolo_service
 
 router = APIRouter(prefix="/api/yolo", tags=["yolo"])
@@ -42,3 +44,19 @@ def update_data_yaml(req: UpdateDataYamlRequest) -> dict:
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True}
+
+
+@router.post("/structure-check")
+def structure_check(req: YoloStructureCheckRequest) -> dict:
+    """How the dataset stands on each requirement of a YOLO structure (data.yaml, its splits and classes, the
+    images, the label files) — one entry each, so the wizard can show what was read and what is wrong."""
+    return yolo_service.structure_checks(Path(req.input_dir))
+
+
+@router.post("/deep-checks")
+def deep_checks(req: YoloDeepChecksRequest) -> dict:
+    """Runs the deeper checks over every image (see yolo_adapter.DEEP_CHECKS) and keeps the report of the run."""
+    try:
+        return yolo_service.run_deep_checks(Path(req.input_dir), req.checks)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc

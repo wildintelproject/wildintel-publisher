@@ -9,14 +9,16 @@ image files split into `train`/`val`/`test` sets, described by a `data.yaml` con
 It has {{ num_classes }} class{{ "es" if num_classes != 1 else "" }}: {{ class_names | join(", ") }}.
 {% endif %}
 
-This is a **self-contained** Zenodo record: `{{ zip_filename }}` bundles `data.yaml`, the
-whole `images/` tree (train/val/test) and its `labels/` — everything needed to use the dataset
-offline, in a single archive. The loose files are not published separately; only
-`{{ zip_filename }}` (plus this README, license and citation) makes up the record.
+This is a **self-contained** Zenodo record: the whole dataset is a single zip archive,
+`{{ zip_parts[0].name }}` ({{ zip_parts[0].size }}), holding {{ zip_parts[0].contents }} — everything
+needed to use the dataset offline. The loose files are not published separately; only the archive
+(plus this README, license and citation) makes up the record.
+
+Unzip it to get the usual `data.yaml` + `images/` + `labels/` layout.
 
 ```text
 .
-├── {{ zip_filename }}          ← self-contained package: data.yaml + images/ + labels/
+├── {{ zip_parts[0].name }}
 ├── checksums-sha256.txt
 ├── CITATION.cff
 └── LICENSE

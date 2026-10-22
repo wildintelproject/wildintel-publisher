@@ -305,11 +305,50 @@ def write_checksums(output_dir: Path) -> Path:
     path = output_dir / CHECKSUM_FILENAME
     with path.open("w", encoding="utf-8") as f:
         for file_path in sorted(output_dir.rglob("*")):
-            if not file_path.is_file() or file_path == path or file_path.name == product.METADATA_FILENAME:
+            if not file_path.is_file() or file_path == path or file_path.name in product.BOOKKEEPING_FILENAMES:
                 continue
             rel = file_path.relative_to(output_dir).as_posix()
             f.write(f"{sha256_file(file_path)}  {rel}\n")
     return path
+
+
+GB = 1000 ** 3  # a repository's "50 GB" — the decimal one, which is also the stricter reading
+
+
+def gb_to_bytes(gb: Optional[float]) -> Optional[int]:
+    return round(gb * GB) if gb else None
+
+
+def check_repository_limits(
+    output_dir: Path, *, repository: str, max_record_bytes: Optional[int], max_files: Optional[int],
+    max_file_bytes: Optional[int], planned: Optional[list[tuple[str, int]]] = None,
+) -> None:
+    """Raises RuntimeError if what is about to be uploaded from `output_dir` (everything but the
+    bookkeeping files) breaks the repository's own limits — how much the whole record may weigh, how
+    many files it may hold and how much a single one may weigh (None: not limited). `planned` adds
+    (name, size) files that are not there yet, e.g. an archive about to be built: checked first, a
+    dataset that cannot fit fails before the archive is written, not after.
+    Run once the export is complete too, so nothing slips through."""
+    files = [
+        (p.name, p.stat().st_size) for p in output_dir.rglob("*")
+        if p.is_file() and p.name not in product.BOOKKEEPING_FILENAMES
+    ] + list(planned or [])
+    if max_files is not None and len(files) > max_files:
+        raise RuntimeError(
+            f"The {repository} record would hold {len(files)} files, over its limit of {max_files} per record."
+        )
+    if max_file_bytes is not None:
+        name, size = max(files, key=lambda f: f[1], default=("", 0))
+        if size > max_file_bytes:
+            raise RuntimeError(
+                f"{name} is {size / GB:.2f} GB, over {repository}'s limit of {max_file_bytes / GB:.2f} GB per file."
+            )
+    total = sum(size for _, size in files)
+    if max_record_bytes is not None and total > max_record_bytes:
+        raise RuntimeError(
+            f"The {repository} record is {total / GB:.2f} GB, over its limit of {max_record_bytes / GB:.2f} GB per "
+            "record — it cannot be published there however it is zipped; ask for a larger quota or use another repository."
+        )
 
 
 def update_checksums_entries(checksums_path: Path, updated_files: dict[str, Path]) -> bool:
@@ -1686,7 +1725,7 @@ def cleanup_self_contained_sources(
     uploaded (used by both zenodo.py and b2share.py's own --self-contained
     mode)."""
     for entry in output_dir.iterdir():
-        if entry.name in product.GENERATED_FILENAMES or entry.name == zip_filename:
+        if entry.name in product.GENERATED_FILENAMES or entry.name in product.BOOKKEEPING_FILENAMES or entry.name == zip_filename:
             continue
         if entry.is_dir():
             shutil.rmtree(entry)

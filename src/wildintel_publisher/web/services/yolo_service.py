@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from wildintel_publisher.core.services import product
+from wildintel_publisher.core.services import product, report_service
 from wildintel_publisher.core.services import yolo_adapter
 
 from wildintel_publisher.web.services import session_store
@@ -62,3 +62,22 @@ def update_data_yaml(input_dir: Path, fields: yolo_adapter.YoloEditableMetadata)
     for the working copy only (see resolve_local_source), and BEFORE
     generate-metadata, which re-reads them from there."""
     yolo_adapter.update_editable_fields(input_dir, fields)
+
+
+def structure_checks(input_dir: Path) -> dict[str, Any]:
+    """How the dataset at input_dir (a working copy) stands on each structural requirement of a YOLO dataset."""
+    checks = yolo_adapter.structure_checks(input_dir)
+    return {"checks": checks, "ok": all(c["ok"] for c in checks)}
+
+
+def run_deep_checks(input_dir: Path, checks: list[str]) -> dict[str, Any]:
+    """Runs the deeper checks over every image, and keeps the report of the structure and these together.
+
+    Raises:
+        RuntimeError: the dataset is not readable, or a check is unknown.
+    """
+    results = yolo_adapter.run_deep_checks(input_dir, checks)
+    structure = yolo_adapter.structure_checks(input_dir)
+    source = yolo_adapter.dataset_root(input_dir)
+    report_id = report_service.try_save(report_service.checks_report(source, product.YOLO, structure, results))
+    return {"results": results, "report_id": report_id}

@@ -6,19 +6,19 @@ import SettingsPage from './SettingsPage'
 import type { AppSettings } from '../types'
 
 vi.mock('../api', () => ({ api: { getSettings: vi.fn(), saveSettings: vi.fn(), clearLog: vi.fn(),
-    openConfigFolder: vi.fn(), configs: vi.fn(), addConfig: vi.fn(), activateConfig: vi.fn(), checkVersion: vi.fn(), s3TestConnection: vi.fn() } }))
+    openConfigFolder: vi.fn(), configs: vi.fn(), addConfig: vi.fn(), activateConfig: vi.fn(), checkVersion: vi.fn(), checkForUpdate: vi.fn(), listReports: vi.fn(), deleteReport: vi.fn(), getReport: vi.fn(), reportUrl: (id: string, f: string) => `/api/reports/${id}/download?format=${f}`, fsPickDirectory: vi.fn(), trapperTestConnection: vi.fn(), s3TestConnection: vi.fn() } }))
 
 const mockedApi = vi.mocked(api)
 
 const APP_SETTINGS: AppSettings = {
-  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', config_file: '/home/me/.config/wildintel-publisher/settings.toml', log_level_override: null },
+  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', config_file: '/home/me/.config/wildintel-publisher/settings.toml', log_level_override: null, reports_dir: null, default_reports_dir: '/home/me/Documents/wildintel-publisher/reports', sessions_dir: null, default_sessions_dir: '/home/me/Documents/wildintel-publisher/sessions' },
   CAMTRAPDP: {
     license_id: 'CC-BY-NC-4.0', license_name: 'Creative Commons Attribution-NonCommercial 4.0 International',
     license_url: 'https://creativecommons.org/licenses/by-nc/4.0/', dataset_slug: 'wildintel-camtrapdp',
     dataset_name: 'Wildintel Camtrapdp', description: null,
   },
   TRAPPER: {
-    base_url: 'https://trapper.example.org', has_user_name: true, has_user_password: true, project_id: 12,
+    base_url: 'https://trapper.example.org', user_name: 'jane@example.org', has_user_password: true, project_id: 12,
     download_workers: 4, retry_attempts: 3, retry_wait_seconds: 2,
   },
   HFH: {
@@ -28,10 +28,12 @@ const APP_SETTINGS: AppSettings = {
   },
   ZENODO: {
     environment: 'sandbox', sandbox_communities: null, production_communities: null,
+    max_record_size_gb: 50, max_files: 100, max_file_size_gb: null,
     has_sandbox_token: false, has_production_token: false,
   },
   B2SHARE: {
     environment: 'sandbox', sandbox_community_id: null, production_community_id: null,
+    max_record_size_gb: null, max_files: 100, max_file_size_gb: 20,
     has_sandbox_token: false, has_production_token: false,
   },
   GBIF: {
@@ -59,7 +61,7 @@ beforeEach(() => {
   mockedApi.saveSettings.mockImplementation(async (update) => ({
     GENERAL: { ...APP_SETTINGS.GENERAL, ...update.GENERAL },
     CAMTRAPDP: { ...APP_SETTINGS.CAMTRAPDP, ...update.CAMTRAPDP },
-    TRAPPER: { ...APP_SETTINGS.TRAPPER, ...update.TRAPPER, has_user_name: !!update.TRAPPER.user_name, has_user_password: !!update.TRAPPER.user_password },
+    TRAPPER: { ...APP_SETTINGS.TRAPPER, ...update.TRAPPER, has_user_password: !!update.TRAPPER.user_password },
     HFH: { ...APP_SETTINGS.HFH, ...update.HFH, has_token: !!update.HFH.token },
     ZENODO: { ...APP_SETTINGS.ZENODO, ...update.ZENODO, has_sandbox_token: !!update.ZENODO.sandbox_token, has_production_token: !!update.ZENODO.production_token },
     B2SHARE: { ...APP_SETTINGS.B2SHARE, ...update.B2SHARE, has_sandbox_token: !!update.B2SHARE.sandbox_token, has_production_token: !!update.B2SHARE.production_token },
@@ -86,7 +88,7 @@ describe('SettingsPage', () => {
 
     await section('Trapper')
     expect(screen.getByLabelText('URL')).toHaveValue('https://trapper.example.org')
-    expect(screen.getByText(/a username is saved — leave it blank to keep it/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Username')).toHaveValue('jane@example.org')
     expect(screen.getByText(/a password is saved — leave it blank to keep it/i)).toBeInTheDocument()
 
     await section('Repositories')
@@ -112,7 +114,7 @@ describe('SettingsPage', () => {
     expect(mockedApi.saveSettings).toHaveBeenCalledOnce()
     const body = mockedApi.saveSettings.mock.calls[0][0]
     expect(body.TRAPPER).toMatchObject({
-      base_url: 'https://trapper.example.org', user_name: null, user_password: null,
+      base_url: 'https://trapper.example.org', user_name: 'jane@example.org', user_password: null,
     })
     expect(body.CAMTRAPDP).toMatchObject({ license_id: 'CC-BY-NC-4.0', description: 'New description' })
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
@@ -153,6 +155,70 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 
+  it('shows and saves the repository limits of Zenodo and B2SHARE, an empty one meaning no limit', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Repositories')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Zenodo' }))
+    expect(screen.getByRole('button', { name: /Limits for each record/ })).toHaveTextContent('50 GB in total · 100 files · no limit per file')
+    await userEvent.click(screen.getByRole('button', { name: /Limits for each record/ }))
+    expect(screen.getByLabelText('Max record size (GB)')).toHaveValue('50')
+    expect(screen.getByLabelText('Max files per record')).toHaveValue('100')
+    expect(screen.getByLabelText('Max size of one file (GB)')).toHaveValue('')
+
+    await userEvent.clear(screen.getByLabelText('Max record size (GB)'))
+    await userEvent.type(screen.getByLabelText('Max size of one file (GB)'), '30')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Credentials and defaults of the repositories the wizard publishes to.')).toBeInTheDocument()
+
+    const { ZENODO, B2SHARE } = mockedApi.saveSettings.mock.calls[0][0]
+    expect([ZENODO.max_record_size_gb, ZENODO.max_files, ZENODO.max_file_size_gb]).toEqual([null, 100, 30])
+    expect([B2SHARE.max_record_size_gb, B2SHARE.max_files, B2SHARE.max_file_size_gb]).toEqual([null, 100, 20])
+  })
+
+  it('opens a repository as its own page, replacing the list, and Cancel puts back what was there', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Repositories')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Zenodo' }))
+
+    expect(screen.getByRole('heading', { name: 'Set up Zenodo' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText('Credentials and defaults of the repositories the wizard publishes to.')).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('New community'), 'wildintelproject')
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByText('wildintelproject')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(await screen.findByText('Credentials and defaults of the repositories the wizard publishes to.')).toBeInTheDocument()
+    expect(mockedApi.saveSettings).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Zenodo' }))
+    expect(screen.queryByText('wildintelproject')).not.toBeInTheDocument()
+  })
+
+  it('keeps Production off until it has a token', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Repositories')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Zenodo' }))
+
+    expect(screen.getByRole('radio', { name: /Production/ })).toBeDisabled()
+    expect(screen.getByText('Add a Production token first.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^Production/ }))
+    await userEvent.type(screen.getAllByLabelText('Access token')[1], 'prod-token')
+    expect(screen.getByRole('radio', { name: /Production/ })).toBeEnabled()
+  })
+
+  it('saves a repository from its own page and goes back to the list', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Repositories')
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Zenodo' }))
+    await userEvent.type(screen.getByLabelText('New community'), 'wildintelproject')
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Credentials and defaults of the repositories the wizard publishes to.')).toBeInTheDocument()
+    expect(mockedApi.saveSettings.mock.calls[0][0].ZENODO.sandbox_communities).toBe('wildintelproject')
+  })
+
   it('adds and removes a GBIF installation', async () => {
     render(<SettingsPage onClose={vi.fn()} />)
     await section('Repositories')
@@ -167,6 +233,7 @@ describe('SettingsPage', () => {
     const gbif = mockedApi.saveSettings.mock.calls[0][0].GBIF
     expect(gbif.installations.map((i) => i.title)).toEqual(['WildINTEL', 'New install'])
 
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit GBIF' }))
     await userEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
     expect(screen.getAllByLabelText('Title')).toHaveLength(1)
   })
@@ -248,35 +315,139 @@ describe('SettingsPage', () => {
     expect(screen.queryByRole('button', { name: 'Activate b' })).not.toBeInTheDocument()
   })
 
-  const CHECK = { current: '0.1.0', latest: '0.1.0', update_available: false, release_url: null, download_url: null, error: null }
+  it('tests the Trapper connection with the values typed, a blank password falling back to the saved one', async () => {
+    mockedApi.trapperTestConnection.mockResolvedValue({ ok: true, research_projects_count: 3 })
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Trapper')
 
-  it('checks for updates and says when the app is up to date', async () => {
-    mockedApi.checkVersion.mockResolvedValue(CHECK)
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    expect(mockedApi.trapperTestConnection).toHaveBeenCalledWith('https://trapper.example.org', 'jane@example.org', '')
+    expect(await screen.findByText('Connected — 3 research project(s) available.')).toBeInTheDocument()
+  })
+
+  it('says why the Trapper connection failed', async () => {
+    mockedApi.trapperTestConnection.mockRejectedValue(new Error('Invalid credentials'))
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Trapper')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    expect(await screen.findByText('Invalid credentials')).toBeInTheDocument()
+  })
+
+  it('saves a reports folder of its own, and goes back to the default with one click', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    const folder = await screen.findByLabelText('Reports folder')
+    expect(folder).toHaveValue('')
+    expect(folder).toHaveAttribute('placeholder', '/home/me/Documents/wildintel-publisher/reports')
+
+    await userEvent.type(folder, '/data/my-reports')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(mockedApi.saveSettings).toHaveBeenCalled())
+    expect(mockedApi.saveSettings.mock.calls.at(-1)![0].GENERAL.reports_dir).toBe('/data/my-reports')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Use the default reports folder' }))
+    expect(screen.getByLabelText('Reports folder')).toHaveValue('')
+  })
+
+  it('saves a sessions folder of its own and picks it with the native dialog', async () => {
+    mockedApi.fsPickDirectory.mockResolvedValue({ path: '/big-disk/sessions' })
+    render(<SettingsPage onClose={vi.fn()} />)
+    expect(await screen.findByLabelText('Sessions folder')).toHaveValue('')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Browse for the sessions folder' }))
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(mockedApi.saveSettings).toHaveBeenCalled())
+    expect(mockedApi.saveSettings.mock.calls.at(-1)![0].GENERAL).toMatchObject({ reports_dir: null, sessions_dir: '/big-disk/sessions' })
+    expect(mockedApi.fsPickDirectory).toHaveBeenCalledWith('/home/me/Documents/wildintel-publisher/sessions', 'Select the folder to keep the sessions in')
+  })
+
+  it('refuses a relative reports folder', async () => {
+    render(<SettingsPage onClose={vi.fn()} />)
+    await userEvent.type(await screen.findByLabelText('Reports folder'), 'relative/folder')
+
+    expect(screen.getByText('An absolute path (or one starting with ~).')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
+
+  it('picks the reports folder with the native dialog', async () => {
+    mockedApi.fsPickDirectory.mockResolvedValue({ path: '/picked/reports' })
     render(<SettingsPage onClose={vi.fn()} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Check updates' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Browse for the reports folder' }))
+
+    expect(screen.getByLabelText('Reports folder')).toHaveValue('/picked/reports')
+  })
+
+  it('lists the reports, shows one and deletes it', async () => {
+    const summary = {
+      id: '20261021-101500_publication_ds', kind: 'publication', title: 'Publication of DS', created_at: '2026-10-21T10:15:00+00:00',
+      source_dir: '/data/ds', product_type: 'yolo', checked: 1, totals: { entries: 2, ok: 1, failed: 1, warnings: 0 },
+    }
+    mockedApi.listReports.mockResolvedValue([summary])
+    mockedApi.getReport.mockResolvedValue({
+      ...summary, parameters: { dry_run: false }, checks: { publication: { label: 'Publication', ok: 1, failed: 1, warnings: 0 } },
+      entries: [
+        { identifier: 'hfh', check: 'publication', status: 'ok', message: 'Published at https://hf.co/x.' },
+        { identifier: 'gbif', check: 'publication', status: 'failed', message: 'boom' },
+      ],
+    })
+    mockedApi.deleteReport.mockResolvedValue({ status: 'ok' })
+    render(<SettingsPage onClose={vi.fn()} />)
+    await section('Reports')
+
+    expect(await screen.findByText('Publication of DS')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'View' }))
+    expect(await screen.findByText('Published at https://hf.co/x.')).toBeInTheDocument()
+    expect(screen.getByText('boom')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete it' }))
+    await waitFor(() => expect(mockedApi.deleteReport).toHaveBeenCalledWith(summary.id))
+    expect(screen.queryByText('Publication of DS')).not.toBeInTheDocument()
+  })
+
+  const CHECK = { current: '0.1.0', latest: '0.1.0', update_available: false, release_url: null, download_url: null, error: null }
+
+  it('shows the app, its version and the help links above the settings', async () => {
+    mockedApi.checkVersion.mockResolvedValue({ current: '0.1.0' })
+    render(<SettingsPage onClose={vi.fn()} />)
+
+    expect(await screen.findByText('WildINTEL Publisher')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Version')).toHaveTextContent('0.1.0')
+    expect(screen.getByRole('link', { name: /Documentation/ })).toHaveAttribute('href', 'https://wildintelproject.github.io/wildintel-publisher/')
+    expect(screen.getByRole('link', { name: /Report a problem/ }).getAttribute('href')).toContain('wildintel-publisher/issues/new')
+  })
+
+  it('checks for updates and says when the app is up to date', async () => {
+    mockedApi.checkForUpdate.mockResolvedValue(CHECK)
+    render(<SettingsPage onClose={vi.fn()} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
 
     expect(await screen.findByText(/up to date \(version 0\.1\.0\)/)).toBeInTheDocument()
   })
 
   it('offers the download when a newer version exists', async () => {
-    mockedApi.checkVersion.mockResolvedValue({
+    mockedApi.checkForUpdate.mockResolvedValue({
       ...CHECK, latest: '0.2.0', update_available: true,
       release_url: 'https://github.com/x/releases/web-v0.2.0', download_url: 'https://dl/app-0.2.0-linux-x86_64',
     })
     render(<SettingsPage onClose={vi.fn()} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Check updates' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
 
     expect(await screen.findByRole('link', { name: 'Tap to download 0.2.0' })).toHaveAttribute('href', 'https://dl/app-0.2.0-linux-x86_64')
   })
 
   it('offers a retry when the check fails, and recovers on the next try', async () => {
-    mockedApi.checkVersion.mockResolvedValueOnce({ ...CHECK, latest: null, error: 'Could not check for updates: offline' })
-    mockedApi.checkVersion.mockResolvedValueOnce(CHECK)
+    mockedApi.checkForUpdate.mockResolvedValueOnce({ ...CHECK, latest: null, error: 'Could not check for updates: offline' })
+    mockedApi.checkForUpdate.mockResolvedValueOnce(CHECK)
     render(<SettingsPage onClose={vi.fn()} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Check updates' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
     expect(await screen.findByText(/offline/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Tap to retry' }))
 
@@ -311,7 +482,7 @@ describe('SettingsPage', () => {
     await userEvent.selectOptions(screen.getByLabelText('Log level'), 'DEBUG')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(mockedApi.saveSettings.mock.calls[0][0].GENERAL).toEqual({ log_level: 'DEBUG' })
+    expect(mockedApi.saveSettings.mock.calls[0][0].GENERAL).toEqual({ log_level: 'DEBUG', reports_dir: null, sessions_dir: null })
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
   })
 

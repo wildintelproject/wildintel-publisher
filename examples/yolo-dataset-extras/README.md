@@ -26,6 +26,7 @@ shapes on a drawn scene), not real photographs.
   is empty, which YOLO reads as a background image.
 - **Authors with several affiliations**, joined with `; `.
 - **`funding`**: free Markdown appended to the README's *Funding* section.
+- **`acknowledgements`**: free Markdown appended to the README's *Acknowledgements* section.
 - **`additional_info/`**: everything extra in a dataset's root is published under this
   folder (so it can never collide with the generated `README.md`, `LICENSE` or
   `CITATION.cff`). Because this dataset already has an `additional_info/` folder *and*

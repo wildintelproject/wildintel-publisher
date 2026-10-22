@@ -46,6 +46,14 @@ GENERATED_FILENAMES = {
     "README.md", "LICENSE", "CITATION.cff", "checksums-sha256.txt", METADATA_FILENAME,
 }
 
+# A YOLO export built "in place" (see YoloAdapter.prepare) leaves this file in its build directory:
+# it names the dataset directory the images and labels keep being read from.
+SOURCE_POINTER_FILENAME = "yolo-source.json"
+
+# Pipeline bookkeeping a build directory carries along but that is never part of a record: not
+# uploaded, not listed in checksums-sha256.txt, not counted against a repository's limits.
+BOOKKEEPING_FILENAMES = {METADATA_FILENAME, SOURCE_POINTER_FILENAME}
+
 
 class ProductAdapter(Protocol):
     """One implementation per product type. All paths are real directories

@@ -35,14 +35,14 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from dynaconf import loaders
-from huggingface_hub import upload_file
 from wildintel_publisher.core.config import active_config_file, get_b2share_output_dir, load_settings
 from wildintel_publisher.core.services import b2share as b2share_service
 from wildintel_publisher.core.services import product
+from wildintel_publisher.web.services import hfh_service
 
 B2SHARE_TOKEN_ENV_VAR = "B2SHARE_TOKEN"
 
@@ -159,32 +159,11 @@ def search_records(environment: str, token: str, query: str | None) -> list[dict
     return b2share_service.search_my_records(api_base_url, token, query=query)
 
 
-def download_files_from_b2share(*, environment: str, record_id: str, token: str, target_dir: Path) -> Path:
-    """Downloads the record's current files (the ones that were just
-    uploaded/published) into `target_dir` — used by output_mode='downloaded'
-    to hand the next repo in the publish order a verified, actually-
-    round-tripped copy instead of the local staging directory."""
-    api_base_url = f"{_b2share_base_url(environment)}/api"
-    record = b2share_service.get_record(api_base_url, token, record_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for file_info in record.get("files", []):
-        filename = file_info.get("key")
-        links = file_info.get("links") or {}
-        download_url = links.get("self")
-        if not filename or not download_url:
-            continue
-        response = httpx.get(download_url, headers={"Authorization": f"Bearer {token}"}, timeout=300)
-        response.raise_for_status()
-        (target_dir / filename).write_bytes(response.content)
-    return target_dir
-
-
 def download_draft_files_from_b2share(*, environment: str, record_id: str, token: str, target_dir: Path) -> Path:
     """Downloads a NOT-YET-PUBLISHED draft's current files — used by
-    services.publish_orchestrator's own chain (output_mode="downloaded",
-    which runs BEFORE the repo is ever locked/published — see its own
-    docstring), unlike download_files_from_b2share above (the published
-    record's own endpoint, which 404s on a still-draft record).
+    services.publish_orchestrator when a repo's build directory is gone and
+    a file is needed back, before the repo is ever locked/published (the
+    published record's own endpoint 404s on a still-draft record).
 
     A draft's own files live under files.entries (a dict keyed by
     filename), not a list like the published record's own "files" field —
@@ -273,10 +252,6 @@ def start_publish_task(
     the frontend as the next repo's inputDir when chaining publish steps):
     - 'prepared' (default): output_dir itself (the core Camtrap DP files).
     - 'passthrough': input_dir itself, unchanged — nothing new is written.
-    - 'downloaded': a fresh copy downloaded back from the B2SHARE record
-      after a successful publish (see download_files_from_b2share). Falls
-      back to 'prepared' behavior if the record has no PID yet (pending
-      moderator approval — see below).
     """
     task_id = str(uuid.uuid4())
     _publish_tasks[task_id] = {
@@ -308,14 +283,6 @@ def start_publish_task(
             final_output_dir = str(output_dir)
             if output_mode == "passthrough":
                 final_output_dir = str(input_dir)
-            elif output_mode == "downloaded" and record.get("pid"):
-                _publish_tasks[task_id]["stage"] = "downloading"
-                download_dir = output_dir.parent / f"{output_dir.name}-downloaded"
-                await asyncio.to_thread(
-                    download_files_from_b2share, environment=environment,
-                    record_id=record["record_id"], token=token, target_dir=download_dir,
-                )
-                final_output_dir = str(download_dir)
 
             _publish_tasks[task_id] = {
                 "status": "done", "stage": "done", "pid": record.get("pid"), "record_url": record.get("record_url"),
@@ -338,7 +305,7 @@ def get_publish_task_status(task_id: str) -> dict[str, Any] | None:
 
 
 def sync_pid_to_hfh(
-    *, b2share_output_dir: Path, hfh_output_dir: Path, hfh_repo_id: str, hfh_token: str,
+    *, environment: str, record_id: str, token: str, hfh_repo_id: str, hfh_token: str,
 ) -> dict:
     """Reflects the already-available B2SHARE PID/DOI in the HFH export's
     CITATION.cff/README.md/checksums (reusing wildintel_publisher.core.services.
@@ -353,24 +320,41 @@ def sync_pid_to_hfh(
         pid is None if B2SHARE hasn't assigned one yet (pending moderator
         approval) — in that case nothing is re-uploaded.
 
-    Raises:
-        RuntimeError: if the HFH export hasn't been prepared (see
-        b2share.sync_pid_to_hfh), or if the HuggingFace Hub upload fails.
-    """
-    pid = b2share_service.sync_pid_to_hfh(b2share_output_dir=b2share_output_dir, hfh_output_dir=hfh_output_dir)
+    The PID is read from the B2SHARE record itself (`environment` +
+    `record_id`), not from a local output folder (see zenodo_service.
+    sync_doi_to_hfh for why), and the Hub repo's files are edited in place
+    (see hfh_service.sync_in_repo).
 
-    if pid:
-        for filename in ("CITATION.cff", "README.md", "checksums-sha256.txt"):
-            file_path = hfh_output_dir / filename
-            if not file_path.is_file():
-                continue
-            upload_file(
-                path_or_fileobj=str(file_path),
-                path_in_repo=filename,
-                repo_id=hfh_repo_id,
-                repo_type="dataset",
-                token=hfh_token,
-                commit_message=f"Sync B2SHARE PID/DOI ({pid}) via wildintel-publisher",
-            )
+    Raises:
+        RuntimeError: if the record can't be fetched, the HFH export hasn't
+        been prepared (see b2share.sync_pid_to_hfh), or if the
+        HuggingFace Hub upload fails.
+    """
+    base_url = _b2share_base_url(environment)
+    api_base_url = f"{base_url}/api"
+    try:
+        b2share_record = b2share_service.get_record(api_base_url, token, record_id)
+    except RuntimeError:
+        # Still awaiting a moderator: only the draft view exists.
+        b2share_record = b2share_service.get_record(api_base_url, token, record_id, draft=True)
+    pid, pid_kind = b2share_service.extract_pid(b2share_record)
+    record = {
+        "environment": environment,
+        "record_id": record_id,
+        "pid": pid,
+        "pid_kind": pid_kind,
+        "record_url": b2share_service.build_record_url(base_url, b2share_record),
+        "published": bool(pid),
+    }
+    def edit(hfh_dir: Path) -> Optional[str]:
+        with tempfile.TemporaryDirectory() as record_dir:
+            b2share_service._write_record(Path(record_dir), record)
+            return b2share_service.sync_pid_to_hfh(b2share_output_dir=Path(record_dir), hfh_output_dir=hfh_dir)
+
+    # No PID yet (pending moderator approval): nothing is changed, so nothing is uploaded.
+    pid = hfh_service.sync_in_repo(
+        repo_id=hfh_repo_id, token=hfh_token, edit=edit,
+        commit_message=f"Sync B2SHARE PID/DOI ({record['pid']}) via wildintel-publisher",
+    )
 
     return {"pid": pid, "repo_url": f"https://huggingface.co/datasets/{hfh_repo_id}"}

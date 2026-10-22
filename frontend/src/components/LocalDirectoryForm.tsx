@@ -5,10 +5,37 @@ import DirectoryPicker from './DirectoryPicker'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
 const labelClass = 'block text-sm font-semibold mb-1.5 text-zinc-700 dark:text-zinc-300'
-const browseBtn = 'px-3 py-2 text-sm border border-l-0 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-r hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors flex-shrink-0'
+const btnOutline = 'px-4 py-2 text-sm border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50'
 
 function SmallSpinner() {
   return <div className="w-4 h-4 border border-zinc-500 border-t-zinc-200 rounded-full animate-spin" />
+}
+
+/** The tick (or the exclamation mark) inside a filled round badge, as in wildintel-uploader's folder step. */
+function BadgeIcon({ kind }: { kind: 'tick' | 'alert' }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      {kind === 'tick' ? <path d="M5 12.5l4.5 4.5L19 7.5" /> : <path d="M12 5v9M12 19h.01" />}
+    </svg>
+  )
+}
+
+/** What the folder was found to be: a bordered card with a round badge, a bold line and a grey one under it. */
+function ResultCard({ tone, title, detail }: { tone: 'ok' | 'error'; title: string; detail?: string }) {
+  const box = tone === 'ok'
+    ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40'
+    : 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40'
+  return (
+    <div className={`flex items-center gap-3 rounded border px-4 py-3 ${box}`} role={tone === 'error' ? 'alert' : 'status'}>
+      <div aria-hidden="true" className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-white font-bold ${tone === 'ok' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        <BadgeIcon kind={tone === 'ok' ? 'tick' : 'alert'} />
+      </div>
+      <div className="flex-1 min-w-0 text-sm">
+        <p className="font-semibold text-zinc-900 dark:text-zinc-100 break-words">{title}</p>
+        {detail && <p className="text-zinc-600 dark:text-zinc-400 break-words">{detail}</p>}
+      </div>
+    </div>
+  )
 }
 
 type CheckStatus = 'idle' | 'checking' | 'valid' | 'invalid'
@@ -148,37 +175,39 @@ export default function LocalDirectoryForm({ productType, onSelectionChange, ini
     )
   }, [check.status, check.workingDir, path, onSelectionChange])
 
+  const kindLabel = productType === 'yolo' ? 'YOLO dataset' : 'Camtrap DP package'
   return (
     <div>
-      <label className={labelClass} htmlFor="local-product-dir">Directory</label>
-      <div className="flex">
-        <input
-          id="local-product-dir"
-          className={inputClass + ' rounded-r-none'}
-          placeholder="/path/to/dataset"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-        />
-        <button type="button" className={browseBtn} disabled={nativeOpen} onClick={handleBrowse}>
-          {nativeOpen ? 'Choose in the dialog…' : '📁 Browse'}
-        </button>
+      <div className="mb-4">
+        <label className={labelClass} htmlFor="local-product-dir">Directory</label>
+        <div className="flex gap-2">
+          <input
+            id="local-product-dir"
+            className={`${inputClass} flex-1`}
+            placeholder="/path/to/dataset"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+          />
+          <button type="button" className={`${btnOutline} flex items-center gap-2`} disabled={nativeOpen} onClick={handleBrowse}>
+            {nativeOpen && <SmallSpinner />}
+            {nativeOpen ? 'Browsing…' : 'Browse…'}
+          </button>
+        </div>
       </div>
 
       {check.status === 'checking' && (
-        <div className="flex items-center gap-1.5 mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          <SmallSpinner /> Reading metadata…
+        <div className="flex items-center gap-3 rounded border border-zinc-300 dark:border-zinc-700 px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
+          <SmallSpinner /> Reading the {kindLabel}…
         </div>
       )}
       {check.status === 'valid' && (
-        <div className="flex items-center gap-1.5 mt-2 text-sm text-emerald-600 dark:text-emerald-400">
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          {check.summary?.title ?? 'Valid package'}
-        </div>
+        <ResultCard
+          tone="ok" title={check.summary?.title ?? `Valid ${kindLabel}`}
+          detail={[kindLabel, check.summary?.version && `version ${check.summary.version}`].filter(Boolean).join(' · ')}
+        />
       )}
       {check.status === 'invalid' && (
-        <p className="text-sm text-red-600 dark:text-red-400 mt-2">{check.error}</p>
+        <ResultCard tone="error" title={`Not a valid ${kindLabel}`} detail={check.error ?? undefined} />
       )}
 
       {pickerOpen && (

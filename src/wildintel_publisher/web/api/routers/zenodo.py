@@ -113,13 +113,13 @@ def sync_doi(req: ZenodoSyncDoiRequest) -> dict:
     given HuggingFace Hub repo."""
     try:
         hfh_token = hfh_service.resolve_token(req.hfh_token)
+        token = zenodo_service.resolve_token(req.token, req.environment)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
     try:
         return zenodo_service.sync_doi_to_hfh(
-            zenodo_output_dir=Path(req.zenodo_output_dir),
-            hfh_output_dir=Path(req.hfh_output_dir),
+            environment=req.environment, deposition_id=req.deposition_id, token=token,
             hfh_repo_id=req.hfh_repo_id,
             hfh_token=hfh_token,
         )

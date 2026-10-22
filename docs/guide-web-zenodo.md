@@ -13,9 +13,9 @@ you to fill in the following fields:
 
 - **Environment** — **Sandbox** (`sandbox.zenodo.org`, testing, no real DOI) or
   **Production** (`zenodo.org`).
-- **Communities** — comma-separated Zenodo communities to submit the record to, if any.
-- **Zenodo token** — get one at the URL shown under the field (varies with environment).
-  Leave blank to reuse a previously saved token. **Test token** verifies it immediately.
+  The token and the communities for that environment come from the Settings page; a link
+  under the field opens it, and Continue stays disabled while the chosen environment has no
+  token saved. Nothing about them is typed here.
 - **Mode** — **Mirror** (default) downloads the public images and bundles them inside
   Zenodo's own `camtrapdp.zip` (self-contained). **Link** doesn't download anything — the
   repository stores links to where the images already live on Hugging Face Hub instead
@@ -32,8 +32,8 @@ you to fill in the following fields:
       DP](publishing-zenodo-camtrapdp.md#keeping-camtrapdpzip-under-zenodos-own-size-limit).
 - **Flow mode** — what you get back once publishing finishes, only relevant if another
   repository comes after this one in the publish order: the **prepared** package plus the
-  Zenodo record data needed to sync the DOI later (default), the **same as input**
-  unchanged, or a fresh copy **downloaded from** Zenodo itself.
+  Zenodo record data needed to sync the DOI later (default) or the **same as input**
+  unchanged.
 
 Zenodo reserves its DOI *before* uploading, so it's already known by the time publishing
 finishes — see the "When it's done" step of the
@@ -44,15 +44,19 @@ finishes — see the "When it's done" step of the
 
 If you publish Zenodo separately from Hugging Face Hub (a different wizard run, or later
 after Hugging Face Hub was already published on its own), this section — shown on the
-final "All done!" screen once Zenodo has published — reflects the Zenodo DOI into the
-`CITATION.cff` of an *already-published* Hugging Face Hub export, and re-uploads just
-that changed file (plus `checksums-sha256.txt`). It's only shown when Hugging Face Hub
+final "All done!" screen once Zenodo has published — reads the DOI from the Zenodo
+record itself and reflects it into the `CITATION.cff` and `README.md` of an
+*already-published* Hugging Face Hub dataset. Those files are downloaded from the Hub,
+edited and uploaded back (with just their lines of `checksums-sha256.txt` updated), so
+no local folder is needed and it works from any computer. It's only shown when Hugging Face Hub
 isn't part of the same run: when it is, the DOI is already cross-referenced into it
 automatically, before its version is tagged.
 
 ![Sync DOI form](img/web/zenodo-sync-doi-form.png)
 
-- **Hugging Face Hub export directory** — read-only, taken from `settings.toml`.
+- **Environment** and **Zenodo record ID** — the record whose DOI is synced. The environment
+  comes from `settings.toml` and the ID is pre-filled from the record just published; after a
+  different run, type it or use **List what I published there**.
 - **User or organization** — pre-filled from `settings.toml`, same as the Hugging Face
   Hub form itself.
 - **Repository name** — **never pre-filled** — the dataset name is specific to each
@@ -63,6 +67,6 @@ Once synced, it confirms with a direct link to the Hugging Face Hub dataset:
 
 ![DOI synced](img/web/zenodo-sync-doi-done.png)
 
-This is the web equivalent of the CLI's `zenodo sync-doi` — except the CLI only edits the
-local `CITATION.cff` and tells you to re-run `hfh upload` yourself; here the re-upload
-happens automatically.
+This is the web equivalent of the CLI's `zenodo sync-doi` — except the CLI works on a local
+export folder and tells you to re-run `hfh upload` yourself; here the files are edited in the
+Hub repository directly.

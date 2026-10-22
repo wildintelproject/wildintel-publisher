@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { preparedCoreFiles } from '../productFiles'
+import ChoiceCards, { type Choice } from './ChoiceCards'
+import { LockedChoice, Section } from './FormSection'
+import InstancePicker from './InstancePicker'
 import type { OutputMode, ProductType, Publication } from '../types'
 
 const inputClass = 'w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono'
@@ -81,6 +84,8 @@ interface Props {
    * publish order (see WizardPage), which has nothing to go back to. */
   onBack?: () => void
   backLabel?: string
+  /** Text of the button that confirms this form — "Looks good" on the wizard's settings check. */
+  continueLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
    * before actually publishing anything (see WizardPage). */
@@ -94,11 +99,11 @@ interface Props {
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
-export default function ZenodoPublishForm({ dryRun, productType, publication, onOutputDirChange, initialConfig, onBack, backLabel, onConfigured }: Props) {
+export default function ZenodoPublishForm({ dryRun, productType, publication, onOutputDirChange, initialConfig, onBack, backLabel, continueLabel = 'Continue', onConfigured }: Props) {
   const found = publication?.kind === 'version' ? publication.previous?.zenodo ?? null : null
   const [form, setForm] = useState(() => ({
-    outputDir: initialConfig?.outputDir ?? '', token: initialConfig?.token ?? '',
-    environment: initialConfig?.environment ?? found?.environment ?? 'sandbox', communities: initialConfig?.communities ?? '',
+    outputDir: initialConfig?.outputDir ?? '',
+    environment: initialConfig?.environment ?? found?.environment ?? 'sandbox',
     existingDepositionId: initialConfig?.existingDepositionId ?? found?.record_id ?? '',
   }))
   const [mirrorImages, setMirrorImages] = useState(productType === 'yolo' || (initialConfig?.mirrorImages ?? true))
@@ -120,9 +125,6 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
   const [savedCommunities, setSavedCommunities] = useState<Record<string, string | null>>({})
   const hasSavedToken = savedTokens[form.environment as 'sandbox' | 'production'] ?? false
 
-  const [test, setTest] = useState<{ status: TestStatus; message: string }>({ status: 'idle', message: '' })
-
-  const zenodoTokenUrl = `https://${form.environment === 'sandbox' ? 'sandbox.zenodo.org' : 'zenodo.org'}/account/settings/applications/tokens/new/`
 
   // Prefill from settings.toml — the same file 'zenodo config' reads/writes
   // on the CLI. The token itself is never sent to the frontend; leaving it
@@ -146,7 +148,6 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
           ...f,
           outputDir: config.output_dir,
           environment,
-          communities: config.communities_by_environment[environment] ?? f.communities,
         }))
       })
       .catch(() => {})
@@ -162,24 +163,19 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
 
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
-    if (key === 'token') setTest({ status: 'idle', message: '' })
-    // Communities belong to an environment: switching shows the new one's own.
-    if (key === 'environment') setForm((f) => ({ ...f, communities: savedCommunities[value] ?? '' }))
     // A stale result list would no longer reflect the environment it was
     // searched under.
     if (key === 'environment') setDepositionSearch({ status: 'idle', message: '', results: [] })
   }
 
-  const canTest = form.token !== '' || hasSavedToken
-  const isTesting = test.status === 'testing'
-  const canContinue = (dryRun ? form.outputDir !== '' : form.outputDir !== '' && (form.token !== '' || hasSavedToken))
+  const canContinue = (dryRun ? form.outputDir !== '' : form.outputDir !== '' && hasSavedToken)
     // A new version must be created from the previous version's own record.
     && !(found && form.existingDepositionId.trim() === '')
 
   async function handleSearchDepositions() {
     setDepositionSearch({ status: 'testing', message: '', results: [] })
     try {
-      const results = await api.zenodoDepositions(form.environment, form.token)
+      const results = await api.zenodoDepositions(form.environment, '')
       setDepositionSearch({
         status: 'ok',
         message: results.length === 0 ? 'No published depositions found yet.' : '',
@@ -193,20 +189,9 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
     }
   }
 
-  async function handleTestToken() {
-    setTest({ status: 'testing', message: '' })
-    try {
-      await api.zenodoTestToken(form.token, form.environment)
-      setSavedTokens((t) => ({ ...t, [form.environment]: true })) // the backend saves environment/token on a successful test
-      setTest({ status: 'ok', message: 'Token verified.' })
-    } catch (e) {
-      setTest({ status: 'error', message: e instanceof Error ? e.message : 'Could not verify the token.' })
-    }
-  }
-
   function handleContinue() {
     onConfigured({
-      token: form.token, environment: form.environment, communities: form.communities,
+      token: '', environment: form.environment, communities: savedCommunities[form.environment] ?? '',
       mirrorImages, outputMode, outputDir: form.outputDir,
       fitArchiveSize, maxZipFile: maxZipFile !== '' ? Number(maxZipFile) : undefined,
       minImageEdge: minImageEdge !== '' ? Number(minImageEdge) : 640,
@@ -221,6 +206,18 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
   // nothing useful to show for them.
   const showArchiveSizeOptions = mirrorImages && productType === 'camtrapdp'
 
+  // An AI Dataset has no choice: its images are local files with no other host to link to.
+  const modeOptions: Choice<'self-contained' | 'link'>[] = productType === 'yolo' ? [
+    { value: 'self-contained', title: 'Self-contained', description: 'Images and labels are always included in full.' },
+    { value: 'link', title: 'Link', description: 'Not available: the images are local files with no other host to link to.', disabled: true },
+  ] : productType === 'software' ? [
+    { value: 'self-contained', title: 'Self-contained', description: 'Bundles the whole repository (at the version cited in CITATION.cff) into a single zip.' },
+    { value: 'link', title: 'Reference only', description: 'Only README.md and CITATION.cff are uploaded, citing the GitHub repository directly — the source code itself is not copied here.' },
+  ] : [
+    { value: 'self-contained', title: 'Self-contained', description: "Downloads the public images and bundles them inside Zenodo's own camtrapdp.zip, so the record doesn't depend on any other host." },
+    { value: 'link', title: 'Link', description: "The repository stores links to where the product's items (the images) already live on Hugging Face Hub, instead of a copy." },
+  ]
+
   return (
     <div>
       {!mirrorImages && (
@@ -230,286 +227,178 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
+      <Section title="Where to publish">
         <div>
-          <label className={labelClass} htmlFor="zenodo-environment">Environment</label>
-          <select
-            id="zenodo-environment"
-            className={inputClass}
-            value={form.environment}
-            onChange={(e) => setField('environment', e.target.value)}
-          >
-            <option value="sandbox">Sandbox (testing, no real DOI)</option>
-            <option value="production">Production</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="zenodo-communities">Communities</label>
-          <input
-            id="zenodo-communities"
-            className={inputClass}
-            placeholder="comma-separated"
-            value={form.communities}
-            onChange={(e) => setField('communities', e.target.value)}
+          <InstancePicker
+            name="zenodo-environment" repository="Zenodo"
+            value={form.environment} onChange={(env) => setField('environment', env)}
+            hasToken={savedTokens} communities={savedCommunities} dryRun={dryRun}
           />
         </div>
-      </div>
 
-      <div className="mb-6">
-        <label className={labelClass} htmlFor="zenodo-token">Zenodo token</label>
-        <input
-          id="zenodo-token"
-          type="password"
-          className={inputClass}
-          placeholder="••••••••"
-          value={form.token}
-          onChange={(e) => setField('token', e.target.value)}
-          autoComplete="current-password"
-        />
-        {hasSavedToken && form.token === '' && (
-          <p className={hintClass}>Already saved — leave blank to reuse it.</p>
-        )}
-        <p className={hintClass}>
-          Get one at{' '}
-          <a href={zenodoTokenUrl} target="_blank" rel="noreferrer" className="underline">
-            {zenodoTokenUrl.replace('https://', '')}
-          </a>
-        </p>
-
-        {dryRun ? (
-          <p className={hintClass + ' text-right'}>Not required for a dry run.</p>
-        ) : (
-          <>
-            <div className="flex justify-end mt-2">
-              <button type="button" className={btnOutline} disabled={!canTest || isTesting} onClick={handleTestToken}>
-                {isTesting && <SmallSpinner />}
-                {isTesting ? 'Testing…' : 'Test connection'}
+        {(publication?.kind === 'version' || (!publication && form.existingDepositionId.trim() !== '')) && (
+          <div className="mb-6">
+            <label className={labelClass} htmlFor="zenodo-existing-deposition-id">
+              {found ? `Previous version's Zenodo record ID` : 'Zenodo record ID (leave blank to create a new deposition)'}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="zenodo-existing-deposition-id"
+                className={inputClass}
+                placeholder="Numeric id — leave blank to create a new deposition"
+                value={form.existingDepositionId}
+                onChange={(e) => setField('existingDepositionId', e.target.value)}
+              />
+              <button
+                type="button" className={btnOutline}
+                disabled={!hasSavedToken || depositionSearch.status === 'testing'}
+                onClick={handleSearchDepositions}
+              >
+                {depositionSearch.status === 'testing' && <SmallSpinner />}
+                {depositionSearch.status === 'testing' ? 'Searching…' : 'Search existing depositions'}
               </button>
             </div>
-            {test.status === 'ok' && (
-              <p className="text-sm text-emerald-600 dark:text-emerald-400 text-right mt-2">{test.message}</p>
+            <p className={hintClass}>
+              Publishing this run creates a proper linked new version of that exact deposition instead
+              of an unrelated one — takes priority over creating a brand new deposition. Search looks up
+              your own already-published depositions on the selected environment.
+            </p>
+            {depositionSearch.status === 'error' && (
+              <p className="text-sm text-red-600 dark:text-red-400 mt-1">{depositionSearch.message}</p>
             )}
-            {test.status === 'error' && (
-              <p className="text-sm text-red-600 dark:text-red-400 text-right mt-2">{test.message}</p>
+            {depositionSearch.status === 'ok' && depositionSearch.message && (
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{depositionSearch.message}</p>
             )}
-          </>
-        )}
-      </div>
-
-      {(publication?.kind === 'version' || (!publication && form.existingDepositionId.trim() !== '')) && (
-        <div className="mb-6">
-          <label className={labelClass} htmlFor="zenodo-existing-deposition-id">
-            {found ? `Previous version's Zenodo record ID` : 'Zenodo record ID (leave blank to create a new deposition)'}
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="zenodo-existing-deposition-id"
-              className={inputClass}
-              placeholder="Numeric id — leave blank to create a new deposition"
-              value={form.existingDepositionId}
-              onChange={(e) => setField('existingDepositionId', e.target.value)}
-            />
-            <button
-              type="button" className={btnOutline}
-              disabled={!canTest || depositionSearch.status === 'testing'}
-              onClick={handleSearchDepositions}
-            >
-              {depositionSearch.status === 'testing' && <SmallSpinner />}
-              {depositionSearch.status === 'testing' ? 'Searching…' : 'Search existing depositions'}
-            </button>
+            {depositionSearch.status === 'ok' && depositionSearch.results.length > 0 && (
+              <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
+                {depositionSearch.results.map((d) => (
+                  <li key={d.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setField('existingDepositionId', d.id)
+                        setDepositionSearch({ status: 'idle', message: '', results: [] })
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                    >
+                      <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
+                      <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.id}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          {found && (
+            <p className={hintClass}>
+              Pre-filled from the previous version{found.version ? ` (${found.version})` : ''}: this run publishes a new
+              version of that record.
+            </p>
+          )}
+          {publication?.kind === 'version' && !found && (
+            <p className={hintClass}>
+              No Zenodo record was found for the previous version — leave this blank to give the dataset its first
+              Zenodo record.
+            </p>
+          )}
+          {found && form.environment !== found.environment && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+              ⚠ The previous version is on Zenodo's {found.environment} environment, not {form.environment}.
+            </p>
+          )}
           </div>
-          <p className={hintClass}>
-            Publishing this run creates a proper linked new version of that exact deposition instead
-            of an unrelated one — takes priority over creating a brand new deposition. Search looks up
-            your own already-published depositions on the selected environment.
-          </p>
-          {depositionSearch.status === 'error' && (
-            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{depositionSearch.message}</p>
-          )}
-          {depositionSearch.status === 'ok' && depositionSearch.message && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{depositionSearch.message}</p>
-          )}
-          {depositionSearch.status === 'ok' && depositionSearch.results.length > 0 && (
-            <ul className="mt-2 border border-zinc-300 dark:border-zinc-700 rounded divide-y divide-zinc-200 dark:divide-zinc-700 max-h-48 overflow-y-auto">
-              {depositionSearch.results.map((d) => (
-                <li key={d.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setField('existingDepositionId', d.id)
-                      setDepositionSearch({ status: 'idle', message: '', results: [] })
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                  >
-                    <div className="text-zinc-900 dark:text-zinc-100">{d.title}</div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{d.id}</div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        {found && (
-          <p className={hintClass}>
-            Pre-filled from the previous version{found.version ? ` (${found.version})` : ''}: this run publishes a new
-            version of that record.
-          </p>
         )}
-        {publication?.kind === 'version' && !found && (
-          <p className={hintClass}>
-            No Zenodo record was found for the previous version — leave this blank to give the dataset its first
-            Zenodo record.
-          </p>
-        )}
-        {found && form.environment !== found.environment && (
-          <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-            ⚠ The previous version is on Zenodo's {found.environment} environment, not {form.environment}.
-          </p>
-        )}
-        </div>
-      )}
 
-      {productType === 'yolo' ? (
-        <div className="mb-4">
-          <span className={labelClass}>Mode</span>
-          <p className={hintClass}>
-            An AI Dataset's images and labels are always included in full — its images are local
-            files with no other host to link to, so Mirror and Link would be the same thing.
-          </p>
-        </div>
-      ) : (
-        <div className="mb-4">
-          <span className={labelClass}>Mode</span>
-          <p className={hintClass + ' mb-2'}>What gets copied to the repository.</p>
-          <div className="flex flex-col gap-2">
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+
+      </Section>
+
+      <Section title="What gets uploaded">
+        {productType === 'yolo' ? (
+          <LockedChoice
+            title="Images and labels, in full."
+            description="Linking to the images isn't available because they are local files with no other host."
+          />
+        ) : (
+          <ChoiceCards
+            name="zenodo-mode" label="What gets uploaded" layout="row"
+            value={mirrorImages ? 'self-contained' : 'link'}
+            onChoose={(mode) => setMirrorImages(mode === 'self-contained')}
+            options={modeOptions}
+          />
+        )}
+
+        {showArchiveSizeOptions && (
+          <div className="mb-4">
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer mb-2">
               <input
-                type="radio"
-                name="zenodo-mode"
+                type="checkbox"
                 className="mt-0.5"
-                checked={mirrorImages}
-                onChange={() => setMirrorImages(true)}
+                checked={fitArchiveSize}
+                onChange={(e) => setFitArchiveSize(e.target.checked)}
               />
-              {productType === 'software' ? (
-                <span><strong>Mirror</strong> - bundles the whole repository (at the version cited in
-                  CITATION.cff) into a single zip.</span>
-              ) : (
-                <span><strong>Mirror</strong> - makes a self-contained copy of the product: downloads the
-                  public images and bundles them inside Zenodo's own camtrapdp.zip.</span>
-              )}
+              <span><strong>Resize images to fit the archive size limit</strong> - if the downloaded
+                images would push camtrapdp.zip over the limit below, downscale them all uniformly
+                (never below the minimum edge) before bundling. Zenodo's own upload still fails
+                (with a clear error, before anything is sent) if the result is still too big.</span>
             </label>
-            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input
-                type="radio"
-                name="zenodo-mode"
-                className="mt-0.5"
-                checked={!mirrorImages}
-                onChange={() => setMirrorImages(false)}
-              />
-              {productType === 'software' ? (
-                <span><strong>Reference only</strong> - only README.md and CITATION.cff are uploaded,
-                  citing the GitHub repository directly — the source code itself is not copied here.</span>
-              ) : (
-                <span><strong>Link</strong> - the repository stores links to where the product's items
-                  (the images) already live on Hugging Face Hub, instead of a copy.</span>
-              )}
-            </label>
+            {fitArchiveSize && (
+              <div className="grid grid-cols-2 gap-4 pl-6">
+                <div>
+                  <label className={labelClass} htmlFor="zenodo-max-zip-file">Archive size limit (GiB)</label>
+                  <input
+                    id="zenodo-max-zip-file"
+                    type="number" min="0.01" step="any"
+                    className={inputClass}
+                    placeholder="50 (Zenodo's own limit)"
+                    value={maxZipFile}
+                    onChange={(e) => setMaxZipFile(e.target.value)}
+                  />
+                  <p className={hintClass}>Leave blank to use Zenodo's own real per-file upload cap (50 GiB).</p>
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="zenodo-min-image-edge">Minimum image edge (px)</label>
+                  <input
+                    id="zenodo-min-image-edge"
+                    type="number" min="1" step="1"
+                    className={inputClass}
+                    value={minImageEdge}
+                    onChange={(e) => setMinImageEdge(e.target.value)}
+                  />
+                  <p className={hintClass}>Never shrink an image's longest edge below this.</p>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {showArchiveSizeOptions && (
+
+      </Section>
+
+      <Section title="What you get back when it finishes" hint="The next repository starts from this.">
         <div className="mb-4">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer mb-2">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={fitArchiveSize}
-              onChange={(e) => setFitArchiveSize(e.target.checked)}
-            />
-            <span><strong>Resize images to fit the archive size limit</strong> - if the downloaded
-              images would push camtrapdp.zip over the limit below, downscale them all uniformly
-              (never below the minimum edge) before bundling. Zenodo's own upload still fails
-              (with a clear error, before anything is sent) if the result is still too big.</span>
-          </label>
-          {fitArchiveSize && (
-            <div className="grid grid-cols-2 gap-4 pl-6">
-              <div>
-                <label className={labelClass} htmlFor="zenodo-max-zip-file">Archive size limit (GiB)</label>
-                <input
-                  id="zenodo-max-zip-file"
-                  type="number" min="0.01" step="any"
-                  className={inputClass}
-                  placeholder="50 (Zenodo's own limit)"
-                  value={maxZipFile}
-                  onChange={(e) => setMaxZipFile(e.target.value)}
-                />
-                <p className={hintClass}>Leave blank to use Zenodo's own real per-file upload cap (50 GiB).</p>
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="zenodo-min-image-edge">Minimum image edge (px)</label>
-                <input
-                  id="zenodo-min-image-edge"
-                  type="number" min="1" step="1"
-                  className={inputClass}
-                  value={minImageEdge}
-                  onChange={(e) => setMinImageEdge(e.target.value)}
-                />
-                <p className={hintClass}>Never shrink an image's longest edge below this.</p>
-              </div>
-            </div>
-          )}
+          <ChoiceCards
+            name="zenodo-output-mode" label="Flow mode" layout="row"
+            value={outputMode}
+            onChoose={setOutputMode}
+            options={[
+              {
+                value: 'prepared', title: 'Prepared package',
+                description: `Just ${preparedCoreFiles(productType).what} with the changes made while preparing and uploading, plus the Zenodo record data (needed to sync the DOI here later) — no README, LICENSE, CITATION.cff, checksums, ${preparedCoreFiles(productType).imagesSeparate ? 'images or zip' : 'or zip'}.`,
+              },
+              { value: 'passthrough', title: 'Unchanged copy', description: 'Exactly what you started with, unchanged.' },
+            ]}
+          />
         </div>
-      )}
 
-      <div className="mb-4">
-        <span className={labelClass}>Flow mode</span>
-        <p className={hintClass + ' mb-2'}>What you'll get back once publishing finishes.</p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="zenodo-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'prepared'}
-              onChange={() => setOutputMode('prepared')}
-            />
-            <span><strong>Prepared package</strong> - just {preparedCoreFiles(productType).what} with the
-              changes made while preparing and uploading, plus the Zenodo record data (needed to
-              sync the DOI here later) — no README, LICENSE, CITATION.cff, checksums,{' '}
-              {preparedCoreFiles(productType).imagesSeparate ? 'images or zip' : 'or zip'}.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="zenodo-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'passthrough'}
-              onChange={() => setOutputMode('passthrough')}
-            />
-            <span><strong>Same as input</strong> - exactly what came in as input, unchanged.</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-            <input
-              type="radio"
-              name="zenodo-output-mode"
-              className="mt-0.5"
-              checked={outputMode === 'downloaded'}
-              onChange={() => setOutputMode('downloaded')}
-            />
-            <span><strong>Downloaded from repository</strong> - re-download the files from Zenodo
-              after publishing.</span>
-          </label>
-        </div>
-      </div>
+      </Section>
 
-      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-end'}>
+      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-start'}>
         {onBack && (
           <button type="button" className={btnOutline} onClick={onBack}>
             {backLabel ?? '← Back'}
           </button>
         )}
-        <button type="button" className={btnPrimary} disabled={!canContinue} onClick={handleContinue}>
-          Continue
+        <button type="button" className={btnOutline} disabled={!canContinue} onClick={handleContinue}>
+          {continueLabel}
         </button>
       </div>
     </div>
@@ -524,8 +413,11 @@ type SyncStatus = 'idle' | 'running' | 'done' | 'error'
  * CITATION.cff. Self-contained: only needs the Zenodo output directory,
  * everything else (HFH export dir/username/token) is read from settings.toml
  * or typed in here. */
-export function SyncDoiSection({ zenodoOutputDir }: { zenodoOutputDir: string }) {
-  const [hfhOutputDir, setHfhOutputDir] = useState('')
+export function SyncDoiSection({ initialRecordId = '' }: { initialRecordId?: string }) {
+  const [environment, setEnvironment] = useState('sandbox')
+  const [recordId, setRecordId] = useState(initialRecordId)
+  const [published, setPublished] = useState<{ id: string; title: string }[]>([])
+  const [listError, setListError] = useState<string | null>(null)
   const [hfUser, setHfUser] = useState('')
   const [repoName, setRepoName] = useState('')
   const [token, setToken] = useState('')
@@ -537,21 +429,30 @@ export function SyncDoiSection({ zenodoOutputDir }: { zenodoOutputDir: string })
   const hfhRepoId = hfUser && repoName ? `${hfUser}/${repoName}` : ''
 
   useEffect(() => {
+    api.zenodoGetConfig().then((config) => setEnvironment(config.environment)).catch(() => {})
     api.hfhGetConfig()
       .then((config) => {
-        setHfhOutputDir(config.output_dir)
         setHfUser(config.username || '')
         setHasSavedToken(config.has_token)
       })
       .catch(() => {})
   }, [])
 
-  const canSync = hfhOutputDir !== '' && hfhRepoId !== '' && (token !== '' || hasSavedToken) && sync.status !== 'running'
+  const canSync = recordId.trim() !== '' && hfhRepoId !== '' && (token !== '' || hasSavedToken) && sync.status !== 'running'
+
+  async function handleList() {
+    setListError(null)
+    try {
+      setPublished(await api.zenodoDepositions(environment, ''))
+    } catch (e) {
+      setListError(e instanceof Error ? e.message : 'Could not list what you published there.')
+    }
+  }
 
   async function handleSync() {
     setSync({ status: 'running', repoUrl: null, error: null })
     try {
-      const result = await api.zenodoSyncDoi({ zenodoOutputDir, hfhOutputDir, hfhRepoId, hfhToken: token })
+      const result = await api.zenodoSyncDoi({ environment, depositionId: recordId.trim(), hfhRepoId, hfhToken: token })
       setSync({ status: 'done', repoUrl: result.repo_url, error: null })
     } catch (e) {
       setSync({ status: 'error', repoUrl: null, error: e instanceof Error ? e.message : 'Could not sync the DOI.' })
@@ -577,12 +478,47 @@ export function SyncDoiSection({ zenodoOutputDir }: { zenodoOutputDir: string })
       <div className="border-t border-zinc-200 dark:border-zinc-700 mb-6" />
       <h5 className="text-base font-semibold mb-1 text-zinc-700 dark:text-zinc-300">Sync DOI to Hugging Face Hub</h5>
       <p className={hintClass + ' mb-4'}>
-        Reflects the Zenodo DOI in the CITATION.cff of an already-published Hugging Face Hub dataset.
+        Reflects the DOI of a Zenodo record, read from Zenodo itself, in the CITATION.cff of an already-published Hugging Face Hub dataset.
       </p>
 
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className={labelClass} htmlFor="sync-zenodo-environment">Zenodo environment</label>
+          <select
+            id="sync-zenodo-environment"
+            className={inputClass}
+            value={environment}
+            onChange={(e) => { setEnvironment(e.target.value); setPublished([]) }}
+          >
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="sync-zenodo-record">Zenodo record ID</label>
+          <input
+            id="sync-zenodo-record"
+            className={inputClass}
+            placeholder="1234567"
+            value={recordId}
+            onChange={(e) => setRecordId(e.target.value)}
+          />
+        </div>
+      </div>
       <div className="mb-4">
-        <span className={labelClass}>Hugging Face Hub export directory</span>
-        <p className="text-sm font-mono text-zinc-600 dark:text-zinc-400 break-all">{hfhOutputDir}</p>
+        <button type="button" className={btnOutline} onClick={handleList}>List what I published there</button>
+        {published.length > 0 && (
+          <select
+            aria-label="Published records"
+            className={inputClass + ' mt-2'}
+            value=""
+            onChange={(e) => setRecordId(e.target.value)}
+          >
+            <option value="">Pick one…</option>
+            {published.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.id})</option>)}
+          </select>
+        )}
+        {listError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{listError}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
