@@ -1820,11 +1820,13 @@ harmless to any YOLO trainer, which simply ignores keys it doesn't recognise:</p
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Jane Doe</span>
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">affiliation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">My Institution</span>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="nt">homepage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://example.org</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="nt">publisher</span><span class="p">:</span><span class="w">                         </span><span class="c1"># credited in CITATION.cff&#39;s preferred-citation</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">University of Huelva</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nt">website</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://www.uhu.es/</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="nt">copyright_holders</span><span class="p">:</span><span class="w">                 </span><span class="c1"># &quot;© &lt;year&gt; &lt;names&gt;&quot; in the citation</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Spanish National Research Council</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="nt">funding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Additional support by the Example Foundation.</span><span class="w">   </span><span class="c1"># appended to &quot;Funding&quot;</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="nt">acknowledgements</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Thanks to the park rangers.</span><span class="w">            </span><span class="c1"># appended to &quot;Acknowledgements&quot;</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="nt">publisher</span><span class="p">:</span><span class="w">                         </span><span class="c1"># credited in CITATION.cff&#39;s preferred-citation</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">University of Huelva</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="nt">website</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://www.uhu.es/</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="nt">copyright_holders</span><span class="p">:</span><span class="w">                 </span><span class="c1"># &quot;© &lt;year&gt; &lt;names&gt;&quot; in the citation</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Spanish National Research Council</span>
 </code></pre></div>
 <p>In the web app, the metadata step edits these descriptive keys on a copy of
 <code>data.yaml</code> kept inside the session — your own dataset directory is never modified.
@@ -1836,7 +1838,10 @@ The authors listed in <code>data.yaml</code> are shown as they are; the "Add a s
 adds one of the authors saved in the settings page's <em>Authors</em> section
 (<code>[[PRODUCT.authors]]</code> in <code>settings.toml</code>) with one click, and each one stays editable.
 The <em>Additional funding text</em> field is appended to the README's <em>Funding</em> section
-(saved as <code>funding</code> in the copy of <code>data.yaml</code>).</p>
+(saved as <code>funding</code> in the copy of <code>data.yaml</code>). The <em>Additional acknowledgements
+text</em> field works the same way for the README's <em>Acknowledgements</em> section (saved as
+<code>acknowledgements</code>): the standard thanks are always included, and your text is
+appended after them.</p>
 <p>Unlike Camtrap DP, there is no <code>filePublic</code>/privacy concept — every image under
 <code>images/</code> is treated as publishable, and no media-reference URL needs rewriting: the
 images themselves either travel with the export (mirror mode) or are simply left out
@@ -1937,15 +1942,25 @@ distinct from Camtrap DP's own wording.</p>
 <p>For Camtrap DP, mirror mode downloads remote images that otherwise wouldn't exist
 locally, and link mode points at a copy hosted elsewhere. A YOLO dataset's images are
 already local and have nowhere else to point at, so every export always includes
-<code>data.yaml</code>, <code>images/</code> and <code>labels/</code>: loose on Hugging Face Hub, bundled into
-<code>yolo.zip</code> on Zenodo and B2SHARE.</p>
+<code>data.yaml</code>, <code>images/</code> and <code>labels/</code>: loose on Hugging Face Hub, bundled into a single zip
+on Zenodo and B2SHARE (see below).</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">One zip on Zenodo and B2SHARE</p>
+<p>Those two repositories only host files, not folders, so the dataset is zipped into a
+single <code>yolo.zip</code> that holds <code>data.yaml</code>, <code>images/</code>, <code>labels/</code> and <code>additional_info/</code> with
+the dataset's own layout. The images and labels are zipped straight from your dataset's folder,
+never copied first, so the disk needed is about the dataset's own size once more; the
+repository's size and file-count limits (see the settings) are checked before the zip is
+written. Zenodo's limit is 50 GB per record (and 100 files), not per file, so a dataset bigger
+than that cannot be published there however it is zipped.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Very large splits on Hugging Face Hub</p>
 <p>Hugging Face Hub accepts at most 10,000 files per folder. A split over that limit is
 spread, on Hugging Face Hub only, over hash-named subfolders
 (<code>images/train/3f/img.jpg</code>, with its label at <code>labels/train/3f/img.txt</code>) — still valid
-YOLO, since trainers look for images recursively. Your own dataset, <code>yolo.zip</code> and
+YOLO, since trainers look for images recursively. Your own dataset, the zips and
 the local output folders keep the original layout.</p>
 </div>
 <h2 id="5-where-it-can-be-published">5. Where it can be published</h2>

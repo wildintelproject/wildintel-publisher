@@ -1720,10 +1720,10 @@ you to fill in the following fields:</p>
 <h2 id="fields">Fields</h2>
 <ul>
 <li><strong>Environment</strong> — <strong>Sandbox</strong> (<code>sandbox.zenodo.org</code>, testing, no real DOI) or
-  <strong>Production</strong> (<code>zenodo.org</code>).</li>
-<li><strong>Communities</strong> — comma-separated Zenodo communities to submit the record to, if any.</li>
-<li><strong>Zenodo token</strong> — get one at the URL shown under the field (varies with environment).
-  Leave blank to reuse a previously saved token. <strong>Test token</strong> verifies it immediately.</li>
+  <strong>Production</strong> (<code>zenodo.org</code>).
+  The token and the communities for that environment come from the Settings page; a link
+  under the field opens it, and Continue stays disabled while the chosen environment has no
+  token saved. Nothing about them is typed here.</li>
 <li><strong>Mode</strong> — <strong>Mirror</strong> (default) downloads the public images and bundles them inside
   Zenodo's own <code>camtrapdp.zip</code> (self-contained). <strong>Link</strong> doesn't download anything — the
   repository stores links to where the images already live on Hugging Face Hub instead
@@ -1742,8 +1742,8 @@ you to fill in the following fields:</p>
 </li>
 <li><strong>Flow mode</strong> — what you get back once publishing finishes, only relevant if another
   repository comes after this one in the publish order: the <strong>prepared</strong> package plus the
-  Zenodo record data needed to sync the DOI later (default), the <strong>same as input</strong>
-  unchanged, or a fresh copy <strong>downloaded from</strong> Zenodo itself.</li>
+  Zenodo record data needed to sync the DOI later (default) or the <strong>same as input</strong>
+  unchanged.</li>
 </ul>
 <p>Zenodo reserves its DOI <em>before</em> uploading, so it's already known by the time publishing
 finishes — see the "When it's done" step of the
@@ -1752,14 +1752,18 @@ finishes — see the "When it's done" step of the
 <h2 id="sync-doi-to-hugging-face-hub">Sync DOI to Hugging Face Hub</h2>
 <p>If you publish Zenodo separately from Hugging Face Hub (a different wizard run, or later
 after Hugging Face Hub was already published on its own), this section — shown on the
-final "All done!" screen once Zenodo has published — reflects the Zenodo DOI into the
-<code>CITATION.cff</code> of an <em>already-published</em> Hugging Face Hub export, and re-uploads just
-that changed file (plus <code>checksums-sha256.txt</code>). It's only shown when Hugging Face Hub
+final "All done!" screen once Zenodo has published — reads the DOI from the Zenodo
+record itself and reflects it into the <code>CITATION.cff</code> and <code>README.md</code> of an
+<em>already-published</em> Hugging Face Hub dataset. Those files are downloaded from the Hub,
+edited and uploaded back (with just their lines of <code>checksums-sha256.txt</code> updated), so
+no local folder is needed and it works from any computer. It's only shown when Hugging Face Hub
 isn't part of the same run: when it is, the DOI is already cross-referenced into it
 automatically, before its version is tagged.</p>
 <p><img alt="Sync DOI form" src="../img/web/zenodo-sync-doi-form.png" /></p>
 <ul>
-<li><strong>Hugging Face Hub export directory</strong> — read-only, taken from <code>settings.toml</code>.</li>
+<li><strong>Environment</strong> and <strong>Zenodo record ID</strong> — the record whose DOI is synced. The environment
+  comes from <code>settings.toml</code> and the ID is pre-filled from the record just published; after a
+  different run, type it or use <strong>List what I published there</strong>.</li>
 <li><strong>User or organization</strong> — pre-filled from <code>settings.toml</code>, same as the Hugging Face
   Hub form itself.</li>
 <li><strong>Repository name</strong> — <strong>never pre-filled</strong> — the dataset name is specific to each
@@ -1768,9 +1772,9 @@ automatically, before its version is tagged.</p>
 </ul>
 <p>Once synced, it confirms with a direct link to the Hugging Face Hub dataset:</p>
 <p><img alt="DOI synced" src="../img/web/zenodo-sync-doi-done.png" /></p>
-<p>This is the web equivalent of the CLI's <code>zenodo sync-doi</code> — except the CLI only edits the
-local <code>CITATION.cff</code> and tells you to re-run <code>hfh upload</code> yourself; here the re-upload
-happens automatically.</p>
+<p>This is the web equivalent of the CLI's <code>zenodo sync-doi</code> — except the CLI works on a local
+export folder and tells you to re-run <code>hfh upload</code> yourself; here the files are edited in the
+Hub repository directly.</p>
 
 
 

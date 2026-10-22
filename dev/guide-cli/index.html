@@ -2173,6 +2173,16 @@ matching every command in the rest of this guide.</p>
 
    </div>
 
+<div class="admonition note">
+<p class="admonition-title">Size and file-count limits</p>
+<p>Zenodo and B2SHARE cap how much a record may hold. The limits are saved in the settings
+(<code>max_record_size_gb</code>, <code>max_files</code>, <code>max_file_size_gb</code>; empty means no limit) and are
+checked when the record is prepared, so a dataset that cannot fit fails right away
+instead of hours into the upload. Zenodo's defaults are 50 GB and 100 files per record;
+B2SHARE's, 100 files per record and 20 GB per file. Change them with
+<code>wildintel-publisher zenodo config set max_record_size_gb=100</code> if your quota was raised
+(or on the settings page, under the repository's <em>Edit</em> dialog).</p>
+</div>
 <p><strong>B2SHARE (EUDAT)</strong></p>
 <ol>
 <li>Create an account at <a href="https://b2share.eudat.eu">b2share.eudat.eu</a> (use
@@ -2238,11 +2248,10 @@ matching every command in the rest of this guide.</p>
 
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">base_url</span><span class="o">=</span>https://trapper.example.org
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="go">✔  trapper.base_url = https://trapper.example.org</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>user_name
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="go">Value of user_name:</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="go">✔  trapper.user_name = ••••••••</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">project_id</span><span class="o">=</span>&lt;classification-project-id&gt;
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="go">✔  trapper.project_id = &lt;classification-project-id&gt;</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">user_name</span><span class="o">=</span>&lt;trapper-user&gt;
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="go">✔  trapper.user_name = &lt;trapper-user&gt;</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="gp">$ </span>wildintel-publisher<span class="w"> </span>trapper<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">project_id</span><span class="o">=</span>&lt;classification-project-id&gt;
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="go">✔  trapper.project_id = &lt;classification-project-id&gt;</span>
 </code></pre></div>
 
 </div>

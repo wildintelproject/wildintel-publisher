@@ -1280,6 +1280,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sessions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#select-what-you-want-to-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1698,6 +1726,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sessions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#select-what-you-want-to-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1786,6 +1842,23 @@ click through to its page:</p>
 </ul>
 <p>If you've already saved any tokens via the CLI's <code>config set</code> commands, the wizard
 pre-fills its forms with those same saved values.</p>
+<hr />
+<h2 id="reports">Reports</h2>
+<p>Every time the checks of an AI dataset are run (see its <strong>Select the folder</strong> step) and every time a
+publication ends — successfully or not — the app keeps a <strong>report</strong> of it: what was checked,
+what passed, what failed and why, and where each repository ended up (URL, DOI or PID).</p>
+<p>They are listed in <strong>Settings › Reports</strong>, where you can open one, download it as CSV (to open
+it in a spreadsheet) or JSON (it has everything), or delete the ones you no longer need.</p>
+<p>Reports are kept in a <code>reports</code> folder inside the app's documents folder. To keep them somewhere
+else, set <strong>Settings › General › Reports folder</strong> (an absolute path, or one starting with <code>~</code>);
+<strong>Use the default</strong> goes back to the original. Reports already made stay where they are: move
+them by hand if you want them in the new folder.</p>
+<h3 id="sessions">Sessions</h3>
+<p>A publication in progress keeps what it needs in a <strong>session</strong> folder, so one that is interrupted
+can be resumed. A session takes very little until you publish; then it holds a copy of what is being
+uploaded — for a dataset with images, as much as the images take — and it is deleted when the
+publication finishes. Set <strong>Settings › General › Sessions folder</strong> to keep sessions on a disk with
+room; sessions already started stay where they are.</p>
 <hr />
 <h2 id="select-what-you-want-to-publish">Select what you want to publish</h2>
 <p>On the wizard's first screen, pick what you want to publish. Currently we can publish:</p>
