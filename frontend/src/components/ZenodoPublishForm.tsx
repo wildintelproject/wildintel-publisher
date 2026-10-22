@@ -84,7 +84,7 @@ interface Props {
    * publish order (see WizardPage), which has nothing to go back to. */
   onBack?: () => void
   backLabel?: string
-  /** Text of the button that confirms this form — "Looks good" on the wizard's settings check. */
+  /** Text of the button that confirms this form. */
   continueLabel?: string
   /** Called once the user confirms this repository's configuration is
    * complete — the wizard collects one of these per selected repository
@@ -391,14 +391,14 @@ export default function ZenodoPublishForm({ dryRun, productType, publication, on
 
       </Section>
 
-      <div className={onBack ? 'flex justify-between items-start' : 'flex justify-start'}>
+      <div className="flex justify-between items-start">
         {onBack && (
           <button type="button" className={btnOutline} onClick={onBack}>
             {backLabel ?? '← Back'}
           </button>
         )}
-        <button type="button" className={btnOutline} disabled={!canContinue} onClick={handleContinue}>
-          {continueLabel}
+        <button type="button" className={`${btnOutline} ml-auto`} disabled={!canContinue} onClick={handleContinue}>
+          {continueLabel}<span aria-hidden="true"> →</span>
         </button>
       </div>
     </div>

@@ -34,9 +34,15 @@ export default function RepoPanel({ n, title, summary, reviewed, locked = false,
           <span className={`block text-base font-semibold ${locked ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-900 dark:text-zinc-100'}`}>{reviewed ? `${n}. ${title}` : <><span className="sr-only">{n}.</span>{' '}{title}</>}</span>
           <span className="block text-sm text-zinc-500 dark:text-zinc-400 break-words">{summary}</span>
         </span>
-        <svg aria-hidden="true" className={`w-4 h-4 flex-shrink-0 text-zinc-500 dark:text-zinc-400 transition-transform ${open && !locked ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {reviewed && !open ? (
+          <span aria-label={`Edit ${title}`} title="Edit" className="w-10 h-10 flex items-center justify-center flex-shrink-0 rounded-xl border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300">
+            <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.9 3.9a2.1 2.1 0 013 3L7.6 19.2 3.5 20.5l1.3-4.1L16.9 3.9z" />
+            </svg>
+          </span>
+        ) : <svg aria-hidden="true" className={`w-4 h-4 flex-shrink-0 text-zinc-500 dark:text-zinc-400 transition-transform ${open && !locked ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
-        </svg>
+        </svg>}
       </button>
       {everOpened && !locked && <div hidden={!open} className="px-5 pb-5">{children}</div>}
     </section>

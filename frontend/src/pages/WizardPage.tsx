@@ -749,6 +749,12 @@ export default function WizardPage({ resumeSession, onFinish }: Props) {
     setOpenRepo(publishOrder.find((r) => !reviewed.includes(r)) ?? null)
   }
 
+  // Back on a repository's settings: the card before it, or the publish order when it is the first.
+  function panelBack(i: number) {
+    if (i === 0) setPublishStarted(false)
+    else setOpenRepo(publishOrder[i - 1])
+  }
+
   // Resets every piece of wizard state back to its initial value, so
   // "Publish again" starts from a completely clean step 0 — same as a fresh
   // page load, rather than reusing anything from the just-finished publish.
@@ -2204,7 +2210,7 @@ export default function WizardPage({ resumeSession, onFinish }: Props) {
                     dryRun={dryRun}
                     onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, hfh: dir }))}
                     initialConfig={repoConfigs.hfh}
-                    continueLabel="Looks good"
+                    onBack={() => panelBack(i)}
                     onConfigured={(config) => handleConfigured('hfh', config)}
                   />
                 )}
@@ -2215,7 +2221,7 @@ export default function WizardPage({ resumeSession, onFinish }: Props) {
                     productType={productType}
                     onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, zenodo: dir }))}
                     initialConfig={repoConfigs.zenodo}
-                    continueLabel="Looks good"
+                    onBack={() => panelBack(i)}
                     onConfigured={(config) => handleConfigured('zenodo', config)}
                   />
                 )}
@@ -2226,7 +2232,7 @@ export default function WizardPage({ resumeSession, onFinish }: Props) {
                     productType={productType}
                     onOutputDirChange={(dir) => setOutputDirs((o) => ({ ...o, b2share: dir }))}
                     initialConfig={repoConfigs.b2share}
-                    continueLabel="Looks good"
+                    onBack={() => panelBack(i)}
                     onConfigured={(config) => handleConfigured('b2share', config)}
                   />
                 )}
@@ -2238,7 +2244,7 @@ export default function WizardPage({ resumeSession, onFinish }: Props) {
               <GBIFPublishForm
                   dryRun={dryRun}
                   publication={publication}
-                  continueLabel="Looks good"
+                    onBack={() => panelBack(i)}
                   suggestedArchiveUrl={
                     hfhWillProduceRemoteZip
                       ? `https://huggingface.co/datasets/${repoConfigs.hfh?.repoId}/resolve/main/camtrapdp-remote.zip`
