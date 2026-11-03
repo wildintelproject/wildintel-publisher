@@ -387,23 +387,30 @@ def upload_file_to_bucket(bucket_url: str, token: str, file_path: Path, remote_f
 DEFAULT_PREVIEW_FILENAME = README_FILENAME
 
 
-def set_default_preview(api_base_url: str, token: str, deposition_id: int, filename: str) -> None:
-    """Sets the draft's files.default_preview — only exposed by Zenodo's
-    InvenioRDM API (/records/{id}/draft), not by the legacy
-    /deposit/depositions one this module otherwise uses (in today's Zenodo
-    both share the same id). A full GET -> PUT round-trip, since that PUT
-    replaces the whole draft. Must run AFTER the last legacy metadata
-    update: update_deposition_metadata silently resets it (verified
-    against sandbox.zenodo.org)."""
+def set_default_preview(
+    api_base_url: str, token: str, deposition_id: int, filename: Optional[str],
+    copyright_text: Optional[str] = None,
+) -> None:
+    """Sets, on the draft, what only Zenodo's InvenioRDM API
+    (/records/{id}/draft) exposes — not the legacy /deposit/depositions one
+    this module otherwise uses (in today's Zenodo both share the same id):
+    files.default_preview (`filename`, if given) and the record's "copyright"
+    free text (`copyright_text`, if given — the legacy API drops it
+    silently). A full GET -> PUT round-trip, since that PUT replaces the whole
+    draft. Must run AFTER the last legacy metadata update:
+    update_deposition_metadata silently resets them (verified against
+    sandbox.zenodo.org)."""
     url = f"{api_base_url}/records/{deposition_id}/draft"
     headers = {**_headers(token), "Accept": "application/vnd.inveniordm.v1+json"}
     response = httpx.get(url, headers=headers, timeout=60)
     _check_response(response, (200,), "Fetch Zenodo draft")
     draft = response.json()
     body = {key: draft[key] for key in ("metadata", "access", "pids", "custom_fields") if key in draft}
-    body["files"] = {"enabled": True, "default_preview": filename}
+    body["files"] = {"enabled": True, **({"default_preview": filename} if filename else {})}
+    if copyright_text:
+        body["metadata"] = {**body.get("metadata", {}), "copyright": copyright_text}
     response = httpx.put(url, headers=headers, json=body, timeout=60)
-    _check_response(response, (200,), f"Set Zenodo default preview to {filename}")
+    _check_response(response, (200,), "Update the Zenodo draft (default preview / copyright)")
 
 
 def publish_deposition(api_base_url: str, token: str, deposition_id: int) -> dict:
@@ -539,7 +546,13 @@ def is_already_published(deposition: dict) -> bool:
 def build_zenodo_metadata(
     *, title: str, description: str, authors: list, license_id: str, communities: Optional[str],
     related_identifier_url: Optional[str], version: Optional[str] = None,
+    collection_period: Optional[dict] = None,
 ) -> dict:
+    """Metadata for Zenodo's (legacy) deposit API. `collection_period`
+    ({"start", "end"} ISO dates, metadata.json's own) becomes a "Collected"
+    entry under "Dates". The record's "copyright" is NOT here: this API drops
+    it silently — see set_default_preview, which sets it through the
+    InvenioRDM one."""
     creators = []
     for author in authors:
         if author.get("given_names"):
@@ -564,6 +577,13 @@ def build_zenodo_metadata(
         # The dataset's own version — shown on the record page, instead of
         # Zenodo's own "v1/v2..." numbering of its record versions.
         metadata["version"] = version
+    if collection_period:
+        metadata["dates"] = [{
+            "type": "collected",
+            "start": collection_period["start"],
+            "end": collection_period["end"],
+            "description": "Period during which the data was collected.",
+        }]
     if related_identifier_url:
         metadata["related_identifiers"] = [
             {"identifier": related_identifier_url, "relation": "isSupplementTo", "resource_type": "dataset", "scheme": "url"}
@@ -583,6 +603,13 @@ def _read_record(output_dir: Path) -> dict:
             f"{record_path} not found — run 'zenodo upload' before 'zenodo release'/'zenodo sync-doi'."
         )
     return json.loads(record_path.read_text(encoding="utf-8"))
+
+
+def record_environment(output_dir: Path) -> str:
+    """The environment ('sandbox' / 'production') the record in `output_dir`
+    was uploaded to — what 'release' must pick its token by, not the
+    settings' current one."""
+    return _read_record(output_dir)["environment"]
 
 
 def _write_record(output_dir: Path, record: dict) -> None:
@@ -639,6 +666,7 @@ def upload_to_zenodo(
         communities=communities,
         related_identifier_url=related_identifier_url,
         version=product_meta.get("version"),
+        collection_period=product_meta.get("collection_period"),
     )
 
     already_uploaded: set[str] = set()
@@ -700,14 +728,19 @@ def upload_to_zenodo(
         upload_file_to_bucket(bucket_url, token, file_path, file_path.name)
         console.print(f"  [green]✓[/green] {file_path.name}")
 
-    if any(p.name == DEFAULT_PREVIEW_FILENAME for p in files):
-        # Best-effort: only affects how the record page looks, never worth
-        # failing the upload over.
+    preview_filename = DEFAULT_PREVIEW_FILENAME if any(p.name == DEFAULT_PREVIEW_FILENAME for p in files) else None
+    copyright_text = common.format_copyright(product_meta.get("copyright_holders") or [], datetime.now().year)
+    if preview_filename or copyright_text:
+        # Best-effort: only affects how the record page looks (and its
+        # copyright line), never worth failing the upload over.
         try:
-            set_default_preview(api_base_url, token, deposition_id, DEFAULT_PREVIEW_FILENAME)
-            console.print(f"  {DEFAULT_PREVIEW_FILENAME} set as the record's default preview.")
+            set_default_preview(api_base_url, token, deposition_id, preview_filename, copyright_text=copyright_text)
+            if preview_filename:
+                console.print(f"  {preview_filename} set as the record's default preview.")
+            if copyright_text:
+                console.print(f"  Copyright set: {copyright_text}")
         except Exception as exc:
-            console.print(f"[yellow]⚠ Could not set {DEFAULT_PREVIEW_FILENAME} as the default preview ({exc}).[/yellow]")
+            console.print(f"[yellow]⚠ Could not set the default preview / copyright ({exc}).[/yellow]")
 
     record = {
         "deposition_id": deposition_id,

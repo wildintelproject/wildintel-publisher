@@ -984,3 +984,19 @@ def test_extract_core_files_of_an_in_place_build_hands_on_just_the_small_files(t
     assert not (tmp_path / "next" / "images").exists()
     assert (tmp_path / "next" / "data.yaml").is_file()
     assert dataset_root(tmp_path / "next") == source.resolve()
+
+
+def test_extract_metadata_reads_the_collection_period(tmp_path):
+    root = _write_yolo_dataset(tmp_path / "yolo", data_yaml_extra={
+        "collection_period": {"start": "2020-10-19", "end": "2023-03-17"},
+    })
+    assert YoloAdapter().extract_metadata(root)["collection_period"] == {"start": "2020-10-19", "end": "2023-03-17"}
+
+
+def test_extract_metadata_ignores_an_invalid_collection_period_without_losing_the_rest(tmp_path):
+    root = _write_yolo_dataset(tmp_path / "yolo", data_yaml_extra={
+        "title": "Kept", "collection_period": {"start": "2023-03-17", "end": "2020-10-19"},
+    })
+    metadata = YoloAdapter().extract_metadata(root)
+    assert metadata["collection_period"] is None
+    assert metadata["title"] == "Kept"

@@ -1062,6 +1062,7 @@ class YoloAdapter:
             "homepage": meta.homepage,
             "publisher": _resolve_publisher(data.get("publisher")),
             "copyright_holders": _resolve_copyright_holders(data.get("copyright_holders")),
+            "collection_period": product.resolve_collection_period(data.get("collection_period")),
         }
 
     def checkout_release(self, input_dir: Path, *, version: Optional[str]) -> Optional[str]:

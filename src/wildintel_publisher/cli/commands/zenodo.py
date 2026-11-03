@@ -195,7 +195,14 @@ def release(
 ) -> None:
     """Publishes the Zenodo deposition (assigns the final DOI) and reflects it in its own CITATION.cff."""
     resolved_output_dir = Path(output_dir) if output_dir else get_zenodo_output_dir()
-    token = _require_token()
+    # The token of the environment the record was UPLOADED to, not the settings' current one:
+    # a production record released while ZENODO.environment is still 'sandbox' got a 403.
+    try:
+        environment = zenodo_service.record_environment(resolved_output_dir)
+    except Exception as exc:
+        logging.error("Could not publish the Zenodo deposition: %s", exc)
+        raise typer.Exit(1) from exc
+    token = _require_token(environment)
 
     try:
         zenodo_service.release_on_zenodo(resolved_output_dir, token=token)

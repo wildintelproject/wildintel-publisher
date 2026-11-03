@@ -70,6 +70,7 @@ class CamtrapDPAdapter:
             "contact": contact,
             "publisher": publisher,
             "copyright_holders": copyright_holders,
+            "collection_period": product.resolve_collection_period(datapackage_meta.get("temporal")),
             "homepage": datapackage_meta.get("homepage"),
         }
 

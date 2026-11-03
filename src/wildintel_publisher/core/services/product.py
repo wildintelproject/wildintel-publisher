@@ -28,10 +28,11 @@ Pipeline shape:
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 METADATA_FILENAME = "metadata.json"
 
@@ -231,6 +232,36 @@ class ProductPublisher(BaseModel):
     email: str | None = None
 
 
+class ProductPeriod(BaseModel):
+    """Shape of metadata.json's "collection_period" — the first and last day
+    the data was collected (Camtrap DP's `temporal`, YOLO's data.yaml
+    `collection_period`). Both are ISO dates (YYYY-MM-DD) and `end` can't be
+    before `start`. Zenodo gets it as a "Collected" date."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: date
+    end: date
+
+    @model_validator(mode="after")
+    def _end_not_before_start(self) -> "ProductPeriod":
+        if self.end < self.start:
+            raise ValueError(f"end ({self.end}) is before start ({self.start})")
+        return self
+
+
+def resolve_collection_period(value: Any) -> Optional[dict]:
+    """A {"start": ..., "end": ...} mapping of ISO dates -> the same with
+    both as "YYYY-MM-DD" strings (metadata.json's JSON-friendly form), or
+    None if `value` is missing or doesn't validate as a ProductPeriod —
+    best-effort, same as every adapter's extract_metadata (a bad optional
+    key is skipped, never raised)."""
+    try:
+        return ProductPeriod.model_validate(value).model_dump(mode="json")
+    except ValidationError:
+        return None
+
+
 class ProductMetadata(BaseModel):
     """Schema of metadata.json — the generic envelope every ProductAdapter's
     extract_metadata() feeds into and every repo's prepare_*_export reads
@@ -261,6 +292,10 @@ class ProductMetadata(BaseModel):
     # see common.resolve_copyright_holders) — same reasoning as publisher
     # above, rendered as preferred-citation.copyright's free-text string.
     copyright_holders: list[str] = Field(default_factory=list)
+    # First/last day the data was collected (Camtrap DP only: datapackage.json's
+    # `temporal`; YOLO: data.yaml's `collection_period`) — optional. Zenodo
+    # shows it under "Dates" as "Collected".
+    collection_period: ProductPeriod | None = None
     homepage: str | None = None
     publish_history: list[dict[str, Any]] = Field(default_factory=list)
 

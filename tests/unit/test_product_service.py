@@ -136,3 +136,26 @@ def test_zip_directory_excludes_the_given_names(tmp_path):
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
     assert names == {"data.txt", "sub/nested.txt"}
+
+
+def test_resolve_collection_period_returns_iso_strings():
+    assert product.resolve_collection_period({"start": "2020-10-19", "end": "2023-03-17"}) == {
+        "start": "2020-10-19", "end": "2023-03-17",
+    }
+
+
+@pytest.mark.parametrize("value", [
+    None, {}, "2020-2023", {"start": "2020-10-19"}, {"start": "nope", "end": "2023-03-17"},
+    {"start": "2023-03-17", "end": "2020-10-19"},   # end before start
+    {"start": "2020-10-19", "end": "2023-03-17", "extra": 1},
+])
+def test_resolve_collection_period_is_none_when_missing_or_invalid(value):
+    assert product.resolve_collection_period(value) is None
+
+
+def test_metadata_json_accepts_and_rejects_a_collection_period(tmp_path):
+    base = {"product_type": "yolo", "title": "T"}
+    product.write_metadata_json(tmp_path, {**base, "collection_period": {"start": "2020-10-19", "end": "2023-03-17"}})
+    assert product.read_metadata_json(tmp_path)["collection_period"] == {"start": "2020-10-19", "end": "2023-03-17"}
+    with pytest.raises(RuntimeError, match="invalid"):
+        product.write_metadata_json(tmp_path, {**base, "collection_period": {"start": "2023-03-17", "end": "2020-10-19"}})

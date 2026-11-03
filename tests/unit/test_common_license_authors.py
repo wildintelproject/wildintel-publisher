@@ -5,6 +5,7 @@ import pytest
 from wildintel_publisher.core.services.common import (
     format_apa_author,
     format_apa_citation,
+    format_copyright,
     resolve_authors,
     resolve_contact,
     resolve_copyright_holders,
@@ -210,3 +211,13 @@ def test_format_apa_citation_omits_copyright_notice_when_no_holders():
         publisher="P", url="U", copyright_holders=[],
     )
     assert "©" not in citation
+
+
+def test_format_copyright_joins_holders_with_the_year():
+    assert format_copyright(["Org One", "Org Two"], "2026") == "© 2026 Org One, Org Two"
+    assert format_copyright(["Org One"], 2026) == "© 2026 Org One"
+
+
+def test_format_copyright_is_none_without_holders():
+    assert format_copyright([], "2026") is None
+    assert format_copyright(None, "2026") is None

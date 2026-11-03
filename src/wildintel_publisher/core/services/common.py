@@ -471,7 +471,7 @@ def validate_camtrap_dp(output_dir: Path, *, patch_missing_profile: bool = True)
 
 
 def read_datapackage_metadata(output_dir: Path) -> dict:
-    """Lee name/title/description/version/licenses/contributors/homepage de
+    """Lee name/title/description/version/licenses/contributors/homepage/temporal de
     datapackage.json, si existe y es válido."""
     datapackage_path = output_dir / DATAPACKAGE_FILENAME
     if not datapackage_path.is_file():
@@ -484,6 +484,7 @@ def read_datapackage_metadata(output_dir: Path) -> dict:
     result["licenses"] = data.get("licenses") or []
     result["contributors"] = data.get("contributors") or []
     result["homepage"] = data.get("homepage")
+    result["temporal"] = data.get("temporal")
     return result
 
 
@@ -722,6 +723,13 @@ def resolve_copyright_holders(contributors: list) -> list[str]:
         contributor["title"] for contributor in contributors
         if isinstance(contributor, dict) and contributor.get("role") == "rightsHolder" and contributor.get("title")
     ]
+
+
+def format_copyright(copyright_holders: list[str] | None, year: str | int) -> str | None:
+    """"© <año> <nombre(s)>" — el texto libre de CFF's preferred-citation.copyright
+    y del campo "copyright" de Zenodo (mismo texto en los dos sitios). None si
+    no hay ningún titular."""
+    return f"© {year} {', '.join(copyright_holders)}" if copyright_holders else None
 
 
 def keep_only_public_media(output_dir: Path) -> set:
@@ -1040,7 +1048,7 @@ def write_citation(
             "version": version,
             "date_released": date_released,
             "publisher": publisher,
-            "copyright": f"© {year} {', '.join(copyright_holders)}" if copyright_holders else None,
+            "copyright": format_copyright(copyright_holders, year),
         }
     text = render_text_template(
         template_file,

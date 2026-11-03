@@ -254,3 +254,17 @@ def test_extract_core_files_strips_the_self_contained_zips_root_folder(tmp_path)
     assert (target_dir / "media.csv").is_file()
     assert (target_dir / "images" / "m1.jpg").read_bytes() == b"fake-bytes"
     assert not (target_dir / "camtrapdp").exists()
+
+
+def test_extract_metadata_reads_the_temporal_coverage_as_the_collection_period(tmp_path):
+    (tmp_path / "datapackage.json").write_text(json.dumps({
+        "title": "T", "temporal": {"start": "2020-10-19", "end": "2023-03-17"},
+    }), encoding="utf-8")
+    assert CamtrapDPAdapter().extract_metadata(tmp_path)["collection_period"] == {
+        "start": "2020-10-19", "end": "2023-03-17",
+    }
+
+
+def test_extract_metadata_has_no_collection_period_without_temporal(tmp_path):
+    (tmp_path / "datapackage.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    assert CamtrapDPAdapter().extract_metadata(tmp_path)["collection_period"] is None

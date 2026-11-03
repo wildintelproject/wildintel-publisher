@@ -67,6 +67,9 @@ publisher:                         # credited in CITATION.cff's preferred-citati
   website: https://www.uhu.es/
 copyright_holders:                 # "© <year> <names>" in the citation
   - Spanish National Research Council
+collection_period:                 # first/last day the images were taken (optional)
+  start: 2020-10-19
+  end: 2023-03-17
 ```
 
 In the web app, the metadata step edits these descriptive keys on a copy of
@@ -119,6 +122,7 @@ same envelope every product type carries, regardless of its own underlying forma
 | License (id, name, URL) | the license key — a bare string id, or an id/name/URL mapping |
 | Authors (name, affiliation) | the authors list |
 | Publisher, rights holders | the publisher mapping and copyright_holders list (optional) |
+| Collection period | the collection_period mapping, start and end as YYYY-MM-DD (optional) |
 
 Title, description, version, license, and authors are **required** — if `data.yaml`
 didn't provide one of them, it needs to be added by hand (or via the web app's wizard,

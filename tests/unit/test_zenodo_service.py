@@ -137,3 +137,22 @@ def test_build_zenodo_metadata_sends_the_datasets_own_version_when_known():
     )
     assert with_version["version"] == "3.0"
     assert "version" not in without
+
+
+def test_build_zenodo_metadata_sends_the_collection_period_as_a_collected_date():
+    metadata = build_zenodo_metadata(
+        title="T", description="D", authors=[{"name": "A"}], license_id="MIT", communities=None,
+        related_identifier_url=None, collection_period={"start": "2020-10-19", "end": "2023-03-17"},
+    )
+    assert metadata["dates"] == [{
+        "type": "collected", "start": "2020-10-19", "end": "2023-03-17",
+        "description": "Period during which the data was collected.",
+    }]
+
+
+def test_build_zenodo_metadata_omits_dates_without_a_collection_period():
+    metadata = build_zenodo_metadata(
+        title="T", description="D", authors=[{"name": "A"}], license_id="MIT", communities=None,
+        related_identifier_url=None,
+    )
+    assert "dates" not in metadata

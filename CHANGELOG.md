@@ -19,6 +19,11 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
 ## Upcoming release
 
 ### Added
+- CLI/Web: Zenodo records now get the **copyright** (the same "© <year> <rights holders>" text as the
+  `CITATION.cff`, from `copyright_holders`) and, when known, a **"Collected" date** with the data
+  collection period under *Dates*. The period comes from Camtrap DP's `temporal` or, for a YOLO
+  dataset, from an optional `collection_period` (`start`/`end`, `YYYY-MM-DD`) in `data.yaml`; an
+  invalid one is ignored.
 - New example, `examples/yolo-dataset-extras`: a small synthetic AI Dataset with bounding boxes, empty
   images, authors with affiliations, a publisher, extra funding text and an `additional_info/` folder.
 - Web: the *General* section of the settings page has an **Update** button: *Check updates* looks
@@ -214,6 +219,9 @@ tags for the web app — so released entries below are labelled `CLI` or `Web` a
   with its bounding boxes.
 
 ### Fixed
+- CLI: `zenodo release` used the token of the environment currently set in the settings instead of the
+  one the record was uploaded to, so releasing a production record while `ZENODO.environment` was still
+  `sandbox` failed with a 403. It now reads the environment from `zenodo_record.json`.
 - CLI/Web: `camtrapdp-remote.zip` (built for GBIF's own `--archive-url`) packed its four
   files loose at the zip's own root — GBIF's `CAMTRAP_DP` crawler unpacks the archive and
   requires exactly one root directory in the result (`org.gbif.utils.file.CompressionUtil`

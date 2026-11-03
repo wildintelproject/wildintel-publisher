@@ -354,7 +354,7 @@ def test_zenodo_upload_sets_readme_as_the_default_preview(camtrapdp_dir, tmp_pat
 
     assert result.exit_code == 0, result.output
     _no_real_default_preview_call.assert_called_once_with(
-        "https://sandbox.zenodo.org/api", "faketoken", 555, "README.md",
+        "https://sandbox.zenodo.org/api", "faketoken", 555, "README.md", copyright_text=None,
     )
 
 
@@ -385,6 +385,27 @@ def test_set_default_preview_round_trips_the_draft_through_the_inveniordm_api():
     )]
 
 
+@pytest.mark.real_default_preview
+def test_set_default_preview_also_sets_the_copyright_through_the_inveniordm_api():
+    """The legacy deposit API drops "copyright" silently — it goes in the same
+    RDM round-trip as the default preview, merged into the draft's metadata."""
+    from wildintel_publisher.core.services.zenodo import set_default_preview
+
+    draft = {"metadata": {"title": "T"}, "access": {"record": "public"}, "files": {"enabled": True}}
+    put_calls = []
+
+    with (
+        patch("httpx.get", side_effect=lambda url, **k: _fake_response(200, draft)),
+        patch("httpx.put", side_effect=lambda url, **k: put_calls.append(k["json"]) or _fake_response(200, {})),
+    ):
+        set_default_preview("https://zenodo.org/api", "tok", 7, "README.md", copyright_text="© 2026 University of Huelva")
+        set_default_preview("https://zenodo.org/api", "tok", 7, None, copyright_text="© 2026 University of Huelva")
+
+    assert put_calls[0]["metadata"] == {"title": "T", "copyright": "© 2026 University of Huelva"}
+    assert put_calls[0]["files"] == {"enabled": True, "default_preview": "README.md"}
+    assert put_calls[1]["files"] == {"enabled": True}   # no preview file -> no default_preview key
+
+
 def test_zenodo_upload_does_not_fail_when_the_default_preview_cannot_be_set(camtrapdp_dir, tmp_path, monkeypatch, _no_real_default_preview_call):
     monkeypatch.setenv("ZENODO_TOKEN", "faketoken")
     output_dir = _prepared_zenodo_export(camtrapdp_dir, tmp_path)
@@ -398,7 +419,7 @@ def test_zenodo_upload_does_not_fail_when_the_default_preview_cannot_be_set(camt
         result = runner.invoke(app, ["zenodo", "upload", "--output-dir", str(output_dir)])
 
     assert result.exit_code == 0, result.output
-    assert "Could not set README.md as the default preview" in result.output
+    assert "Could not set the default preview / copyright" in result.output
 
 
 def test_zenodo_upload_then_release_then_sync_doi(camtrapdp_dir, tmp_path, monkeypatch):
@@ -458,6 +479,25 @@ def test_zenodo_upload_then_release_then_sync_doi(camtrapdp_dir, tmp_path, monke
 
     hfh_citation = yaml.safe_load((hfh_dir / "CITATION.cff").read_text(encoding="utf-8"))
     assert hfh_citation["identifiers"][0]["value"] == "10.5281/zenodo.555"
+
+
+def test_zenodo_release_uses_the_token_of_the_records_own_environment(tmp_path):
+    """A record uploaded to production must be released with the production
+    token even while the settings' ZENODO.environment is still 'sandbox' —
+    otherwise the sandbox token goes to zenodo.org and gets a 403."""
+    (tmp_path / "zenodo_record.json").write_text(json.dumps({
+        "deposition_id": 1, "environment": "production", "doi": None, "record_url": "u", "published": False,
+    }), encoding="utf-8")
+
+    with (
+        patch("wildintel_publisher.cli.commands.zenodo._require_token", return_value="prodtok") as mock_token,
+        patch("wildintel_publisher.core.services.zenodo.release_on_zenodo") as mock_release,
+    ):
+        result = runner.invoke(app, ["zenodo", "release", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    mock_token.assert_called_once_with("production")
+    mock_release.assert_called_once_with(tmp_path, token="prodtok")
 
 
 def test_zenodo_upload_production_mode_reserves_doi_and_patches_citation_and_readme_before_uploading(camtrapdp_dir, tmp_path, monkeypatch):
