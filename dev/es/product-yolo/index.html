@@ -1827,6 +1827,9 @@ harmless to any YOLO trainer, which simply ignores keys it doesn't recognise:</p
 <a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="nt">website</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://www.uhu.es/</span>
 <a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="nt">copyright_holders</span><span class="p">:</span><span class="w">                 </span><span class="c1"># &quot;© &lt;year&gt; &lt;names&gt;&quot; in the citation</span>
 <a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Spanish National Research Council</span>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="nt">collection_period</span><span class="p">:</span><span class="w">                 </span><span class="c1"># first/last day the images were taken (optional)</span>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">  </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2020-10-19</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">  </span><span class="nt">end</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2023-03-17</span>
 </code></pre></div>
 <p>In the web app, the metadata step edits these descriptive keys on a copy of
 <code>data.yaml</code> kept inside the session — your own dataset directory is never modified.
@@ -1926,6 +1929,10 @@ same envelope every product type carries, regardless of its own underlying forma
 <tr>
 <td>Publisher, rights holders</td>
 <td>the publisher mapping and copyright_holders list (optional)</td>
+</tr>
+<tr>
+<td>Collection period</td>
+<td>the collection_period mapping, start and end as YYYY-MM-DD (optional)</td>
 </tr>
 </tbody>
 </table>
