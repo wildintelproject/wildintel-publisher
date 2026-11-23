@@ -37,11 +37,26 @@ article p > img.logo {
   width: auto;
 }
 
-/* the two logos of the header (overrides/partials/logo.html) */
-.md-logos {
+/* the two logos of the header (overrides/partials/logo.html), the same height and level with each
+   other. The negative margin keeps the header from growing: the theme sizes it for a 1.2rem logo.
+   The selectors are as specific as the theme's, which would otherwise set the height. */
+.md-header__button.md-logo .md-logos {
   align-items: center;
   display: flex;
   gap: 0.5rem;
+  margin: -0.3rem 0;
+}
+
+.md-header__button.md-logo .md-logos img {
+  height: 1.8rem;
+}
+
+/* the WildINTEL logo is dark: it needs a light ground to be seen on the green header */
+.md-header__button.md-logo .md-logos img.md-logos__wildintel {
+  background: #fff;
+  border-radius: 0.3rem;
+  box-sizing: border-box;
+  padding: 0.25rem 0.45rem;
 }
 
 :root {

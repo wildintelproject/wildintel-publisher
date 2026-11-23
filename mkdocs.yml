@@ -36,6 +36,7 @@ theme:
 
 extra:
   publisher_logo: img/wildintel-publisher-icon.png
+  wildintel_logo: img/wildIntel_logo_cropped.webp
   version:
     provider: mike
     default: latest

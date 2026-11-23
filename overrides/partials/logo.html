@@ -4,7 +4,7 @@
 -#}
 {% if config.theme.logo %}
   <span class="md-logos">
-    <img src="{{ config.theme.logo | url }}" alt="WildINTEL">
+    <img class="md-logos__wildintel" src="{{ (config.extra.wildintel_logo or config.theme.logo) | url }}" alt="WildINTEL">
     {% if config.extra.publisher_logo %}
       <img src="{{ config.extra.publisher_logo | url }}" alt="wildintel-publisher">
     {% endif %}
