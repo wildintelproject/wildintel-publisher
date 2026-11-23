@@ -31,6 +31,7 @@ import { isNewerVersion, nextVersion } from '../versions'
 import Notice from '../components/Notice'
 import { titlesUnrelated } from '../titles'
 import StepChips from '../components/StepChips'
+import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
 import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
 import { missingRequiredFields } from '../types'
 import { CAMTRAPDP_CONTRIBUTOR_ROLES } from '../types'
@@ -356,9 +357,11 @@ interface Props {
    * Never changes after the initial render (App.tsx mounts a fresh
    * WizardPage per resume choice). */
   resumeSession?: SessionSummary
+  /** False while another page (the settings) is shown over the wizard, which stays mounted. */
+  active?: boolean
 }
 
-export default function WizardPage({ resumeSession, onFinish }: Props) {
+export default function WizardPage({ resumeSession, onFinish, active = true }: Props) {
   // A YOLO dataset has no "Package" step: its metadata is all there is to review, so the step after
   // the metadata is where to publish (see skipsPackageStep).
   const [step, setStep] = useState(() => {
@@ -1344,6 +1347,7 @@ export default function WizardPage({ resumeSession, onFinish }: Props) {
   const stepLabels = skipsPackageStep ? STEP_LABELS.filter((label) => label !== 'Package') : STEP_LABELS
   // The position of the current step in the bar, which has one step fewer when "Package" is skipped.
   const barStep = skipsPackageStep && step > 3 ? step - 1 : step
+  usePageTrail({ title: stepLabels[barStep] ?? 'Publish', parents: ['Publish'], icon: TRAIL_ICONS.publish, active })
   const productLabel = PRODUCT_OPTIONS.find((o) => o.value === productType)?.title
   const folderName = (localSelection?.sourcePath ?? download.sourcePath ?? '').split(/[\\/]/).filter(Boolean).pop()
   const metadataContinueDisabled = preprocessing

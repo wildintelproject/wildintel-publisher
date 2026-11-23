@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { api } from '../api'
 import { DOCS_URL, REPO_URL } from '../components/Navbar'
 import ReportsList from '../components/ReportsList'
+import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
 import type { AppSettings, AppSettingsUpdate, ConfigInfo, VersionCheck, GBIFInstallation, LogLevel, Organization, ProductAuthor, S3Remote } from '../types'
 
 // Same look as wildintel-zooniverse's settings page: filled, rounded boxes with the
@@ -1479,6 +1480,7 @@ interface Props {
  * only hand-editable in the file itself, see api.routers.product's own
  * comment). One Save saves every section. */
 export default function SettingsPage({ onClose }: Props) {
+  usePageTrail({ title: 'Settings', icon: TRAIL_ICONS.settings, description: 'settings.toml' })
   const [section, setSection] = useState<SectionId>('general')
   const [repoDialog, setRepoDialog] = useState<RepoId | null>(null)
   // The draft as it was when a repository's page was opened: what Cancel goes back to.

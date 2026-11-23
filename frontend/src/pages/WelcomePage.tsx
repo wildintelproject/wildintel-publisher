@@ -1,6 +1,9 @@
+import { TRAIL_ICONS, useTrail } from '../components/Trail'
+
 interface Props { onStart: () => void }
 
 export default function WelcomePage({ onStart }: Props) {
+  useTrail([{ label: 'Home', icon: TRAIL_ICONS.home }], 'Fetch data products and publish them to a range of repositories')
   return (
     <div
       className="flex flex-col items-center justify-center"

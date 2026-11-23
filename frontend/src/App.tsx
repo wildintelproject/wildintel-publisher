@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
+import { TrailProvider } from './components/Trail'
 import Footer from './components/Footer'
 import ResumeSessionsPage from './pages/ResumeSessionsPage'
 import SettingsPage from './pages/SettingsPage'
@@ -67,6 +68,7 @@ export default function App() {
   const showResumeScreen = !started && unfinishedSessions !== null && unfinishedSessions.length > 0
 
   return (
+    <TrailProvider onHome={goHome}>
     <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
       <Navbar version={currentVersion} onHome={goHome} settingsOpen={settingsOpen} onOpenSettings={() => setSettingsOpen(true)} />
       {backendDown && (
@@ -78,7 +80,7 @@ export default function App() {
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         <div className={settingsOpen ? 'hidden' : ''}>
           {started
-            ? <WizardPage resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false) }} />
+            ? <WizardPage active={!settingsOpen} resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false) }} />
             : showResumeScreen
               ? (
                 <ResumeSessionsPage
@@ -93,5 +95,6 @@ export default function App() {
       </main>
       <Footer />
     </div>
+    </TrailProvider>
   )
 }

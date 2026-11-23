@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import type { SessionSummary } from '../types'
+import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
 
 interface Props {
   sessions: SessionSummary[]
@@ -138,6 +139,7 @@ function SessionCard({ session, onResume, onDiscarded }: { session: SessionSumma
 }
 
 export default function ResumeSessionsPage({ sessions, onResume, onDiscarded, onSkip }: Props) {
+  usePageTrail({ title: 'Unfinished runs', icon: TRAIL_ICONS.resume, description: 'Pick up a publication where it was interrupted' })
   return (
     <div className="mx-auto max-w-[900px] px-4 py-8">
       <h1 className="text-2xl font-bold mb-1">Unfinished run{sessions.length > 1 ? 's' : ''}</h1>
