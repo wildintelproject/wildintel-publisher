@@ -11,7 +11,7 @@ vi.mock('../api', () => ({ api: { getSettings: vi.fn(), saveSettings: vi.fn(), c
 const mockedApi = vi.mocked(api)
 
 const APP_SETTINGS: AppSettings = {
-  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', config_file: '/home/me/.config/wildintel-publisher/settings.toml', log_level_override: null, reports_dir: null, default_reports_dir: '/home/me/Documents/wildintel-publisher/reports', sessions_dir: null, default_sessions_dir: '/home/me/Documents/wildintel-publisher/sessions' },
+  GENERAL: { log_level: 'INFO', log_file: '/home/me/.config/wildintel-publisher/logs/wildintel-publisher.log', config_file: '/home/me/.config/wildintel-publisher/settings.toml', log_level_override: null, reports_dir: null, default_reports_dir: '/home/me/Documents/wildintel-publisher/reports', sessions_dir: null, default_sessions_dir: '/home/me/Documents/wildintel-publisher/sessions', show_welcome: true },
   CAMTRAPDP: {
     license_id: 'CC-BY-NC-4.0', license_name: 'Creative Commons Attribution-NonCommercial 4.0 International',
     license_url: 'https://creativecommons.org/licenses/by-nc/4.0/', dataset_slug: 'wildintel-camtrapdp',
@@ -482,7 +482,7 @@ describe('SettingsPage', () => {
     await userEvent.selectOptions(screen.getByLabelText('Log level'), 'DEBUG')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(mockedApi.saveSettings.mock.calls[0][0].GENERAL).toEqual({ log_level: 'DEBUG', reports_dir: null, sessions_dir: null })
+    expect(mockedApi.saveSettings.mock.calls[0][0].GENERAL).toEqual({ log_level: 'DEBUG', reports_dir: null, sessions_dir: null, show_welcome: true })
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
   })
 

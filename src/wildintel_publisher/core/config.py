@@ -139,6 +139,11 @@ class GeneralSettings(BaseModel):
         description="A folder of its own for the sessions — what a publication in progress or interrupted keeps while it runs — instead of the \"sessions\" folder inside the app's documents folder. (GENERAL.sessions_dir)",
     )
 
+    show_welcome: bool = Field(
+        default=True,
+        description="Whether the welcome page is shown when the app opens: off, the app opens straight on the publishing wizard. (GENERAL.show_welcome)",
+    )
+
     @field_validator("reports_dir", "sessions_dir")
     @classmethod
     def _absolute(cls, value: Optional[str]) -> Optional[str]:

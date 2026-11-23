@@ -191,6 +191,8 @@ export interface AppSettings {
     /** A folder of its own for the sessions; null uses default_sessions_dir. */
     sessions_dir: string | null
     default_sessions_dir: string
+    /** Whether the welcome page is shown when the app opens. */
+    show_welcome: boolean
   }
   TRAPPER: {
     base_url: string | null
@@ -265,7 +267,7 @@ export interface AppSettings {
  * blank keeps the one already saved, same rule as everywhere else in this
  * app (see TrapperConnectionForm). */
 export interface AppSettingsUpdate {
-  GENERAL: { log_level: LogLevel; reports_dir: string | null; sessions_dir: string | null }
+  GENERAL: { log_level: LogLevel; reports_dir: string | null; sessions_dir: string | null; show_welcome: boolean }
   CAMTRAPDP: AppSettings['CAMTRAPDP']
   TRAPPER: Omit<AppSettings['TRAPPER'], 'has_user_password'> & {
     user_name: string | null
