@@ -1,4 +1,4 @@
-# <img src="docs/img/wildIntel_logo.webp" alt="WildINTEL Logo" height="60"> wildintel-publisher
+# <img src="docs/img/wildIntel_logo_cropped.webp" alt="WildINTEL logo" height="40" align="absmiddle"> <img src="docs/img/wildintel-publisher-icon.png" alt="wildintel-publisher logo" height="40" align="absmiddle"> wildintel-publisher
 
 ![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
 [![WildINTEL](https://img.shields.io/badge/WildINTEL-v1.0-blue)](https://wildintel.eu/)
