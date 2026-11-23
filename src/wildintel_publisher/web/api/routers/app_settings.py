@@ -83,6 +83,19 @@ def update_settings(new: Settings) -> dict:
     return _public(new)
 
 
+class ShowWelcomeRequest(BaseModel):
+    show: bool
+
+
+@router.put("/show-welcome")
+def set_show_welcome(req: ShowWelcomeRequest) -> dict:
+    """Changes only whether the welcome page is shown when the app opens — what its tick does."""
+    settings = load_settings()
+    settings.GENERAL.show_welcome = req.show
+    save_settings(settings)
+    return {"show_welcome": req.show}
+
+
 @router.get("/log")
 def download_log() -> FileResponse:
     """The current log file — to attach to a bug report."""

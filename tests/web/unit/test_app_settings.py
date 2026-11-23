@@ -202,3 +202,18 @@ def test_a_config_can_be_downloaded_and_its_folder_opened(config_dir, monkeypatc
     assert client.post("/api/settings/configs/default/open-folder").json() == {"ok": True}
     assert client.post("/api/settings/configs/b/open-folder").json() == {"ok": True}
     assert opened == [config_dir, config_dir / "configs"]
+
+
+def test_welcome_page_is_shown_by_default():
+    assert _client().get("/api/settings").json()["GENERAL"]["show_welcome"] is True
+
+
+def test_the_welcome_tick_changes_only_whether_the_welcome_page_is_shown():
+    client = _client()
+    before = client.get("/api/settings").json()
+
+    assert client.put("/api/settings/show-welcome", json={"show": False}).json() == {"show_welcome": False}
+
+    after = client.get("/api/settings").json()
+    assert after["GENERAL"]["show_welcome"] is False
+    assert {**after, "GENERAL": {**after["GENERAL"], "show_welcome": True}} == before

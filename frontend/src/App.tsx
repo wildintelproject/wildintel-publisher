@@ -26,6 +26,17 @@ export default function App() {
   // The settings page is shown over the rest, which stays mounted (just
   // hidden) — so a wizard run in progress isn't lost.
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Whether the welcome page is turned off (GENERAL.show_welcome); null until the settings have been read.
+  const [welcomeOff, setWelcomeOff] = useState<boolean | null>(null)
+  // Counts the runs that were left, so the next one starts from a clean wizard when it shows up in the same place.
+  const [run, setRun] = useState(0)
+  // Read again when the settings are closed: the option may have been changed there.
+  useEffect(() => {
+    if (settingsOpen) return
+    api.getSettings()
+      .then((s) => setWelcomeOff(s.GENERAL.show_welcome === false))
+      .catch(() => setWelcomeOff(false))
+  }, [settingsOpen])
   // Forms deep in the wizard link to the settings (e.g. where the Zenodo token lives).
   useEffect(() => {
     const open = () => setSettingsOpen(true)
@@ -59,13 +70,16 @@ export default function App() {
   // The logo goes back to the welcome screen — asking first when a wizard
   // run is in progress, since leaving it discards that run's state.
   const goHome = () => {
-    if (started && !settingsOpen && !window.confirm('Leave the current publishing run and go back to the welcome screen?')) return
+    if (wizardShown && !window.confirm('Leave the current publishing run? Its progress will be lost.')) return
     setSettingsOpen(false)
     setResumeSession(null)
     setStarted(false)
+    setRun((r) => r + 1)
   }
 
   const showResumeScreen = !started && unfinishedSessions !== null && unfinishedSessions.length > 0
+  // With the welcome page turned off the app opens on the wizard itself (after the unfinished runs, if there are any).
+  const wizardShown = started || (welcomeOff === true && unfinishedSessions !== null && !showResumeScreen)
 
   return (
     <TrailProvider onHome={goHome}>
@@ -79,8 +93,8 @@ export default function App() {
       <main className="flex-1">
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         <div className={settingsOpen ? 'hidden' : ''}>
-          {started
-            ? <WizardPage active={!settingsOpen} resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false) }} />
+          {wizardShown
+            ? <WizardPage key={run} active={!settingsOpen} resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false); setRun((r) => r + 1) }} />
             : showResumeScreen
               ? (
                 <ResumeSessionsPage
@@ -90,7 +104,7 @@ export default function App() {
                   onSkip={() => setUnfinishedSessions([])}
                 />
               )
-              : <WelcomePage onStart={() => setStarted(true)} />}
+              : welcomeOff === false && unfinishedSessions !== null ? <WelcomePage onStart={() => setStarted(true)} /> : null}
         </div>
       </main>
       <Footer />

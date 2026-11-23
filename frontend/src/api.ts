@@ -53,6 +53,8 @@ export const api = {
 
   getSettings: () => req<AppSettings>('/api/settings'),
   saveSettings: (update: AppSettingsUpdate) => put<AppSettings>('/api/settings', update),
+  /** Changes only whether the welcome page is shown when the app opens — what its tick does. */
+  setShowWelcome: (show: boolean) => put<{ show_welcome: boolean }>('/api/settings/show-welcome', { show }),
 
   // Deletes the log file and its rotated copies — logging goes on, into a new one.
   // The settings files the user can switch to (the default settings.toml plus

@@ -180,6 +180,7 @@ interface Draft {
   logLevel: LogLevel
   reportsDir: string
   sessionsDir: string
+  showWelcome: boolean
   camtrapdpLicenseId: string
   camtrapdpLicenseName: string
   camtrapdpLicenseUrl: string
@@ -243,6 +244,7 @@ function toDraft(s: AppSettings): Draft {
     logLevel: s.GENERAL.log_level,
     reportsDir: s.GENERAL.reports_dir ?? '',
     sessionsDir: s.GENERAL.sessions_dir ?? '',
+    showWelcome: s.GENERAL.show_welcome ?? true,
     camtrapdpLicenseId: s.CAMTRAPDP.license_id ?? '',
     camtrapdpLicenseName: s.CAMTRAPDP.license_name ?? '',
     camtrapdpLicenseUrl: s.CAMTRAPDP.license_url ?? '',
@@ -369,7 +371,7 @@ function toUpdate(d: Draft): AppSettingsUpdate | null {
       retry_attempts: Number(d.trapperRetryAttempts),
       retry_wait_seconds: Number(d.trapperRetryWaitSeconds),
     },
-    GENERAL: { log_level: d.logLevel, reports_dir: d.reportsDir.trim() || null, sessions_dir: d.sessionsDir.trim() || null },
+    GENERAL: { log_level: d.logLevel, reports_dir: d.reportsDir.trim() || null, sessions_dir: d.sessionsDir.trim() || null, show_welcome: d.showWelcome },
     CAMTRAPDP: {
       license_id: orNull(d.camtrapdpLicenseId),
       license_name: orNull(d.camtrapdpLicenseName),
@@ -1698,6 +1700,12 @@ export default function SettingsPage({ onClose }: Props) {
                 <p className={`${hintClass} px-1`}>{hint}</p>
               </Row>
             ))}
+            <Row label="Welcome page" description="Shown when the app opens, to say what it does. Turn it off to open straight on the publishing wizard — the tick of the welcome page does the same.">
+              <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <input type="checkbox" checked={draft.showWelcome} onChange={(e) => set('showWelcome', e.target.checked)} />
+                Show the welcome page when the app opens
+              </label>
+            </Row>
             <Row
               label="Log level"
               description="How much the app writes to its log — raise it to Debug to track a problem down, then lower it again. Applied as soon as it's saved."
