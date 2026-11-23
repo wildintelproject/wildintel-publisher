@@ -55,11 +55,20 @@ export default function App() {
       .catch(() => setUnfinishedSessions([]))
   }, [])
 
+  // The logo goes back to the welcome screen — asking first when a wizard
+  // run is in progress, since leaving it discards that run's state.
+  const goHome = () => {
+    if (started && !settingsOpen && !window.confirm('Leave the current publishing run and go back to the welcome screen?')) return
+    setSettingsOpen(false)
+    setResumeSession(null)
+    setStarted(false)
+  }
+
   const showResumeScreen = !started && unfinishedSessions !== null && unfinishedSessions.length > 0
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Navbar version={currentVersion} settingsOpen={settingsOpen} onOpenSettings={() => setSettingsOpen(true)} />
+      <Navbar version={currentVersion} onHome={goHome} settingsOpen={settingsOpen} onOpenSettings={() => setSettingsOpen(true)} />
       {backendDown && (
         <div className="bg-red-50 dark:bg-red-950 border-b border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm text-center py-2">
           Backend not reachable — is the server running?
