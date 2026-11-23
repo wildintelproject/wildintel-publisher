@@ -30,6 +30,7 @@ import { initialLicense } from '../licenses'
 import { isNewerVersion, nextVersion } from '../versions'
 import Notice from '../components/Notice'
 import { titlesUnrelated } from '../titles'
+import { PAGE_CLASS, PageTitle } from '../components/PageBar'
 import StepChips from '../components/StepChips'
 import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
 import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
@@ -1388,7 +1389,8 @@ export default function WizardPage({ resumeSession, onFinish, active = true }: P
   )
 
   return (
-    <div className="mx-auto max-w-[900px] px-4 py-8">
+    <div className={PAGE_CLASS}>
+      <PageTitle title="Publish a data product" description="Fetch it, review its metadata and publish it to one or more repositories." />
 
       {/* Step indicator */}
       <div className="flex items-start mb-10">
