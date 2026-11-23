@@ -31,6 +31,7 @@ import { isNewerVersion, nextVersion } from '../versions'
 import Notice from '../components/Notice'
 import { titlesUnrelated } from '../titles'
 import { PAGE_CLASS, PageTitle } from '../components/PageBar'
+import StepBar from '../components/StepBar'
 import StepChips from '../components/StepChips'
 import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
 import { withOrganizationDefaults, yoloMetadataForSave, yoloMetadataValid } from '../yoloMetadata'
@@ -1392,36 +1393,7 @@ export default function WizardPage({ resumeSession, onFinish, active = true }: P
     <div className={PAGE_CLASS}>
       <PageTitle title="Publish a data product" description="Fetch it, review its metadata and publish it to one or more repositories." />
 
-      {/* Step indicator */}
-      <div className="flex items-start mb-10">
-        {stepLabels.map((label, i) => (
-          // The last step has no connector after it, so it must not stretch: it would leave the bar
-          // empty to its right and push the steps off-centre.
-          <div key={i} className={`flex items-start ${i < stepLabels.length - 1 ? 'flex-1' : ''}`}>
-            <div className="flex flex-col items-center" style={{ minWidth: 56 }}>
-              <div
-                className={`w-9 h-9 rounded-full flex items-center justify-center font-bold mb-1 text-sm ${
-                  i < barStep
-                    ? 'bg-emerald-600 text-white'
-                    : i === barStep
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-zinc-700 text-zinc-400'
-                }`}
-              >
-                {i < barStep ? '✓' : i + 1}
-              </div>
-              <small className={`text-xs whitespace-nowrap ${
-                i === barStep ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'
-              }`}>
-                {label}
-              </small>
-            </div>
-            {i < stepLabels.length - 1 && (
-              <div className={`flex-1 border-t mx-1 mt-[18px] ${i < barStep ? 'border-emerald-500' : 'border-zinc-700'}`} />
-            )}
-          </div>
-        ))}
-      </div>
+      <StepBar labels={stepLabels} current={barStep} />
 
       {/* ── Step 0: product type ── */}
       {step === 0 && (
