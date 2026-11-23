@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import type { SessionSummary } from '../types'
+import { PAGE_CLASS, PageTitle } from '../components/PageBar'
 import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
 
 interface Props {
@@ -141,14 +142,16 @@ function SessionCard({ session, onResume, onDiscarded }: { session: SessionSumma
 export default function ResumeSessionsPage({ sessions, onResume, onDiscarded, onSkip }: Props) {
   usePageTrail({ title: 'Unfinished runs', icon: TRAIL_ICONS.resume, description: 'Pick up a publication where it was interrupted' })
   return (
-    <div className="mx-auto max-w-[900px] px-4 py-8">
-      <h1 className="text-2xl font-bold mb-1">Unfinished run{sessions.length > 1 ? 's' : ''}</h1>
-      <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">
-        {sessions.length === 1
-          ? 'A previous run was interrupted before it finished. Resume it to pick up where it left off — '
-          : 'These runs were interrupted before they finished. Resume one to pick up where it left off — '}
-        already-downloaded files won't be redone. Credentials are never saved, so you'll need to re-enter them.
-      </p>
+    <div className={PAGE_CLASS}>
+      <PageTitle
+        title={`Unfinished run${sessions.length > 1 ? 's' : ''}`}
+        description={<>
+          {sessions.length === 1
+            ? 'A previous run was interrupted before it finished. Resume it to pick up where it left off — '
+            : 'These runs were interrupted before they finished. Resume one to pick up where it left off — '}
+          already-downloaded files won't be redone. Credentials are never saved, so you'll need to re-enter them.
+        </>}
+      />
 
       <div className="space-y-4 mb-6">
         {sessions.map((session) => (
