@@ -19,6 +19,31 @@ article img {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
+/* the logos have their own shape and a transparent background: no frame or shadow */
+article img.logo {
+  border-radius: 0;
+  box-shadow: none;
+  vertical-align: middle;
+}
+
+/* the two logos of the home page, centred and level with each other */
+article p:has(> img.logo) {
+  text-align: center;
+}
+
+article p > img.logo {
+  height: 7rem;        /* the theme forces height: auto, so the size is set here */
+  margin: 0 0.75rem;
+  width: auto;
+}
+
+/* the two logos of the header (overrides/partials/logo.html) */
+.md-logos {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
 :root {
   --md-primary-fg-color:        #006020;  /* verde oscuro del "Wild" */
   --md-primary-fg-color--light: #206040;  /* verde medio */

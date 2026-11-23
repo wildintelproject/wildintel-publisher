@@ -1,6 +1,7 @@
 # wildintel-publisher
 
-![WildINTEL](img/wildIntel_logo.webp){ style="display: block; margin: 0 auto;" }
+![WildINTEL](img/wildIntel_logo_cropped.webp){ .logo }
+![wildintel-publisher](img/wildintel-publisher-icon.png){ .logo }
 
 **wildintel-publisher** publishes products generated within the
 [WildINTEL](https://wildintel.eu/) project — currently [Camtrap DP](https://camtrap-dp.tdwg.org/)
