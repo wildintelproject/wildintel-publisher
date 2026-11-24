@@ -153,6 +153,13 @@ async function shot(locator, name) {
   console.log(`  ✔ ${name}`)
 }
 
+/** Picks a product on the first step and goes on: the cards only select, "Continue with …" moves to the next step. */
+async function chooseProduct(page, name) {
+  // the radio itself is visually hidden: it is its card that is clicked
+  await page.getByRole('radio', { name }).check({ force: true })
+  await page.getByRole('button', { name: /^continue with/i }).click()
+}
+
 /** Waits for the step's "Next" button to be enabled — it's disabled until
  * the local directory (or Trapper selection) has validated successfully. */
 async function waitForEnabledNext(page) {
@@ -187,7 +194,7 @@ async function main() {
     await shot(page.locator('main > div'), 'product-selection.png')
 
     // Step 0-2: Camtrap DP, local directory, past the download-result screen.
-    await page.getByRole('button', { name: /camtrap dp/i }).click()
+    await chooseProduct(page, /camtrap dp/i)
     // Move the mouse off the "Local Directory" card first — it sits right
     // where "Camtrap DP" was on the previous screen, so the leftover cursor
     // position would otherwise trigger its :hover style and make it look
@@ -288,11 +295,11 @@ async function main() {
     console.log('Walking the wizard again, for YOLO Dataset...')
     await page.goto(BASE_URL)
     await page.getByRole('button', { name: /get started/i }).click()
-    await page.getByRole('button', { name: /yolo dataset/i }).click()
+    await chooseProduct(page, /ai dataset/i)
     await shot(page.locator('main > div'), 'source-selection-yolo.png')
     await page.getByRole('button', { name: /^back$/i }).click()
     await shot(page.locator('main > div'), 'product-selection-yolo.png')
-    await page.getByRole('button', { name: /yolo dataset/i }).click()
+    await page.getByRole('button', { name: /^continue with/i }).click()
     await page.getByRole('button', { name: /local directory/i }).click()
     await page.getByLabel('Directory').fill(`${DOCS_DIR}/yolo`)
     nextBtn = await waitForEnabledNext(page)

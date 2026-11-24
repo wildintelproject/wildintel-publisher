@@ -31,6 +31,7 @@ import { isNewerVersion, nextVersion } from '../versions'
 import Notice from '../components/Notice'
 import { titlesUnrelated } from '../titles'
 import { PAGE_CLASS, PageTitle } from '../components/PageBar'
+import ProductCards, { type ProductChoice } from '../components/ProductCards'
 import StepBar from '../components/StepBar'
 import StepChips from '../components/StepChips'
 import { TRAIL_ICONS, usePageTrail } from '../components/Trail'
@@ -69,24 +70,16 @@ const EDITABLE_CONTRIBUTOR_ROLES = CAMTRAPDP_CONTRIBUTOR_ROLES.filter(
   (role) => role !== 'publisher' && role !== 'rightsHolder',
 )
 
-interface ProductOption {
-  value: ProductType
-  emoji: string
-  title: string
-  description: string
-  available: boolean
-}
-
 // AI Model/EBV/Image Gallery have no adapter (or wizard/backend wiring) of
 // their own yet — flip to true once one exists (see developer-guide.md's
 // "Adding a new product type").
-const PRODUCT_OPTIONS: ProductOption[] = [
-  { value: 'camtrapdp', emoji: '📦', title: 'Camtrap DP', description: 'A camera-trap data package fetched from Trapper.', available: true },
-  { value: 'yolo', emoji: '🗂️', title: 'AI Dataset', description: 'An image dataset in YOLO training format (images/train, val, test + data.yaml).', available: true },
-  { value: 'software', emoji: '💻', title: 'Software Application', description: 'A software application published from its own git repository.', available: true },
-  { value: 'ai_model', emoji: '🤖', title: 'AI Model', description: 'A trained AI model artifact.', available: false },
-  { value: 'ebv', emoji: '🌍', title: 'EBV', description: 'Essential Biodiversity Variables derived from the project data.', available: false },
-  { value: 'image_gallery', emoji: '🖼️', title: 'Image Gallery', description: 'A curated gallery of camera-trap images.', available: false },
+const PRODUCT_OPTIONS: ProductChoice[] = [
+  { value: 'camtrapdp', title: 'Camtrap DP', description: 'A camera-trap data package fetched from TRAPPER.', available: true, source: 'TRAPPER' },
+  { value: 'yolo', title: 'AI Dataset', description: 'An image dataset in YOLO training format (images/train, val, test + data.yaml).', available: true, source: 'Local YOLO folder' },
+  { value: 'software', title: 'Software Application', description: 'A software application published from its own git repository.', available: true, source: 'Git repository' },
+  { value: 'ai_model', title: 'AI Model', description: 'A trained AI model artifact.', available: false },
+  { value: 'ebv', title: 'EBV', description: 'Essential Biodiversity Variables derived from the project data.', available: false },
+  { value: 'image_gallery', title: 'Image Gallery', description: 'A curated gallery of camera-trap images.', available: false },
 ]
 
 type SourceType = 'local' | 'trapper' | 'git' | 'archive'
@@ -359,11 +352,13 @@ interface Props {
    * Never changes after the initial render (App.tsx mounts a fresh
    * WizardPage per resume choice). */
   resumeSession?: SessionSummary
+  /** Leaves the wizard from its first step, back to where it was opened from; there is no Back button there when it is not given. */
+  onBack?: () => void
   /** False while another page (the settings) is shown over the wizard, which stays mounted. */
   active?: boolean
 }
 
-export default function WizardPage({ resumeSession, onFinish, active = true }: Props) {
+export default function WizardPage({ resumeSession, onFinish, onBack, active = true }: Props) {
   // A YOLO dataset has no "Package" step: its metadata is all there is to review, so the step after
   // the metadata is where to publish (see skipsPackageStep).
   const [step, setStep] = useState(() => {
@@ -1401,43 +1396,27 @@ export default function WizardPage({ resumeSession, onFinish, active = true }: P
           <h4 className="text-lg font-semibold mb-1">What do you want to publish?</h4>
           <p className="text-zinc-500 dark:text-zinc-400 mb-6 text-sm">Choose the type of product you want to fetch and publish.</p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {PRODUCT_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                disabled={!option.available}
-                onClick={() => {
-                  setProductType(option.value)
-                  // Reset repo selection for the newly-chosen product type
-                  // rather than carrying over whatever was picked for a
-                  // previous one (e.g. going Back from Software's own
-                  // mandatory Zenodo to pick Camtrap DP instead) — seeded
-                  // with that type's own mandatory repos, if any.
-                  const mandatory = MANDATORY_REPOS_BY_PRODUCT_TYPE[option.value] ?? []
-                  setSelectedRepos(new Set(mandatory))
-                  setPublishOrder(mandatory)
-                  setStep(1)
-                }}
-                className={[
-                  'relative flex flex-col items-center gap-3 p-6 rounded-xl border-2 text-center transition-colors',
-                  !option.available
-                    ? 'border-zinc-200 dark:border-zinc-800 opacity-50 cursor-not-allowed'
-                    : productType === option.value
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 cursor-pointer'
-                    : 'border-zinc-300 dark:border-zinc-700 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer',
-                ].join(' ')}
-              >
-                {!option.available && (
-                  <span className="absolute top-2 right-2 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400">
-                    Coming soon
-                  </span>
-                )}
-                <span className="text-4xl">{option.emoji}</span>
-                <strong className="text-zinc-900 dark:text-zinc-100">{option.title}</strong>
-                <span className="text-zinc-500 dark:text-zinc-400 text-sm">{option.description}</span>
-              </button>
-            ))}
+          <ProductCards
+            options={PRODUCT_OPTIONS}
+            value={productType}
+            onChoose={(value) => {
+              setProductType(value)
+              // Reset repo selection for the newly-chosen product type
+              // rather than carrying over whatever was picked for a
+              // previous one (e.g. going Back from Software's own
+              // mandatory Zenodo to pick Camtrap DP instead) — seeded
+              // with that type's own mandatory repos, if any.
+              const mandatory = MANDATORY_REPOS_BY_PRODUCT_TYPE[value] ?? []
+              setSelectedRepos(new Set(mandatory))
+              setPublishOrder(mandatory)
+            }}
+          />
+
+          <div className="mt-6 flex items-center justify-between gap-3 border-t border-zinc-200/70 dark:border-zinc-800/80 pt-6">
+            {onBack ? <button type="button" className={btnOutline} onClick={onBack}><span aria-hidden="true">← </span>Back</button> : <span />}
+            <button type="button" className={btnPrimary} disabled={!productType} onClick={() => setStep(1)}>
+              {productType ? `Continue with ${PRODUCT_OPTIONS.find((o) => o.value === productType)?.title ?? ''}` : 'Continue'}<span aria-hidden="true">→</span>
+            </button>
           </div>
         </div>
       )}

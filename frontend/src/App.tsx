@@ -77,6 +77,13 @@ export default function App() {
     setRun((r) => r + 1)
   }
 
+  // Back from the first step of the wizard: nothing has been done yet, so no questions asked.
+  const backToWelcome = () => {
+    setResumeSession(null)
+    setStarted(false)
+    setRun((r) => r + 1)
+  }
+
   const showResumeScreen = !started && unfinishedSessions !== null && unfinishedSessions.length > 0
   // With the welcome page turned off the app opens on the wizard itself (after the unfinished runs, if there are any).
   const wizardShown = started || (welcomeOff === true && unfinishedSessions !== null && !showResumeScreen)
@@ -94,7 +101,7 @@ export default function App() {
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         <div className={settingsOpen ? 'hidden' : ''}>
           {wizardShown
-            ? <WizardPage key={run} active={!settingsOpen} resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false); setRun((r) => r + 1) }} />
+            ? <WizardPage key={run} active={!settingsOpen} onBack={welcomeOff === false ? backToWelcome : undefined} resumeSession={resumeSession ?? undefined} onFinish={() => { setResumeSession(null); setStarted(false); setRun((r) => r + 1) }} />
             : showResumeScreen
               ? (
                 <ResumeSessionsPage
