@@ -177,6 +177,12 @@ async function passYoloFolderSteps(folder = '/data/yolo') {
   await userEvent.click(await screen.findByRole('button', { name: 'Continue to the metadata' }))
 }
 
+/** Picks a product on the first step and goes on: the cards only select, "Continue with …" moves to the next step. */
+async function chooseProduct(name: RegExp) {
+  await userEvent.click(screen.getByRole('radio', { name }))
+  await userEvent.click(screen.getByRole('button', { name: /^continue with/i }))
+}
+
 describe('WizardPage', () => {
   it('shows the step indicator with the first step active', () => {
     render(<WizardPage />)
@@ -191,18 +197,19 @@ describe('WizardPage', () => {
     // WizardPage's PRODUCT_OPTIONS comment).
     render(<WizardPage />)
 
-    expect(screen.getByRole('button', { name: /camtrap dp/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /ai dataset/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /software application/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /ai model/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /ebv/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /image gallery/i })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: /camtrap dp/i })).toBeEnabled()
+    expect(screen.getByRole('radio', { name: /ai dataset/i })).toBeEnabled()
+    expect(screen.getByRole('radio', { name: /software application/i })).toBeEnabled()
+    // the ones still to come are not choices at all
+    expect(screen.queryByRole('radio', { name: /ai model|ebv|image gallery/i })).not.toBeInTheDocument()
+    const soon = within(screen.getByRole('list', { name: /coming soon/i })).getAllByRole('listitem')
+    expect(soon.map((li) => li.querySelector('strong')?.textContent)).toEqual(['AI Model', 'EBV', 'Image Gallery'])
   })
 
-  it('moves straight to the source step when Camtrap DP is clicked', async () => {
+  it('goes to the source step when Camtrap DP is chosen and Continue is clicked', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
 
     expect(screen.getByText('Where is it located?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /local directory/i })).toBeEnabled()
@@ -210,10 +217,50 @@ describe('WizardPage', () => {
     expect(screen.getByRole('button', { name: /public url/i })).toBeEnabled()
   })
 
+  it('only selects a product when its card is clicked: Continue stays disabled until one is chosen and then names it', async () => {
+    render(<WizardPage />)
+
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
+    await userEvent.click(screen.getByRole('radio', { name: /ai dataset/i }))
+
+    expect(screen.getByText('What do you want to publish?')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /ai dataset/i })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Continue with AI Dataset' })).toBeEnabled()
+  })
+
+  it('says where each available product comes from', () => {
+    render(<WizardPage />)
+
+    expect(screen.getByText('Source: TRAPPER')).toBeInTheDocument()
+    expect(screen.getByText('Source: Local YOLO folder')).toBeInTheDocument()
+    expect(screen.getByText('Source: Git repository')).toBeInTheDocument()
+  })
+
+  it('has a Back button on the first step only when there is somewhere to go back to', async () => {
+    const onBack = vi.fn()
+    const { unmount } = render(<WizardPage />)
+    expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+    unmount()
+
+    render(<WizardPage onBack={onBack} />)
+    await userEvent.click(screen.getByRole('button', { name: /back/i }))
+
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the product chosen when coming back from the source step', async () => {
+    render(<WizardPage />)
+
+    await chooseProduct(/software application/i)
+    await userEvent.click(screen.getByRole('button', { name: /back/i }))
+
+    expect(screen.getByRole('radio', { name: /software application/i })).toBeChecked()
+  })
+
   it('lets the user go back from the source step to the product type step', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /back/i }))
 
     expect(screen.getByText('What do you want to publish?')).toBeInTheDocument()
@@ -222,7 +269,7 @@ describe('WizardPage', () => {
   it('lets the user select a source option and highlights it', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
 
     const trapperButton = screen.getByRole('button', { name: /trapper instance/i })
     await userEvent.click(trapperButton)
@@ -239,7 +286,7 @@ async function selectTrapperDeployment(user: ReturnType<typeof userEvent.setup>)
     results: [{ pk: 100, deployment_id: 'r0007-dona_0018', location_id: 'L1' }],
   })
 
-  await user.click(screen.getByRole('button', { name: /camtrap dp/i }))
+  await chooseProduct(/camtrap dp/i)
   await user.click(screen.getByRole('button', { name: /trapper instance/i }))
   await user.type(screen.getByPlaceholderText('https://trapper.example.com'), 'https://trapper.example')
   await user.type(screen.getByLabelText('Username'), 'alice')
@@ -257,7 +304,7 @@ describe('WizardPage download flow', () => {
   it('keeps Next disabled until a deployment is selected', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /trapper instance/i }))
 
     expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled()
@@ -318,7 +365,7 @@ describe('WizardPage local directory flow', () => {
   it('keeps Next disabled until the directory is read successfully', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
 
     expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled()
@@ -332,7 +379,7 @@ describe('WizardPage local directory flow', () => {
   it('shows the same result page as the Trapper flow once Next is clicked', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
 
     mockedApi.generateProductMetadata.mockResolvedValue({
@@ -356,7 +403,7 @@ describe('WizardPage local directory flow', () => {
   it('reuses the same session (never mints a second one) after Back then Next again', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     mockedApi.generateProductMetadata.mockResolvedValue({ title: 'My Camtrap DP', authors: [] })
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
@@ -379,7 +426,7 @@ describe('WizardPage local directory flow', () => {
   it('asks the user to complete missing metadata before letting them proceed', async () => {
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
 
     mockedApi.generateProductMetadata.mockResolvedValue({ title: 'My Dataset', authors: [] })
@@ -418,7 +465,7 @@ async function reachPublishStep() {
     authors: [{ name: 'Alice', affiliation: '' }],
   })
 
-  await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+  await chooseProduct(/camtrap dp/i)
   await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
   await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -444,7 +491,7 @@ async function reachPublishStepYolo() {
     authors: [{ name: 'Alice', affiliation: '' }],
   })
 
-  await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
+  await chooseProduct(/ai dataset/i)
   await passYoloFolderSteps()
   await answerNewDataset()
 
@@ -462,7 +509,7 @@ describe('WizardPage coordinate anonymization', () => {
   // picked, on the same step as source selection).
   it('shows the anonymize-coordinates option in the metadata step', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -474,7 +521,7 @@ describe('WizardPage coordinate anonymization', () => {
 
   it('does not show the anonymize-coordinates option in the metadata step for an AI Dataset', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
+    await chooseProduct(/ai dataset/i)
     await passYoloFolderSteps()
     await answerNewDataset()
 
@@ -484,7 +531,7 @@ describe('WizardPage coordinate anonymization', () => {
 
   it('does not show the decimal places field until the checkbox is checked', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -506,7 +553,7 @@ describe('WizardPage coordinate anonymization', () => {
       authors: [{ name: 'Alice', affiliation: '' }],
     })
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -530,7 +577,7 @@ describe('WizardPage coordinate anonymization', () => {
 describe('WizardPage YOLO metadata editor', () => {
   async function reachYoloMetadataStep() {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
+    await chooseProduct(/ai dataset/i)
     await passYoloFolderSteps()
     await answerNewDataset()
     await screen.findByLabelText('Title')
@@ -699,7 +746,7 @@ const PREVIOUS_V3 = {
 describe('WizardPage new dataset vs. new version', () => {
   async function reachMetadataStepYolo() {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /ai dataset/i }))
+    await chooseProduct(/ai dataset/i)
     await passYoloFolderSteps()
   }
 
@@ -940,7 +987,7 @@ describe('WizardPage new dataset vs. new version', () => {
 describe('WizardPage contributors editor', () => {
   it('always shows the fixed publisher and rights holder rows, even with no other contributors', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -969,7 +1016,7 @@ describe('WizardPage contributors editor', () => {
       authors: [{ name: 'Alice', affiliation: '' }],
     })
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -991,7 +1038,7 @@ describe('WizardPage contributors editor', () => {
       authors: [{ name: 'Alice', affiliation: '' }],
     })
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1032,7 +1079,7 @@ describe('WizardPage contributors editor', () => {
       authors: [{ name: 'Alice', affiliation: '' }],
     })
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1072,7 +1119,7 @@ describe('WizardPage contributors editor', () => {
       authors: [{ name: 'Alice', affiliation: '' }],
     })
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1106,7 +1153,7 @@ describe('WizardPage contributors editor', () => {
       contributors: [{ title: 'Some Other University', role: 'rightsHolder' }],
     })
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1125,7 +1172,7 @@ describe('WizardPage contributors editor', () => {
 describe('WizardPage Camtrap DP archive flow', () => {
   it('fetches the archive and shows the resulting path', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /public url/i }))
     await userEvent.type(
       screen.getByLabelText(/camtrap dp archive url/i),
@@ -1155,7 +1202,7 @@ describe('WizardPage Camtrap DP archive flow', () => {
 
   it('shows an error and stays on the source step if the fetch fails', async () => {
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /public url/i }))
     await userEvent.type(screen.getByLabelText(/camtrap dp archive url/i), 'https://example.org/datapackage.json')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1187,7 +1234,7 @@ describe('WizardPage Camtrap DP archive flow', () => {
     })
 
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /public url/i }))
     await userEvent.type(screen.getByLabelText(/camtrap dp archive url/i), fetchedUrl)
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1225,7 +1272,7 @@ async function reachPublishStepSoftware() {
     status: 'done', path: '/home/user/Documents/wildintel-publisher/software/repo', error: null,
   })
 
-  await userEvent.click(screen.getByRole('button', { name: /software application/i }))
+  await chooseProduct(/software application/i)
   await userEvent.click(screen.getByRole('button', { name: /git repository/i }))
   await userEvent.type(screen.getByLabelText(/git repository url/i), 'https://github.com/user/repo.git')
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1253,7 +1300,7 @@ describe('WizardPage metadata errors', () => {
     })
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /software application/i }))
+    await chooseProduct(/software application/i)
     await userEvent.click(screen.getByRole('button', { name: /git repository/i }))
     await userEvent.type(screen.getByLabelText(/git repository url/i), 'https://github.com/user/repo.git')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1278,7 +1325,7 @@ describe('WizardPage metadata errors', () => {
     })
     render(<WizardPage />)
 
-    await userEvent.click(screen.getByRole('button', { name: /software application/i }))
+    await chooseProduct(/software application/i)
     await userEvent.click(screen.getByRole('button', { name: /git repository/i }))
     await userEvent.type(screen.getByLabelText(/git repository url/i), 'https://github.com/user/repo.git')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
@@ -1806,7 +1853,7 @@ describe('WizardPage publish order', () => {
     })
 
     render(<WizardPage />)
-    await userEvent.click(screen.getByRole('button', { name: /camtrap dp/i }))
+    await chooseProduct(/camtrap dp/i)
     await userEvent.click(screen.getByRole('button', { name: /local directory/i }))
     await userEvent.type(screen.getByLabelText('Directory'), '/data/camtrapdp')
     await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled())
