@@ -13,8 +13,11 @@
     "screenshots": "node scripts/generate-screenshots.mjs"
   },
   "dependencies": {
+    "i18next": "^26.7.2",
+    "i18next-browser-languagedetector": "^8.3.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-i18next": "^17.1.13"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
